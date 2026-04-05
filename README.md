@@ -38,6 +38,24 @@ See [GitHub Discussions](https://github.com/scottchronicity/orpheus/discussions)
 
 ---
 
+## Engineering Highlights
+
+A few pieces of the codebase worth reading if you want to understand the platform's design sensibility:
+
+### `PreRollRingBuffer[T]` — [platform/orpheus-common/src/orpheus_common/utils/buffer.py](platform/orpheus-common/src/orpheus_common/utils/buffer.py)
+
+A type-generic ring buffer parameterized by `max_seconds` and `items_per_second` rather than raw capacity. The same class serves both the audio pipeline (byte chunks) and the video pipeline (frames) without duplication. Its `get_snapshot(exclude_last=True)` method solves the off-by-one problem inherent to triggered pre-roll: when a detection fires, you want the buffer contents *before* the triggering frame — not including it. That parameter carries the full intent of the design.
+
+### `ClusterManager` — [agents/orpheus-agent-event-correlator/src/orpheus_agent_event_correlator/cluster_manager.py](agents/orpheus-agent-event-correlator/src/orpheus_agent_event_correlator/cluster_manager.py)
+
+The temporal fusion engine that groups raw detections into entity-level events. Each species gets a per-cluster sliding-window timer: every new observation cancels the existing timer and schedules a fresh one. When the window expires without new observations, it emits a single `EntityEvent` that aggregates all evidence — confidence scores, sensor IDs, clip paths — into one record. The key insight is using `call_soon_threadsafe()` to keep all timer manipulation on the asyncio event loop thread, even though MQTT callbacks arrive from a different thread. Most implementations reach for a background sweep task; this one is cleaner and self-contained.
+
+### `ChannelProcessor` — [agents/orpheus-agent-audio-motion/src/orpheus_agent_audio_motion/channel_processor.py](agents/orpheus-agent-audio-motion/src/orpheus_agent_audio_motion/channel_processor.py)
+
+The per-microphone detection pipeline that composes the two pieces above. It appends each incoming frame to the pre-roll buffer *before* running the motion detector, guaranteeing the triggering frame is always captured regardless of detector timing. When motion fires, it prepends the buffered pre-roll to the new clip — giving downstream classifiers the full context window they need. The detector and the buffer are completely decoupled; the processor is the thin, explicit composition layer between them.
+
+---
+
 ## Roadmap & What We're Building
 
 Our governing philosophy is laid out in the [Open Source Roadmap](docs/OPENS_SOURCE_ROADMAP_v1.md) — start there if you want to understand *why* we make the choices we make.
@@ -263,7 +281,12 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-* Third-party audio samples used for testing and calibration are credited in [artifacts/audio-samples/README.md](artifacts/audio-samples/README.md).
+Orpheus is made possible by the incredible work of the bioacoustics and machine learning research communities:
+
+* **BirdNET:** All bird species classification is powered by the [BirdNET-Analyzer](https://github.com/kahst/BirdNET-Analyzer) by the Cornell Lab of Ornithology and Chemnitz University of Technology.
+* **AVES:** Our crow vocalization embedding pipeline utilizes the [AVES (A Bioacoustic Transformer)](https://github.com/earthspecies/library) foundation model.
+* **NVIDIA:** Deep gratitude to the Jetson team for the hardware and JetPack SDK that makes 24/7 on-device inference possible.
+* **Community:** Third-party audio samples used for testing and calibration are credited in [artifacts/audio-samples/README.md](artifacts/audio-samples/README.md).
 
 ---
 
