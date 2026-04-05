@@ -1,5 +1,5 @@
 #!/bin/bash
-# Condense the orpheus-agent-audio-motionagent into a single file for LLM ingestion
+# Condense the orpheus-agent-audio-motion agent into a single file for LLM ingestion
 
 set -euo pipefail
 
