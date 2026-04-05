@@ -109,10 +109,10 @@ make test
 make coverage
 
 # Lint code
-make lint
+make lint          # ruff
 
 # Format code
-make format
+make format        # ruff
 ```
 
 ## MQTT Topics
