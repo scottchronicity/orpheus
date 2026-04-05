@@ -1,0 +1,7 @@
+# monorepo path dependency — cannot be expressed in pyproject.toml
+-e ../../platform/orpheus-common
+
+# agent + dev extras (torch, fairseq, etc. declared in pyproject.toml)
+# Note: pip is pinned to 24.0 by the Makefile before this file is processed,
+# because fairseq has issues with pip 24.1+
+-e .[dev]

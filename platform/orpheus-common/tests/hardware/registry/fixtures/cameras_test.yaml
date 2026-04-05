@@ -1,0 +1,14 @@
+cameras:
+  auth:
+    username: admin
+    password: testpass123
+  north:
+    type: amcrest
+    host: 192.168.1.100
+    model: IP5M-B1186EW-AI-V3
+    enabled: true
+  south:
+    type: amcrest
+    host: 192.168.1.101
+    model: IP5M-B1186EW-AI-V3
+    enabled: false

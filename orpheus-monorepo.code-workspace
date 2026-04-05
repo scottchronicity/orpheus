@@ -1,0 +1,69 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "orpheus-monorepo",
+    },
+    {
+      "path": "services/orpheus-bluetooth-autoconnect",
+      "name": "orpheus-bluetooth-autoconnect",
+    },
+    {
+      "path": "services/orpheus-dashboard",
+      "name": "orpheus-dashboard",
+    },
+    {
+      "path": "services/orpheus-gps",
+      "name": "orpheus-gps",
+    },
+    {
+      "path": "services/orpheus_ui/backend",
+      "name": "orpheus-ui-backend",
+    },
+    {
+      "path": "services/orpheus_ui/frontend",
+      "name": "orpheus-ui-frontend",
+    },
+    {
+      "path": "services/orpheus-mqtt",
+      "name": "orpheus-mqtt",
+    },
+    {
+      "path": "platform/orpheus-common",
+      "name": "orpheus-common",
+    },
+    {
+      "path": "agents/orpheus-agent-audio-motion",
+      "name": "orpheus-agent-audio-motion",
+    },
+    {
+      "path": "agents/orpheus-agent-audio-playback",
+      "name": "orpheus-agent-audio-playback",
+    },
+    {
+      "path": "agents/orpheus-agent-bird-detection",
+      "name": "orpheus-agent-bird-detection",
+    },
+    {
+      "path": "agents/orpheus-agent-crow-detection",
+      "name": "orpheus-agent-crow-detection",
+    },
+    {
+      "path": "agents/orpheus-agent-video-motion",
+      "name": "orpheus-agent-video-motion",
+    },
+    {
+      "path": "agents/orpheus-agent-video-snapshotter",
+      "name": "orpheus-agent-video-snapshotter",
+    },
+    {
+      "path": "agents/orpheus-agent-video-timelapser",
+      "name": "orpheus-agent-video-timelapser",
+    },
+    {
+      "path": "agents/orpheus-agent-event-correlator",
+      "name": "orpheus-agent-event-correlator",
+    },
+  ],
+  "settings": {},
+}

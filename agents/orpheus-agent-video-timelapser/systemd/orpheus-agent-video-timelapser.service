@@ -1,0 +1,21 @@
+[Unit]
+Description=Orpheus Video Timelapser Agent
+Documentation=https://github.com/scottchronicity/orpheus
+After=network.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-video-timelapser
+ExecStart=/opt/orpheus/agents/orpheus-agent-video-timelapser/venv/bin/python -m orpheus_agent_video_timelapser.main
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-video-timelapser/src"
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-agent-video-timelapser
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+.env
+*.jpg
+*.jpeg
+__pycache__/
+*.pyc
+venv/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+orpheus-dashboard-condensed-for-llm.out
+

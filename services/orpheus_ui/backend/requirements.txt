@@ -1,0 +1,33 @@
+# Orpheus UI - Dependencies
+# Python 3.9+ compatible
+#
+# Version constraints are aligned with requirements-constraints.txt in repo root.
+# When updating versions, update both files to maintain consistency.
+
+# Local dependency (path relative to backend/ directory)
+-e ../../../platform/orpheus-common
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0,<3.0.0
+python-multipart>=0.0.12
+httpx>=0.28.0
+requests>=2.32.0
+psutil>=7.1.0
+Pillow>=11.0.0
+structlog>=23.2.0
+
+# Authentication
+fastapi-users[sqlalchemy]>=13.0.0
+aiosqlite>=0.20.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Development/Testing dependencies
+ruff>=0.8.0
+pytest>=8.3.0
+pytest-cov>=6.0.0
+pytest-asyncio>=0.23.0
+debugpy>=1.8.0

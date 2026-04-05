@@ -1,0 +1,79 @@
+[Unit]
+Description=Orpheus MQTT Message Broker
+Documentation=https://github.com/scottchronicity/orpheus
+After=network.target time-sync.target
+Wants=network.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# Run as mosquitto user for security (created by mosquitto package)
+User=mosquitto
+Group=mosquitto
+
+# Execute mosquitto with Orpheus configuration
+# Config is in /etc/orpheus/mqtt/ subdirectory (shared parent directory)
+ExecStart=/usr/sbin/mosquitto -c /etc/orpheus/mqtt/mosquitto.conf
+
+# Restart policy: always restart on failure
+Restart=always
+RestartSec=5s
+
+# Security hardening
+# Limit capabilities to minimum required
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Filesystem protections
+# Make root filesystem read-only
+ProtectSystem=strict
+
+# Allow writes to persistence directory
+ReadWritePaths=/var/lib/orpheus/mqtt/
+
+# Protect home directories
+ProtectHome=true
+
+# Protect kernel tunables
+ProtectKernelTunables=true
+
+# Protect kernel modules
+ProtectKernelModules=true
+
+# Protect control groups
+ProtectControlGroups=true
+
+# Network isolation (allow only localhost)
+# Since we bind to 127.0.0.1, we don't need external network
+# However, local agents need to connect, so we allow network
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Process restrictions
+# Prevent access to other processes
+PrivateTmp=true
+
+# Limit system calls to safe subset
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Resource limits
+# Limit memory usage to 256MB (generous for MQTT broker)
+MemoryMax=256M
+
+# Limit CPU usage to 50% (prevents runaway processes)
+CPUQuota=50%
+
+# Limit number of tasks (processes/threads)
+TasksMax=64
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-mqtt
+
+[Install]
+WantedBy=multi-user.target

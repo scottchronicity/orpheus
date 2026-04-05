@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-dashboard"
+version = "0.1.0"
+description = "Wildlife Monitoring Status Interface"
+readme = "README.md"
+requires-python = ">=3.9, <3.10"
+dependencies = [
+    # Dependencies are managed in requirements.txt
+    # This is intentionally minimal to avoid duplication
+]
+
+[tool.setuptools]
+packages = ["orpheus_dashboard"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+orpheus_dashboard = ["static/*", "static/**/*"]

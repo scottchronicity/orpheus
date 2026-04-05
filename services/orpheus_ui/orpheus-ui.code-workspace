@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "path": ".",
+    },
+    {
+      "path": "backend",
+      "name": "orpheus-ui-backend",
+    },
+  ],
+  "settings": {},
+}

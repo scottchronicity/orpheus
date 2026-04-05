@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-agent-bird-detection"
+version = "0.1.0"
+description = "Bird species detection agent using BirdNET ONNX model"
+authors = [{name = "Orpheus Project"}]
+requires-python = ">=3.9, <3.10"
+dependencies = [
+    "orpheus-common",
+    "onnxruntime>=1.19.0",
+    "huggingface-hub>=0.20.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0,<2.0.0",
+    "tensorflow>=2.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "YTT", "S", "B", "A", "C4", "DTZ", "T10", "ISC", "ICN", "PIE", "PT", "RET", "SIM", "ARG", "PTH", "PL", "TRY", "RUF"]
+ignore = ["S101", "TRY003", "TRY300", "PLR0913", "PLR2004", "UP006", "UP035", "UP045", "DTZ001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"

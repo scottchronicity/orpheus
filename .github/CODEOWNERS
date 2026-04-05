@@ -1,0 +1,42 @@
+# CODEOWNERS - Automatically request reviews from the right people
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Each line is a file pattern followed by one or more owners.
+# Order matters — later patterns take precedence over earlier ones.
+# The last matching pattern wins.
+#
+# This file can live in /, /docs/, or /.github/ — GitHub checks all three.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Default: everything requires review from the project owner
+# ──────────────────────────────────────────────────────────────────────────────
+*                                       @scottchronicity
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Examples: uncomment and adjust as the team grows
+# ──────────────────────────────────────────────────────────────────────────────
+
+# --- By component area ---
+# /platform/orpheus-common/             @scottchronicity @platform-team
+# /agents/                              @scottchronicity @agent-devs
+# /services/orpheus_ui/                 @scottchronicity @frontend-team
+
+# --- By file type ---
+# *.ts *.tsx                            @frontend-team
+# *.py                                  @backend-team
+# Dockerfile docker-compose.*           @devops-team
+
+# --- Infrastructure / CI (restrict to maintainers) ---
+# /.github/                             @scottchronicity
+# /make/                                @scottchronicity
+# /scripts/                             @scottchronicity
+# /config/                              @scottchronicity
+
+# --- Documentation (lower bar — broader group can review) ---
+# /docs/                                @scottchronicity @docs-team
+# *.md                                  @scottchronicity @docs-team
+
+# --- Security-sensitive files (require explicit owner approval) ---
+# /config/orpheus.example.yaml          @scottchronicity
+# /.github/workflows/                   @scottchronicity
+# CODEOWNERS                            @scottchronicity

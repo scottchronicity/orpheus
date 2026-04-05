@@ -1,0 +1,47 @@
+[Unit]
+Description=Orpheus Bluetooth Auto-Connect Service
+Documentation=https://github.com/scottchronicity/orpheus
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+MemoryMax=128M
+MemoryHigh=100M
+# Run as root (required for bluetoothctl operations)
+User=root
+Group=root
+
+
+# Run as root (required for bluetoothctl operations)
+User=root
+Group=root
+
+# Execute the connection script
+ExecStart=/usr/local/bin/orpheus-bluetooth-connect
+
+# Restart policy: always restart on failure with exponential backoff
+Restart=always
+RestartSec=5s
+
+# Increase restart delay on subsequent failures (exponential backoff)
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-bluetooth
+
+# Resource limits
+# Limit memory usage to 64MB (generous for a simple connection script)
+MemoryMax=64M
+
+# Limit CPU usage to 10% (prevents runaway processes)
+CPUQuota=10%
+
+# Limit number of tasks (processes/threads)
+TasksMax=10
+
+[Install]
+WantedBy=multi-user.target

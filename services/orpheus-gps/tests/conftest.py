@@ -1,0 +1,48 @@
+"""Pytest configuration and fixtures for GPS service tests."""
+
+import os
+
+import pytest
+from orpheus_common.config import OrpheusConfig
+
+
+@pytest.fixture(autouse=True)
+def reset_orpheus_config_singleton():
+    """
+    Reset OrpheusConfig singleton and clean up environment variables between tests.
+
+    This prevents test pollution when previous tests set environment variables
+    or load dotenv files that persist across test runs.
+    """
+    # Store original values
+    original_instance = OrpheusConfig._instance
+    original_dotenv = OrpheusConfig._DOTENV_LOADED
+
+    # Clear singleton before test
+    OrpheusConfig._instance = None
+    OrpheusConfig._DOTENV_LOADED = False
+
+    # Clean up any pollution from dotenv files
+    env_vars_to_clean = [
+        "ORPHEUS_MQTT__BROKER_PORT",
+        "ORPHEUS_STORAGE__BASE_PATH",
+        "ORPHEUS_MQTT__BROKER_HOST",
+        "ORPHEUS_GPS_DEVICE",
+        "ORPHEUS_STATIC_LAT",
+        "ORPHEUS_STATIC_LON",
+        "ORPHEUS_STATIC_ELEVATION",
+    ]
+    original_env = {}
+    for var in env_vars_to_clean:
+        if var in os.environ:
+            original_env[var] = os.environ.pop(var)
+
+    yield
+
+    # Restore original state after test
+    OrpheusConfig._instance = original_instance
+    OrpheusConfig._DOTENV_LOADED = original_dotenv
+
+    # Restore environment variables
+    for var, value in original_env.items():
+        os.environ[var] = value

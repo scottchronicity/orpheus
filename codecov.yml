@@ -1,0 +1,62 @@
+# Codecov configuration for Orpheus monorepo
+# NOTE: CODECOV_TOKEN is only required for private repositories.
+# For public repositories, Codecov works without a token.
+
+codecov:
+  require_ci_to_pass: yes
+
+# Define coverage flags for each component
+flags:
+  orpheus-common:
+    paths:
+      - platform/orpheus-common/
+    # Match pytest threshold from CI (78%)
+    target: 78%
+    
+  orpheus-dashboard:
+    paths:
+      - services/orpheus-dashboard/
+    # Match pytest threshold from CI (80%)
+    target: 80%
+    
+  orpheus-agent-audio-motion:
+    paths:
+      - agents/orpheus-agent-audio-motion/
+    # Match pytest threshold from CI (72%)
+    target: 72%
+
+# Project-level coverage checks
+coverage:
+  status:
+    project:
+      default:
+        # Overall coverage is informational only
+        informational: true
+        target: auto
+      
+      # Per-component project status checks
+      orpheus-common:
+        flags:
+          - orpheus-common
+        target: 78%
+        
+      orpheus-dashboard:
+        flags:
+          - orpheus-dashboard
+        target: 80%
+        
+      orpheus-agent-audio-motion:
+        flags:
+          - orpheus-agent-audio-motion
+        target: 72%
+    
+    # Patch coverage is informational only
+    patch:
+      default:
+        informational: true
+
+# Disable PR comments (informational only)
+comment:
+  require_changes: false
+  require_base: false
+  require_head: false

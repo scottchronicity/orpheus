@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/scottchronicity/orpheus/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions
+  - name: 📖 Documentation
+    url: https://github.com/scottchronicity/orpheus/blob/main/docs/
+    about: Check the documentation for answers
+  - name: 🏗️ Architecture
+    url: https://github.com/scottchronicity/orpheus/blob/main/ARCHITECTURE.md
+    about: Learn about the system architecture

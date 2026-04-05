@@ -1,0 +1,69 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Python dependencies for orpheus-common
+  - package-ecosystem: "pip"
+    directory: "/platform/orpheus-common"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(common)"
+
+  # Python dependencies for orpheus-dashboard
+  - package-ecosystem: "pip"
+    directory: "/services/orpheus-dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(dashboard)"
+
+  # Python dependencies for orpheus-agent-audio-motion
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-audio-motion"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(audio-motion)"
+
+  # Python dependencies for orpheus-mqtt
+  - package-ecosystem: "pip"
+    directory: "/services/orpheus-mqtt"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(mqtt)"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
