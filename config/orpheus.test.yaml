@@ -1,0 +1,63 @@
+# Test/CI Orpheus Configuration
+# ------------------------------------
+# Minimal config for automated tests and local development.
+# Point ORPHEUS_CONFIG_PATH to this file to limit workload:
+#   export ORPHEUS_CONFIG_PATH="config/orpheus.test.yaml"
+
+mqtt:
+  broker_host: "localhost"
+  broker_port: 1883
+  username: null
+  password: null
+  keepalive: 30
+  topics:
+    audio_chunk: "orpheus/audio/chunk"
+    detection: "orpheus/detection"
+
+audio:
+  sample_rate: 16000
+  chunk_size: 1024
+  format: "pcm_s16le"
+  channels:
+    - id: 1
+      name: "Loopback"
+      enabled: true
+      device: "file:///tmp/orpheus-dev-silence.wav"
+
+cameras:
+  auth:
+    username: "orpheus"
+    password: "orpheus-station-2025"
+
+  dev-cam-1:
+    type: "amcrest"
+    host: "localhost"
+    model: "simulated"
+    enabled: true
+
+  dev-cam-2:
+    type: "amcrest"
+    host: "localhost"
+    model: "simulated"
+    enabled: false
+
+storage:
+  base_path: "/path/to/data/orpheus"
+  format:
+    audio: "flac"
+    video: "mp4"
+    detections: "sqlite"
+  retention:
+    raw_audio_days: 7
+    raw_video_days: 7
+    detections_days: 30
+
+video_snapshotter:
+  retention_days: 547  # ~1.5 years; old snapshots are purged automatically
+
+hardware:
+  platform: "dev"
+
+logging:
+  level: "DEBUG"
+  format: "%(levelname)s %(name)s: %(message)s"

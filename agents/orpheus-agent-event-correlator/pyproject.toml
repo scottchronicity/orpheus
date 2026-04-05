@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-agent-event-correlator"
+version = "0.1.0"
+description = "Event correlator agent for multi-sensor fusion of detection events"
+authors = [{name = "Orpheus Project"}]
+requires-python = ">=3.9, <3.10"
+dependencies = [
+    "orpheus-common",
+    "paho-mqtt>=1.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "YTT", "S", "B", "A", "C4", "DTZ", "T10", "ISC", "ICN", "PIE", "PT", "RET", "SIM", "ARG", "PTH", "PL", "TRY", "RUF"]
+ignore = ["S101", "TRY003", "PLR0913", "PLR2004"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"

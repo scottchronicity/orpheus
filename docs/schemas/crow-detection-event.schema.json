@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://orpheus.scottchronicity.net/schemas/crow-detection-event.schema.json",
+  "title": "Crow Detection Event",
+  "description": "Event published by orpheus-agent-crow-detection when a crow vocalization is detected",
+  "type": "object",
+  "required": [
+    "event_id",
+    "timestamp",
+    "channel_id",
+    "detection",
+    "audio_clip_path"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique identifier for this detection event",
+      "pattern": "^crow_det_[0-9]{8}T[0-9]{6}_ch[1-4]_[a-z0-9]+$",
+      "examples": ["crow_det_20251205T143023_ch1_d4e5f6"]
+    },
+    "source_event_id": {
+      "type": "string",
+      "description": "Event ID of the triggering audio motion event",
+      "examples": ["audio_motion_20251205T143020_ch1_abc123"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when detection occurred (UTC)",
+      "examples": ["2025-12-05T14:30:23.456789Z"]
+    },
+    "channel_id": {
+      "type": "string",
+      "enum": ["1", "2", "3", "4"],
+      "description": "Audio channel ID (1-4)"
+    },
+    "detection": {
+      "type": "object",
+      "required": ["species", "call_type", "quality_score"],
+      "properties": {
+        "species": {
+          "type": "string",
+          "enum": [
+            "american_crow",
+            "fish_crow",
+            "northwestern_crow",
+            "other"
+          ],
+          "description": "Detected crow species"
+        },
+        "call_type": {
+          "type": "string",
+          "enum": ["caw", "rattle", "coo", "other"],
+          "description": "Type of crow vocalization"
+        },
+        "quality_score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Detection quality score (0.0-1.0)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "audio_clip_path": {
+      "type": "string",
+      "description": "Path to audio clip file",
+      "examples": ["/data/orpheus/audio/crow_detection/1/20251205T143023.340286Z.flac"]
+    },
+    "inference_time_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Time taken for model inference in milliseconds"
+    }
+  },
+  "additionalProperties": false
+}

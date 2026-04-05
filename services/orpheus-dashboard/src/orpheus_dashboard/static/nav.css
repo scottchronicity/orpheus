@@ -1,0 +1,262 @@
+/* Navigation Bar Styles */
+.top-nav {
+  background-color: var(--bg-panel);
+  border-bottom: 2px solid var(--accent-primary);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.nav-brand {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.nav-toggle {
+  display: none;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0.5rem;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-toggle span {
+  display: block;
+  width: 25px;
+  height: 3px;
+  background-color: var(--accent-primary);
+  transition: all 0.3s ease;
+}
+
+.nav-menu {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 2rem;
+}
+
+.nav-menu li {
+  margin: 0;
+}
+
+.nav-menu a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.nav-menu a:hover {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.nav-menu a.active {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+  .nav-toggle {
+    display: flex;
+  }
+
+  .nav-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: var(--bg-panel);
+    flex-direction: column;
+    gap: 0;
+    padding: 1rem 0;
+    border-bottom: 2px solid var(--accent-primary);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+
+  .nav-menu.active {
+    max-height: 300px;
+  }
+
+  .nav-menu li {
+    text-align: center;
+    padding: 0.5rem 1.5rem;
+    background-color: var(--bg-panel);
+  }
+
+  .nav-menu a {
+    display: block;
+    width: 100%;
+    background-color: var(--bg-secondary);
+    padding: 1rem;
+    margin: 0.25rem 0;
+  }
+}
+
+/* Hamburger Animation */
+.nav-toggle.active span:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+
+.nav-toggle.active span:nth-child(2) {
+  opacity: 0;
+}
+
+.nav-toggle.active span:nth-child(3) {
+  transform: rotate(-45deg) translate(7px, -6px);
+}
+
+/* Chart Container Styles */
+.chart-container {
+  min-height: 400px;
+  width: 100%;
+  position: relative;
+}
+
+.chart-description {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+}
+
+.loading-spinner {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+}
+
+/* Crow Summary Cards */
+.crow-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.summary-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.card-value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--accent-primary);
+  margin-bottom: 0.5rem;
+}
+
+.card-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Mobile responsiveness for charts */
+@media (max-width: 768px) {
+  .chart-container {
+    min-height: 300px;
+  }
+
+  .crow-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  header h1 {
+    font-size: 1.5rem;
+  }
+
+  header .subtitle {
+    font-size: 0.9rem;
+  }
+
+  .date-controls {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .date-controls label {
+    display: none;
+  }
+}
+
+/* Date Range Controls */
+.date-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.date-controls label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.date-controls input[type="date"] {
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+}
+
+.date-controls input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 5px var(--accent-primary);
+}
+
+.btn-primary,
+.btn-secondary {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  opacity: 0.8;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+}

@@ -1,0 +1,394 @@
+# Orpheus Observe Stack Configuration
+# =========================================
+# Canonical configuration for the Orpheus Observe stack.
+# Used on Jetson in production; macOS overrides go in config/.env.orpheus.
+# Copy to /etc/orpheus/orpheus.yaml (Jetson) or use as-is via ORPHEUS_CONFIG_PATH (dev).
+# Override any value with environment variables: ORPHEUS_<SECTION>__<KEY>=value
+
+site:
+  name: "Orpheus Station"
+  lat: 42.970151
+  lon: -85.660179
+  elevation: 0.0
+
+mqtt:
+  broker_host: "localhost"  # Override: ORPHEUS_MQTT__BROKER_HOST
+  broker_port: 1883
+  username: null  # No auth needed for local mosquitto (allow_anonymous true)
+  password: null
+  keepalive: 60
+  topics:
+    audio_chunk: "orpheus/audio/chunk"
+    audio_analysis: "orpheus/audio/analysis"
+    audio_motion_events: "orpheus/audio/motion/events"
+    audio_motion_status: "orpheus/audio/motion/status"
+    video_frame: "orpheus/video/frame"
+    video_analysis: "orpheus/video/analysis"
+    video_motion_events: "orpheus/video/motion/events"
+    video_motion_status: "orpheus/video/motion/status"
+    detection: "orpheus/detection"
+    system_status: "orpheus/system/status"
+
+audio:
+  sample_rate: 48000
+  chunk_size: 2048
+  format: "pcm_s32le"
+  buffer_duration_ms: 21  # Audio buffer size in milliseconds (~1024 samples @ 48kHz, matches hardware buffer)
+  playback_command: "ffplay"  # Audio playback command (aplay, ffplay, paplay, afplay)
+  channels:
+    # Jetson Orin NX: Behringer UMC404HD inputs exposed via ALSA. Each logical channel
+    # maps to one hardware input via color-coded audio cables.
+    #------------------------------
+    # BASELINE CONFIGURATION - All channels identical for testing
+    # Once we verify all 4 channels work correctly, we can differentiate them
+    
+    # Orange Cable (Port 1)
+    - id: 1
+      name: "Orange Cable (Port 1)"
+      enabled: true
+      device: "alsa://orpheus_umc?channel=1"
+      detection:
+        algorithm: "adaptive_threshold"
+        threshold_db: -54.0
+        margin_db: 10.0
+        release_threshold_db: -59.0
+        holdoff_seconds: 2.0
+        min_duration_seconds: 0.3
+        max_duration_seconds: 30.0
+        prebuffer_seconds: 0.5
+        window_seconds: 30.0
+        update_interval_seconds: 5.0
+
+    # Yellow Cable (Port 2)
+    - id: 2
+      name: "Yellow Cable (Port 2)"
+      enabled: true
+      device: "alsa://orpheus_umc?channel=2"
+      detection:
+        algorithm: "adaptive_threshold"
+        threshold_db: -54.0
+        margin_db: 10.0
+        release_threshold_db: -59.0
+        holdoff_seconds: 2.0
+        min_duration_seconds: 0.3
+        max_duration_seconds: 30.0
+        prebuffer_seconds: 0.5
+        window_seconds: 30.0
+        update_interval_seconds: 5.0
+
+    # Green Cable (Port 3)
+    - id: 3
+      name: "Green Cable (Port 3)"
+      enabled: true
+      device: "alsa://orpheus_umc?channel=3"
+      detection:
+        algorithm: "adaptive_threshold"
+        threshold_db: -54.0
+        margin_db: 10.0
+        release_threshold_db: -59.0
+        holdoff_seconds: 2.0
+        min_duration_seconds: 0.3
+        max_duration_seconds: 30.0
+        prebuffer_seconds: 0.5
+        window_seconds: 30.0
+        update_interval_seconds: 5.0
+
+    # Blue Cable (Port 4)
+    - id: 4
+      name: "Blue Cable (Port 4)"
+      enabled: true
+      device: "alsa://orpheus_umc?channel=4"
+      detection:
+        algorithm: "adaptive_threshold"
+        threshold_db: -54.0
+        margin_db: 10.0
+        release_threshold_db: -59.0
+        holdoff_seconds: 2.0
+        min_duration_seconds: 0.3
+        max_duration_seconds: 30.0
+        prebuffer_seconds: 0.5
+        window_seconds: 30.0
+        update_interval_seconds: 5.0
+
+  # Audio playback sounds configuration
+  sounds:
+    auto_discover: true
+    # sounds_dir: "/opt/orpheus/sounds"  # Override auto-detection if needed
+
+dashboard:
+  host: "0.0.0.0"
+  port: 8080
+  poll_interval: 5000
+  services:
+    - "orpheus-dashboard"
+    - "orpheus-mqtt"
+    - "orpheus-agent-audio-motion"
+    - "orpheus-agent-audio-playback"
+    - "orpheus-agent-video-motion"
+    - "orpheus-agent-bird-detection"
+    - "orpheus-agent-crow-detection"
+    - "orpheus-bluetooth-autoconnect"
+    - "orpheus-ui"
+    - "orpheus-agent-video-snapshotter"
+    - "orpheus-agent-video-timelapser"
+    - "orpheus-agent-event-correlator"
+
+cameras:
+  auth:
+    username: "orpheus"
+    password: "orpheus-station-2025"
+
+  # Global video motion detection settings (applies to all cameras)
+  motion_detection:
+    fps: 10
+    width: 640
+    height: 480
+    algorithm: "background_subtraction"
+    motion_threshold: 25.0
+    release_threshold: 12.5
+    holdoff_seconds: 2.0
+    min_duration_seconds: 0.5
+    max_duration_seconds: 30.0
+    prebuffer_seconds: 1.0
+
+  orpheus-eye-1:
+    type: "amcrest"
+    host: "orpheus-eye-1"
+    model: "IP5M-B1186EW-AI-V3"
+    enabled: true
+    snapshots:
+      interval: "5m"
+    timelapses:
+      - label: "daily"
+        start_time: "23:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "daily-daytimestart"
+        start_time: "11:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "half-day"
+        start_time: "00:00"
+        lookback_window: "12h"
+        sampling_interval: "15m"
+        retention_days: 300
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "quarter-day"
+        start_time: "00:00"
+        lookback_window: "6h"
+        sampling_interval: "7m"
+        retention_days: 40
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "hourly"
+        start_time: "00:00"
+        lookback_window: "1h"
+        sampling_interval: "5m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "recent"
+        start_time: "00:00"
+        lookback_window: "30m"
+        sampling_interval: "2m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+
+  orpheus-eye-2:
+    type: "amcrest"
+    host: "orpheus-eye-2"
+    model: "IP5M-B1186EW-AI-V3"
+    enabled: true
+    snapshots:
+      interval: "5m"
+    timelapses:
+      - label: "daily"
+        start_time: "23:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "daily-daytimestart"
+        start_time: "11:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "half-day"
+        start_time: "00:00"
+        lookback_window: "12h"
+        sampling_interval: "15m"
+        retention_days: 300
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "quarter-day"
+        start_time: "00:00"
+        lookback_window: "6h"
+        sampling_interval: "7m"
+        retention_days: 40
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "hourly"
+        start_time: "00:00"
+        lookback_window: "1h"
+        sampling_interval: "5m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "recent"
+        start_time: "00:00"
+        lookback_window: "30m"
+        sampling_interval: "2m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+
+  orpheus-eye-3:
+    type: "amcrest"
+    host: "orpheus-eye-3"
+    model: "IP5M-B1186EW-AI-V3"
+    enabled: true
+    snapshots:
+      interval: "5m"
+    timelapses:
+      - label: "daily"
+        start_time: "23:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "daily-daytimestart"
+        start_time: "11:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "half-day"
+        start_time: "00:00"
+        lookback_window: "12h"
+        sampling_interval: "15m"
+        retention_days: 300
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "quarter-day"
+        start_time: "00:00"
+        lookback_window: "6h"
+        sampling_interval: "7m"
+        retention_days: 40
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "hourly"
+        start_time: "00:00"
+        lookback_window: "1h"
+        sampling_interval: "5m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "recent"
+        start_time: "00:00"
+        lookback_window: "30m"
+        sampling_interval: "2m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+
+  orpheus-eye-4:
+    type: "amcrest"
+    host: "orpheus-eye-4"
+    model: "IP5M-B1186EW-AI-V3"
+    enabled: true
+    snapshots:
+      interval: "5m"
+    timelapses:
+      - label: "daily"
+        start_time: "23:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "daily-daytimestart"
+        start_time: "11:00"
+        lookback_window: "24h"
+        sampling_interval: "30m"
+        retention_days: 90
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "half-day"
+        start_time: "00:00"
+        lookback_window: "12h"
+        sampling_interval: "15m"
+        retention_days: 300
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "quarter-day"
+        start_time: "00:00"
+        lookback_window: "6h"
+        sampling_interval: "7m"
+        retention_days: 40
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "hourly"
+        start_time: "00:00"
+        lookback_window: "1h"
+        sampling_interval: "5m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+      - label: "recent"
+        start_time: "00:00"
+        lookback_window: "30m"
+        sampling_interval: "2m"
+        retention_days: 30
+        clip_duration: 1.25
+        timezone: "America/Detroit"
+
+storage:
+  base_path: "/data/orpheus"
+  format:
+    audio: "flac"
+    video: "mp4"
+    detections: "sqlite"
+  retention:
+    raw_audio_days: 30
+    raw_video_days: 30
+    detections_days: 365
+
+detection:
+  min_confidence: 0.8
+  species_of_interest: []
+  audio_model: "birdnet"
+  video_model: "yolo"
+
+bird_detection:
+  model_path: "/data/orpheus/models/birdnet.onnx"
+  confidence_threshold: 0.1
+  location_lat: 42.970151
+  location_lon: -85.660179
+
+correlation:
+  input_topics:
+    - "orpheus/detection/bird/events"
+    - "orpheus/detection/crow/events"
+
+video_snapshotter:
+  retention_days: 547  # ~1.5 years; old snapshots are purged automatically
+
+hardware:
+  platform: "auto"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

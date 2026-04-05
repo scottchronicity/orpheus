@@ -1,0 +1,20 @@
+[Unit]
+Description=Orpheus Bird Detection Agent
+After=network.target time-sync.target orpheus-mqtt.service orpheus-agent-audio-motion.service
+Wants=orpheus-mqtt.service orpheus-agent-audio-motion.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-bird-detection
+Environment="PATH=/opt/orpheus/agents/orpheus-agent-bird-detection/venv/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-bird-detection/src"
+ExecStart=/opt/orpheus/agents/orpheus-agent-bird-detection/venv/bin/python -m orpheus_agent_bird_detection.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

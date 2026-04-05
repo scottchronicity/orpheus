@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-agent-crow-detection"
+version = "0.1.0"
+description = "Crow detection agent using crow-tools classifier models"
+authors = [{name = "Orpheus Project"}]
+requires-python = ">=3.9, <3.10"
+dependencies = [
+    "orpheus-common",
+#    "torch>=2.0.0,<3.0.0",
+    "torch==2.4.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0,<2.0.0",
+    "fairseq @ git+https://github.com/pytorch/fairseq.git@v0.12.2",
+    "resampy>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+orpheus_agent_crow_detection = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "YTT", "S", "B", "A", "C4", "DTZ", "T10", "ISC", "ICN", "PIE", "PT", "RET", "SIM", "ARG", "PTH", "PL", "TRY", "RUF"]
+ignore = ["S101", "TRY003", "PLR0913", "PLR2004", "PT019"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"

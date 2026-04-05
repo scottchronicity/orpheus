@@ -1,0 +1,25 @@
+[Unit]
+Description=Orpheus Dashboard Web Service
+After=network.target time-sync.target
+Documentation=https://github.com/scottchronicity/orpheus
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/dashboard
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/opt/orpheus/dashboard/venv/bin"
+Environment="ORPHEUS_CONFIG_PATH=/etc/orpheus/dashboard/orpheus.yaml"
+Environment="PYTHONPATH=/opt/orpheus/dashboard/src"
+ExecStart=/opt/orpheus/dashboard/venv/bin/uvicorn orpheus_dashboard.main:app --host 0.0.0.0 --port 8080
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-dashboard
+
+[Install]
+WantedBy=multi-user.target

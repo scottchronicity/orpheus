@@ -1,0 +1,844 @@
+name: PR Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Minimum permissions for security
+permissions:
+  contents: read
+  pull-requests: read  # Required for dorny/paths-filter
+
+env:
+  PYTHON_VERSION: '3.9'
+  COV_REPORTS: "--cov-report=term-missing --cov-report=xml"
+  COVERAGE_THRESHOLD_COMMON: '78'
+  COVERAGE_THRESHOLD_DASHBOARD: '80'
+  COVERAGE_THRESHOLD_UI: '70'
+  COVERAGE_THRESHOLD_GPS: '70'
+  COVERAGE_THRESHOLD_AUDIO_MOTION: '72'
+  COVERAGE_THRESHOLD_AUDIO_PLAYBACK: '70'
+  COVERAGE_THRESHOLD_VIDEO_MOTION: '70'
+  COVERAGE_THRESHOLD_VIDEO_SNAPSHOTTER: '70'
+  COVERAGE_THRESHOLD_VIDEO_TIMELAPSER: '70'
+  COVERAGE_THRESHOLD_BIRD_DETECTION: '70'
+  COVERAGE_THRESHOLD_CROW_DETECTION: '70'
+  COVERAGE_THRESHOLD_EVENT_CORRELATOR: '70'
+
+jobs:
+  # Detect which components have changed to optimize test execution
+  changes:
+    name: Detect Changed Paths
+    runs-on: ubuntu-latest
+    outputs:
+      common: ${{ steps.filter.outputs.common }}
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      ui: ${{ steps.filter.outputs.ui }}
+      gps: ${{ steps.filter.outputs.gps }}
+      audio-motion: ${{ steps.filter.outputs.audio-motion }}
+      audio-playback: ${{ steps.filter.outputs.audio-playback }}
+      video-motion: ${{ steps.filter.outputs.video-motion }}
+      video-snapshotter: ${{ steps.filter.outputs.video-snapshotter }}
+      video-timelapser: ${{ steps.filter.outputs.video-timelapser }}
+      bird-detection: ${{ steps.filter.outputs.bird-detection }}
+      crow-detection: ${{ steps.filter.outputs.crow-detection }}
+      event-correlator: ${{ steps.filter.outputs.event-correlator }}
+      makefile-includes: ${{ steps.filter.outputs.makefile-includes }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+      root-config: ${{ steps.filter.outputs.root-config }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Check changed paths
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            common:
+              - 'platform/orpheus-common/**'
+            dashboard:
+              - 'services/orpheus-dashboard/**'
+            ui:
+              - 'services/orpheus_ui/**'
+            gps:
+              - 'services/orpheus-gps/**'
+            audio-motion:
+              - 'agents/orpheus-agent-audio-motion/**'
+            audio-playback:
+              - 'agents/orpheus-agent-audio-playback/**'
+            video-motion:
+              - 'agents/orpheus-agent-video-motion/**'
+            video-snapshotter:
+              - 'agents/orpheus-agent-video-snapshotter/**'
+            video-timelapser:
+              - 'agents/orpheus-agent-video-timelapser/**'
+            bird-detection:
+              - 'agents/orpheus-agent-bird-detection/**'
+            crow-detection:
+              - 'agents/orpheus-agent-crow-detection/**'
+            event-correlator:
+              - 'agents/orpheus-agent-event-correlator/**'
+            makefile-includes:
+              - 'make/**'
+              - 'tests/make/**'
+            workflow:
+              - '.github/workflows/**'
+            root-config:
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+
+  check-dependencies:
+    name: Check Dependency Consistency
+    runs-on: ubuntu-latest
+    needs: changes
+    # Run if any component changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.dashboard == 'true' ||
+      needs.changes.outputs.ui == 'true' ||
+      needs.changes.outputs.gps == 'true' ||
+      needs.changes.outputs.audio-motion == 'true' ||
+      needs.changes.outputs.audio-playback == 'true' ||
+      needs.changes.outputs.video-motion == 'true' ||
+      needs.changes.outputs.video-snapshotter == 'true' ||
+      needs.changes.outputs.video-timelapser == 'true' ||
+      needs.changes.outputs.bird-detection == 'true' ||
+      needs.changes.outputs.crow-detection == 'true' ||
+      needs.changes.outputs.event-correlator == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check dependency versions
+        run: make check-deps
+
+  test-orpheus-common:
+    name: Test orpheus-common
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: make install-common
+
+      - name: Run linting
+        run: make lint-common
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_COMMON }}
+        run: make coverage-common COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: platform/orpheus-common/coverage.xml
+          flags: orpheus-common
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-common
+          path: platform/orpheus-common/coverage.xml
+
+  test-orpheus-dashboard:
+    name: Test orpheus-dashboard
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if dashboard or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.dashboard == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: make install-dashboard
+
+      - name: Run linting (informational)
+        run: make lint-dashboard || echo "::warning::Linting issues found in dashboard"
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_DASHBOARD }}
+        run: make coverage-dashboard COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: services/orpheus-dashboard/coverage.xml
+          flags: orpheus-dashboard
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-dashboard
+          path: services/orpheus-dashboard/coverage.xml
+
+  test-orpheus-ui:
+    name: Test orpheus_ui
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if ui or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.ui == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/orpheus_ui/frontend/package-lock.json
+
+      - name: Install all dependencies
+        working-directory: services/orpheus_ui
+        run: make install
+
+      - name: Run backend linting
+        working-directory: services/orpheus_ui
+        run: make -C backend lint || echo "::warning::Linting issues found in backend"
+
+      - name: Run backend tests with coverage
+        working-directory: services/orpheus_ui
+        run: make -C backend coverage
+
+      - name: Run frontend linting
+        working-directory: services/orpheus_ui
+        run: make -C frontend lint || echo "::warning::Linting issues found in frontend"
+
+      - name: Run frontend unit tests with coverage
+        working-directory: services/orpheus_ui
+        run: make -C frontend test-coverage
+
+      # Test Node.js installation script logic
+      - name: Test install script Node.js logic
+        working-directory: services/orpheus_ui/systemd
+        run: ./test-install.sh
+
+      - name: Build frontend for e2e tests
+        working-directory: services/orpheus_ui
+        run: make build-frontend
+
+      - name: Run e2e tests
+        working-directory: services/orpheus_ui
+        env:
+          ORPHEUS_CONFIG_PATH: ${{ github.workspace }}/config/orpheus.test.yaml
+        run: make test-e2e
+
+      - name: Upload e2e test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: services/orpheus_ui/e2e/test-results/
+
+      - name: Upload backend coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: services/orpheus_ui/backend/coverage.xml
+          flags: orpheus-ui-backend
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload backend coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-ui-backend
+          path: services/orpheus_ui/backend/coverage.xml
+
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: services/orpheus_ui/frontend/coverage/lcov.info
+          flags: orpheus-ui-frontend
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload frontend coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-ui-frontend
+          path: services/orpheus_ui/frontend/coverage/lcov.info
+
+  test-orpheus-gps:
+    name: Test orpheus-gps
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if gps or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.gps == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: make install-gps
+
+      - name: Run linting
+        run: make lint-gps
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_GPS }}
+        run: make coverage-gps COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: services/orpheus-gps/coverage.xml
+          flags: orpheus-gps
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-gps
+          path: services/orpheus-gps/coverage.xml
+
+  test-orpheus-agent-audio-motion:
+    name: Test orpheus-agent-audio-motion
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if audio-motion or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.audio-motion == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libportaudio2 libsndfile1
+
+      - name: Install dependencies
+        run: make install-audio-motion
+
+      - name: Run linting
+        run: make lint-audio-motion
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_AUDIO_MOTION }}
+        run: make coverage-audio-motion COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-audio-motion/coverage.xml
+          flags: orpheus-agent-audio-motion
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-audio-motion
+          path: agents/orpheus-agent-audio-motion/coverage.xml
+
+  test-orpheus-agent-audio-playback:
+    name: Test orpheus-agent-audio-playback
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if audio-playback or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.audio-playback == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libportaudio2 libsndfile1 ffmpeg
+
+      - name: Install dependencies
+        run: make install-audio-playback
+
+      - name: Run linting
+        run: make lint-audio-playback
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_AUDIO_PLAYBACK }}
+        run: make coverage-audio-playback COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-audio-playback/coverage.xml
+          flags: orpheus-agent-audio-playback
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-audio-playback
+          path: agents/orpheus-agent-audio-playback/coverage.xml
+
+  test-orpheus-agent-video-motion:
+    name: Test orpheus-agent-video-motion
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if video-motion or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.video-motion == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for video
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0
+
+      - name: Install dependencies
+        run: make install-video-motion
+
+      - name: Run linting
+        run: make lint-video-motion
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_VIDEO_MOTION }}
+        run: make coverage-video-motion COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-video-motion/coverage.xml
+          flags: orpheus-agent-video-motion
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-video-motion
+          path: agents/orpheus-agent-video-motion/coverage.xml
+
+  test-orpheus-agent-video-snapshotter:
+    name: Test orpheus-agent-video-snapshotter
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if video-snapshotter or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.video-snapshotter == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for video
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0
+
+      - name: Install dependencies
+        run: make install-video-snapshotter
+
+      - name: Run linting
+        run: make lint-video-snapshotter
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_VIDEO_SNAPSHOTTER }}
+        run: make coverage-video-snapshotter COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-video-snapshotter/coverage.xml
+          flags: orpheus-agent-video-snapshotter
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-video-snapshotter
+          path: agents/orpheus-agent-video-snapshotter/coverage.xml
+
+  test-orpheus-agent-video-timelapser:
+    name: Test orpheus-agent-video-timelapser
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if video-timelapser or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.video-timelapser == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for video
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0
+
+      - name: Install dependencies
+        run: make install-video-timelapser
+
+      - name: Run linting
+        run: make lint-video-timelapser
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_VIDEO_TIMELAPSER }}
+        run: make coverage-video-timelapser COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-video-timelapser/coverage.xml
+          flags: orpheus-agent-video-timelapser
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-video-timelapser
+          path: agents/orpheus-agent-video-timelapser/coverage.xml
+
+  test-orpheus-agent-bird-detection:
+    name: Test orpheus-agent-bird-detection
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if bird-detection or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.bird-detection == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsndfile1
+
+      - name: Install dependencies
+        run: make install-bird-detection
+
+      - name: Run linting
+        run: make lint-bird-detection
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_BIRD_DETECTION }}
+        run: make coverage-bird-detection COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-bird-detection/coverage.xml
+          flags: orpheus-agent-bird-detection
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-bird-detection
+          path: agents/orpheus-agent-bird-detection/coverage.xml
+
+  test-orpheus-agent-crow-detection:
+    name: Test orpheus-agent-crow-detection
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if crow-detection or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.crow-detection == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages (torch/CUDA are large)
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: crow-detection-pip-${{ runner.os }}-${{ hashFiles('agents/orpheus-agent-crow-detection/requirements.txt', 'agents/orpheus-agent-crow-detection/pyproject.toml') }}
+          restore-keys: |
+            crow-detection-pip-${{ runner.os }}-
+
+      - name: Install system dependencies for audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsndfile1
+
+      - name: Install dependencies
+        run: make install-crow-detection
+
+      - name: Run linting
+        run: make lint-crow-detection
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_CROW_DETECTION }}
+        run: make coverage-crow-detection COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-crow-detection/coverage.xml
+          flags: orpheus-agent-crow-detection
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-crow-detection
+          path: agents/orpheus-agent-crow-detection/coverage.xml
+
+  test-orpheus-agent-event-correlator:
+    name: Test orpheus-agent-event-correlator
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if event-correlator or common changed, or workflow/root config changed
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.event-correlator == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: make install-event-correlator
+
+      - name: Run linting
+        run: make lint-event-correlator
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_EVENT_CORRELATOR }}
+        run: make coverage-event-correlator COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-event-correlator/coverage.xml
+          flags: orpheus-agent-event-correlator
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-event-correlator
+          path: agents/orpheus-agent-event-correlator/coverage.xml
+
+  test-shared-make:
+    name: Test Shared Make
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.makefile-includes == 'true' ||
+      needs.changes.outputs.workflow == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run shared Makefile tests
+        run: bash tests/make/test_shared_make.sh
+
+  # Gate job - this is the only job that should be "required" in branch protection
+  # All other jobs can be skipped based on path filters, but this job always runs
+  # and checks that no jobs failed (allowing skipped jobs to pass)
+  ci-complete:
+    name: CI Complete
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - check-dependencies
+      - test-orpheus-common
+      - test-orpheus-dashboard
+      - test-orpheus-ui
+      - test-orpheus-gps
+      - test-orpheus-agent-audio-motion
+      - test-orpheus-agent-audio-playback
+      - test-orpheus-agent-video-motion
+      - test-orpheus-agent-video-snapshotter
+      - test-orpheus-agent-video-timelapser
+      - test-orpheus-agent-bird-detection
+      - test-orpheus-agent-crow-detection
+      - test-orpheus-agent-event-correlator
+      - test-shared-make
+    if: always()
+    steps:
+      - name: Check all jobs passed or were skipped
+        run: |
+          # Fail if any job failed (but allow skipped)
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "❌ One or more jobs failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "❌ One or more jobs were cancelled"
+            exit 1
+          fi
+          echo "✅ All jobs passed or were skipped"

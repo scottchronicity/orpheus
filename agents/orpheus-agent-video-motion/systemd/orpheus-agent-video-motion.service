@@ -1,0 +1,21 @@
+[Unit]
+Description=Orpheus Video Motion Detection Agent
+After=network.target time-sync.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-video-motion
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-video-motion/src"
+Environment="ORPHEUS_CONFIG_PATH=/etc/orpheus/orpheus.yaml"
+ExecStart=/opt/orpheus/agents/orpheus-agent-video-motion/venv/bin/python -m orpheus_agent_video_motion.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

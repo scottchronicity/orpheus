@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=40.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-common"
+version = "0.1.0"
+description = "Shared platform library for Orpheus cross-species communication system"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Orpheus Project", email = "scottchronicity@gmail.com"}
+]
+keywords = ["wildlife", "bioacoustics", "cross-species", "communication", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0",
+    "paho-mqtt>=2.1.0",
+    "requests>=2.31.0",
+    "psutil>=5.9.6",
+    "Pillow>=10.0.0",
+    "structlog>=23.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/scottchronicity/orpheus"
+Documentation = "https://github.com/scottchronicity/orpheus/tree/main/platform/orpheus-common"
+Repository = "https://github.com/scottchronicity/orpheus"
+Issues = "https://github.com/scottchronicity/orpheus/issues"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["orpheus_common*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --strict-markers"
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = [
+    "UP006",  # Use List/Dict/Tuple/Deque from typing for Jetpack compatibility
+    "UP035",  # Use List/Dict/Tuple/Deque from typing for Jetpack compatibility
+    "UP007",  # Use Optional[X] instead of X | Y for Python 3.9 compatibility
+    "UP045",  # Use Optional[X] instead of X | None for Python 3.9 compatibility
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

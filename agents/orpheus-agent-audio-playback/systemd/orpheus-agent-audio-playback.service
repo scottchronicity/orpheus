@@ -1,0 +1,25 @@
+[Unit]
+Description=Orpheus Audio Playback Agent
+After=network.target time-sync.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-audio-playback
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/orpheus/agents/orpheus-agent-audio-playback/src
+
+# Dynamically resolve PulseAudio paths using %U (User ID)
+Environment="XDG_RUNTIME_DIR=/run/user/%U"
+Environment="PULSE_SERVER=unix:/run/user/%U/pulse/native"
+
+ExecStart=/opt/orpheus/agents/orpheus-agent-audio-playback/venv/bin/python -m orpheus_agent_audio_playback.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

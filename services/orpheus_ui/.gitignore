@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# Local Node.js installation
+.node/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Ruff
+.ruff_cache/
+
+# SQLite database
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# E2E tests
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
+
+# Built static files (served by backend)
+backend/src/orpheus_ui/static/
+
+# Environment
+.env
+.env.local

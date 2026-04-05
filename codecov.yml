@@ -1,0 +1,156 @@
+# Codecov configuration for Orpheus monorepo
+# NOTE: CODECOV_TOKEN is required. Keep this secret configured even after going open source.
+
+codecov:
+  require_ci_to_pass: yes
+
+# Define coverage flags for each component
+flags:
+  orpheus-common:
+    paths:
+      - platform/orpheus-common/
+    target: 78%
+
+  orpheus-dashboard:
+    paths:
+      - services/orpheus-dashboard/
+    target: 80%
+
+  orpheus-gps:
+    paths:
+      - services/orpheus-gps/
+    target: 70%
+
+  orpheus-ui-backend:
+    paths:
+      - services/orpheus_ui/backend/
+    target: 70%
+
+  orpheus-ui-frontend:
+    paths:
+      - services/orpheus_ui/frontend/
+    target: 70%
+
+  orpheus-agent-audio-motion:
+    paths:
+      - agents/orpheus-agent-audio-motion/
+    target: 72%
+
+  orpheus-agent-audio-playback:
+    paths:
+      - agents/orpheus-agent-audio-playback/
+    target: 70%
+
+  orpheus-agent-bird-detection:
+    paths:
+      - agents/orpheus-agent-bird-detection/
+    target: 70%
+
+  orpheus-agent-crow-detection:
+    paths:
+      - agents/orpheus-agent-crow-detection/
+    target: 70%
+
+  orpheus-agent-event-correlator:
+    paths:
+      - agents/orpheus-agent-event-correlator/
+    target: 70%
+
+  orpheus-agent-video-motion:
+    paths:
+      - agents/orpheus-agent-video-motion/
+    target: 70%
+
+  orpheus-agent-video-snapshotter:
+    paths:
+      - agents/orpheus-agent-video-snapshotter/
+    target: 70%
+
+  orpheus-agent-video-timelapser:
+    paths:
+      - agents/orpheus-agent-video-timelapser/
+    target: 70%
+
+# Project-level coverage checks
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+        target: auto
+
+      orpheus-common:
+        flags:
+          - orpheus-common
+        target: 78%
+
+      orpheus-dashboard:
+        flags:
+          - orpheus-dashboard
+        target: 80%
+
+      orpheus-gps:
+        flags:
+          - orpheus-gps
+        target: 70%
+
+      orpheus-ui-backend:
+        flags:
+          - orpheus-ui-backend
+        target: 70%
+
+      orpheus-ui-frontend:
+        flags:
+          - orpheus-ui-frontend
+        target: 70%
+
+      orpheus-agent-audio-motion:
+        flags:
+          - orpheus-agent-audio-motion
+        target: 72%
+
+      orpheus-agent-audio-playback:
+        flags:
+          - orpheus-agent-audio-playback
+        target: 70%
+
+      orpheus-agent-bird-detection:
+        flags:
+          - orpheus-agent-bird-detection
+        target: 70%
+
+      orpheus-agent-crow-detection:
+        flags:
+          - orpheus-agent-crow-detection
+        target: 70%
+
+      orpheus-agent-event-correlator:
+        flags:
+          - orpheus-agent-event-correlator
+        target: 70%
+
+      orpheus-agent-video-motion:
+        flags:
+          - orpheus-agent-video-motion
+        target: 70%
+
+      orpheus-agent-video-snapshotter:
+        flags:
+          - orpheus-agent-video-snapshotter
+        target: 70%
+
+      orpheus-agent-video-timelapser:
+        flags:
+          - orpheus-agent-video-timelapser
+        target: 70%
+
+    # Patch coverage is informational only
+    patch:
+      default:
+        informational: true
+
+# Disable PR comments (informational only)
+comment:
+  require_changes: false
+  require_base: false
+  require_head: false

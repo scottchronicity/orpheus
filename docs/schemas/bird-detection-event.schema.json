@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://orpheus.scottchronicity.net/schemas/bird-detection-event.schema.json",
+  "title": "Bird Detection Event",
+  "description": "Event published by orpheus-agent-bird-detection with BirdNET species identifications",
+  "type": "object",
+  "required": [
+    "event_id",
+    "timestamp",
+    "channel_id",
+    "detections",
+    "audio_clip_path"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique identifier for this detection event",
+      "pattern": "^bird_det_[0-9]{8}T[0-9]{6}_ch[1-4]_[a-z0-9]+$",
+      "examples": ["bird_det_20251205T143023_ch1_abc123"]
+    },
+    "source_event_id": {
+      "type": "string",
+      "description": "Event ID of the triggering audio motion event"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when detection occurred (UTC)"
+    },
+    "channel_id": {
+      "type": "string",
+      "enum": ["1", "2", "3", "4"],
+      "description": "Audio channel ID (1-4)"
+    },
+    "detections": {
+      "type": "array",
+      "description": "List of detected bird species in the audio clip",
+      "items": {
+        "type": "object",
+        "required": ["species_code", "species_common", "confidence"],
+        "properties": {
+          "species_code": {
+            "type": "string",
+            "description": "BirdNET species code (e.g., 'amecro' for American Crow)",
+            "examples": ["amecro", "norcro", "comrav"]
+          },
+          "species_common": {
+            "type": "string",
+            "description": "Common name of the species",
+            "examples": ["American Crow", "Northern Cardinal", "House Sparrow"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Detection confidence score (0.0-1.0)"
+          },
+          "start_time": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Start time of detection within clip (seconds)"
+          },
+          "end_time": {
+            "type": "number",
+            "minimum": 0,
+            "description": "End time of detection within clip (seconds)"
+          }
+        }
+      }
+    },
+    "audio_clip_path": {
+      "type": "string",
+      "description": "Path to audio clip file"
+    },
+    "inference_time_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Time taken for model inference in milliseconds"
+    }
+  },
+  "additionalProperties": false
+}

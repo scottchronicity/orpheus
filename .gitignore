@@ -1,0 +1,183 @@
+*-condensed-for-llm.out
+orpheus-condensed-for-llm-markdown.md
+orpheus-condensed-for-llm-Makefile.out
+orpheus-condensed-for-llm.all.out
+
+# Python
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.venv-dry-run/
+.env/
+.env.laptop
+config/.env.orpheus
+
+# Local Node.js installation
+.node/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache/
+**/coverage/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Python version pin (uv / pyenv) — repo-root .python-version is tracked;
+# component-level copies (if any) are ignored via venv/ patterns.
+
+# pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+env.bak/
+venv.bak/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# IDEs
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Systemd logs
+/var/log/
+journal/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Runtime data
+*.pid
+*.seed
+*.pid.lock
+pids/
+.dev-stack/
+
+# Data directories (runtime generated)
+data/
+output/
+recordings/
+
+# Model checkpoints (use Git LFS for permanent models)
+checkpoints/
+*.ckpt
+
+# Configuration files with secrets
+config.local.yml
+secrets.yml
+.secrets
+platform/orpheus-common/config/orpheus.yaml
+
+# TLS/SSH keys
+*.pem
+*.key
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Hardware-specific calibration (runtime generated)
+*.calibration
+
+# Ignore local development overrides
+docker-compose.override.yml
+local-config/
+test_venv/

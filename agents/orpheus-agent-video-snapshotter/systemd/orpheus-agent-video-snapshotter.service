@@ -1,0 +1,21 @@
+[Unit]
+Description=Orpheus Video Snapshotter Agent
+Documentation=https://github.com/scottchronicity/orpheus
+After=network.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-video-snapshotter
+ExecStart=/opt/orpheus/agents/orpheus-agent-video-snapshotter/venv/bin/python -m orpheus_agent_video_snapshotter.main
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-video-snapshotter/src"
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-agent-video-snapshotter
+
+[Install]
+WantedBy=multi-user.target
