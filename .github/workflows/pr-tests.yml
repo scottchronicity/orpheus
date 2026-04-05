@@ -156,7 +156,7 @@ jobs:
         run: make coverage-common COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: platform/orpheus-common/coverage.xml
           flags: orpheus-common
@@ -204,7 +204,7 @@ jobs:
         run: make coverage-dashboard COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: services/orpheus-dashboard/coverage.xml
           flags: orpheus-dashboard
@@ -290,7 +290,7 @@ jobs:
           path: services/orpheus_ui/e2e/test-results/
 
       - name: Upload backend coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: services/orpheus_ui/backend/coverage.xml
           flags: orpheus-ui-backend
@@ -304,7 +304,7 @@ jobs:
           path: services/orpheus_ui/backend/coverage.xml
 
       - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: services/orpheus_ui/frontend/coverage/lcov.info
           flags: orpheus-ui-frontend
@@ -352,7 +352,7 @@ jobs:
         run: make coverage-gps COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: services/orpheus-gps/coverage.xml
           flags: orpheus-gps
@@ -405,7 +405,7 @@ jobs:
         run: make coverage-audio-motion COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-audio-motion/coverage.xml
           flags: orpheus-agent-audio-motion
@@ -458,7 +458,7 @@ jobs:
         run: make coverage-audio-playback COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-audio-playback/coverage.xml
           flags: orpheus-agent-audio-playback
@@ -511,7 +511,7 @@ jobs:
         run: make coverage-video-motion COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-video-motion/coverage.xml
           flags: orpheus-agent-video-motion
@@ -564,7 +564,7 @@ jobs:
         run: make coverage-video-snapshotter COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-video-snapshotter/coverage.xml
           flags: orpheus-agent-video-snapshotter
@@ -617,7 +617,7 @@ jobs:
         run: make coverage-video-timelapser COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-video-timelapser/coverage.xml
           flags: orpheus-agent-video-timelapser
@@ -670,7 +670,7 @@ jobs:
         run: make coverage-bird-detection COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-bird-detection/coverage.xml
           flags: orpheus-agent-bird-detection
@@ -731,7 +731,7 @@ jobs:
         run: make coverage-crow-detection COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-crow-detection/coverage.xml
           flags: orpheus-agent-crow-detection
@@ -779,7 +779,7 @@ jobs:
         run: make coverage-event-correlator COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: agents/orpheus-agent-event-correlator/coverage.xml
           flags: orpheus-agent-event-correlator
