@@ -66,6 +66,7 @@ def fetch_existing_issues():
     # Fetch up to 500 issues (paginated by gh)
     result = run_gh_command([
         "issue", "list",
+        "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
         "--state", "all",
         "--limit", "500",
         "--json", "number,title,body"
@@ -103,11 +104,15 @@ def sync_board(json_path):
         color = label["color"]
         desc = label.get("description", "")
         res = run_gh_command(
-            ["label", "create", name, "--color", color, "--description", desc]
+            ["label", "create", name,
+             "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+             "--color", color, "--description", desc]
         )
         if not res:
             run_gh_command(
-                ["label", "edit", name, "--color", color, "--description", desc]
+                ["label", "edit", name,
+                 "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+                 "--color", color, "--description", desc]
             )
             print("  ~ Updated label: {}".format(name))
         else:
@@ -121,7 +126,7 @@ def sync_board(json_path):
         title = ms["title"]
         desc = ms.get("description", "")
         res = run_gh_command([
-            "api", "repos/{owner}/{repo}/milestones",
+            "api", "repos/{}/{}/milestones".format(GITHUB_OWNER, GITHUB_REPO),
             "-f", "title={}".format(title),
             "-f", "description={}".format(desc),
         ])
@@ -157,7 +162,9 @@ def sync_board(json_path):
             continue
 
         # Create new issue
-        args = ["issue", "create", "--title", title, "--body", body]
+        args = ["issue", "create",
+                "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+                "--title", title, "--body", body]
         if labels:
             args.extend(["--label", labels])
         if milestone:
@@ -342,7 +349,9 @@ def sync_board(json_path):
             continue
 
         res = run_gh_command(
-            ["issue", "edit", str(issue_num), "--body", body]
+            ["issue", "edit", str(issue_num),
+             "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+             "--body", body]
         )
         if res is not None:
             push_count += 1
