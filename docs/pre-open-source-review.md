@@ -2,7 +2,7 @@
 
 **Reviewed by:** Senior Engineer (first-time visitor perspective)
 **Date:** April 2026
-**Status:** Pre-public — findings only, no changes made
+**Status:** Pre-public — most findings addressed (see PR history)
 
 This report covers the five areas requested. Each finding includes the file, the issue, and a suggested fix. Items are ordered roughly by impact on a new visitor.
 

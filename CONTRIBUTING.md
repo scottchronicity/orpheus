@@ -53,7 +53,7 @@ We use a **Backlog-as-Code** system. Our roadmap lives in [`docs/backlog.json`](
 
 1. **Want the big picture?** Go to [GitHub Issues](https://github.com/scottchronicity/orpheus/issues) and filter by `type: epic`. You'll see 9 Epics — from building the Cognitive Holarchy to surviving Michigan winters in a sealed enclosure. Each Epic is a tracking issue that links to its sub-tasks.
 2. **Want to dive right in?** Filter by `good first issue`. These are scoped, approachable, and immediately useful. No prior context required.
-3. **Want the philosophy?** Read [`docs/OPENS_SOURCE_ROADMAP_v1.md`](docs/OPENS_SOURCE_ROADMAP_v1.md) — it explains *why* we build what we build, and the tenets we won't compromise on.
+3. **Want the philosophy?** Read [`docs/OPEN_SOURCE_ROADMAP_v1.md`](docs/OPEN_SOURCE_ROADMAP_v1.md) — it explains *why* we build what we build, and the tenets we won't compromise on.
 
 ### Understanding C4 Architecture Labels
 
@@ -107,9 +107,12 @@ Spikes exist because we'd rather have a well-reasoned decision document than a s
 
 ### Quick Setup
 
+> Ensure Python 3.9.5 is active (`python3 --version`). See Prerequisites above or the [macOS Quick Start](docs/MACOS_QUICKSTART.md) for installation via uv or pyenv.
+
 ```bash
 git clone https://github.com/scottchronicity/orpheus.git
 cd orpheus
+git lfs install && git lfs pull   # Fetch ML models (~500MB)
 
 make install        # Install all components
 make test           # Run all tests

@@ -58,9 +58,9 @@ The per-microphone detection pipeline that composes the two pieces above. It app
 
 ## Roadmap & What We're Building
 
-Our governing philosophy is laid out in the [Open Source Roadmap](docs/OPENS_SOURCE_ROADMAP_v1.md) — start there if you want to understand *why* we make the choices we make.
+Our governing philosophy is laid out in the [Open Source Roadmap](docs/OPEN_SOURCE_ROADMAP_v1.md) — start there if you want to understand *why* we make the choices we make.
 
-We manage our roadmap as code. The file [`docs/backlog.json`](docs/backlog.json) is the machine-readable source of truth that generates our GitHub Epics, labels, and sub-issues. All major architectural work is organized into **9 Epics**, each representing a significant capability leap for the platform:
+Our roadmap was seeded from [`docs/backlog.json`](docs/backlog.json), which defines the Epics, labels, and sub-issues tracked in [GitHub Issues](https://github.com/scottchronicity/orpheus/issues). All major architectural work is organized into **9 Epics**, each representing a significant capability leap for the platform:
 
 | # | Epic | What It Unlocks |
 | --- | ------ | ----------------- |
@@ -296,7 +296,7 @@ Orpheus is made possible by the incredible work of the bioacoustics and machine 
 | --- | --- |
 | [CODING_AGENT_CONTEXT.md](CODING_AGENT_CONTEXT.md) | Single source of truth for development standards and patterns |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detailed system architecture |
-| [docs/adr/](docs/adr/) | Architectural Decision Records |
+| [docs/adr/](docs/adr/) | Architectural Decision Records (9 decisions) |
 | [make/](make/) | Shared Makefile includes (deploy, python, lint, service) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 

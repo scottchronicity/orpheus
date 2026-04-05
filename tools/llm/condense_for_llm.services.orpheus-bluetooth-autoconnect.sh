@@ -1,7 +1,12 @@
 #!/bin/bash
-# condenses the orpheus-gps service files into a single output file for LLM ingestion
+# condenses the orpheus-bluetooth-autoconnect project files into a single output file for LLM ingestion
 
-OUTPUT_FILE="orpheus-gps-condensed-for-llm.out"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+cd "$REPO_ROOT/services/orpheus-bluetooth-autoconnect"
+
+OUTPUT_FILE="orpheus-bluetooth-autoconnect-condensed-for-llm.out"
 
 # Initialize/Clear the output file
 > "$OUTPUT_FILE"
@@ -42,7 +47,7 @@ find . -type f -name "*.py" \
     append_file "$file"
 done
 
-# Find Shell scripts (excluding this one and output files)
+# Find Shell scripts (excluding this one)
 find . -type f -name "*.sh" \
     -not -name "condense_for_llm*.sh" \
     -not -path "*/venv/*" \
@@ -54,6 +59,15 @@ done
 
 # Find systemd service files
 find . -type f -name "*.service" \
+    -not -path "*/venv/*" \
+    -not -path "*/.venv/*" \
+    -not -path "*/.*" \
+    -print0 | while IFS= read -r -d '' file; do
+    append_file "$file"
+done
+
+# Find BATS test files (for shell script testing)
+find . -type f -name "*.bats" \
     -not -path "*/venv/*" \
     -not -path "*/.venv/*" \
     -not -path "*/.*" \

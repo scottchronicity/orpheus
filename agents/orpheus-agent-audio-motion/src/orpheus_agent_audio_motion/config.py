@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 from orpheus_common.config import OrpheusConfig
+from orpheus_common.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,18 +86,18 @@ class AppConfig:
 def load_app_config(config_path: Optional[Path] = None) -> AppConfig:
     """Load agent configuration from unified OrpheusConfig."""
 
-    print(f"DEBUG: load_app_config called with config_path={config_path}")
+    logger.debug("load_app_config called", config_path=str(config_path))
 
     # Use the unified config system
     # If a config_path is provided, load it explicitly; otherwise use the singleton
     if config_path:
-        print(f"DEBUG: Loading explicit config from {config_path}")
+        logger.debug("Loading explicit config", config_path=str(config_path))
         orpheus_config = OrpheusConfig.load(config_path=config_path, allow_missing=False)
     else:
-        print("DEBUG: Getting OrpheusConfig singleton")
+        logger.debug("Getting OrpheusConfig singleton")
         orpheus_config = OrpheusConfig.get_instance()
 
-    print(f"DEBUG: OrpheusConfig loaded from {orpheus_config.config_source()}")
+    logger.debug("OrpheusConfig loaded", source=orpheus_config.config_source())
 
     # Get buffer duration from config, default to 200ms for stability
     buffer_duration_ms = getattr(orpheus_config.audio, "buffer_duration_ms", 200)
@@ -105,9 +108,10 @@ def load_app_config(config_path: Optional[Path] = None) -> AppConfig:
         max_pending_frames=50,  # Fixed for now
         working_directory=Path(orpheus_config.storage.base_path) / "audio" / "motion",
     )
-    print(
-        f"DEBUG: Runtime settings created: sample_rate={runtime.sample_rate}, "
-        f"buffer_duration_ms={buffer_duration_ms}"
+    logger.debug(
+        "Runtime settings created",
+        sample_rate=runtime.sample_rate,
+        buffer_duration_ms=buffer_duration_ms,
     )
 
     mqtt = MQTTSettings(
