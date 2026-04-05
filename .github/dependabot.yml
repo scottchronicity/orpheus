@@ -29,9 +29,9 @@ updates:
     commit-message:
       prefix: "deps(dashboard)"
 
-  # Python dependencies for orpheus-agent-audio-motion
+  # Python dependencies for orpheus-gps
   - package-ecosystem: "pip"
-    directory: "/agents/orpheus-agent-audio-motion"
+    directory: "/services/orpheus-gps"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -40,7 +40,7 @@ updates:
       - "dependencies"
       - "python"
     commit-message:
-      prefix: "deps(audio-motion)"
+      prefix: "deps(gps)"
 
   # Python dependencies for orpheus-mqtt
   - package-ecosystem: "pip"
@@ -54,6 +54,147 @@ updates:
       - "python"
     commit-message:
       prefix: "deps(mqtt)"
+
+  # Python dependencies for orpheus-bluetooth-autoconnect
+  - package-ecosystem: "pip"
+    directory: "/services/orpheus-bluetooth-autoconnect"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(bluetooth)"
+
+  # Python dependencies for orpheus_ui backend
+  - package-ecosystem: "pip"
+    directory: "/services/orpheus_ui/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(ui)"
+
+  # Python dependencies for orpheus-agent-audio-motion
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-audio-motion"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(audio-motion)"
+
+  # Python dependencies for orpheus-agent-audio-playback
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-audio-playback"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(audio-playback)"
+
+  # Python dependencies for orpheus-agent-bird-detection
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-bird-detection"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(bird-detection)"
+    ignore:
+      # torch is pinned for Jetson Orin NX compatibility - do not bump
+      - dependency-name: "torch"
+      - dependency-name: "torchaudio"
+      - dependency-name: "torchvision"
+
+  # Python dependencies for orpheus-agent-crow-detection
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-crow-detection"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(crow-detection)"
+    ignore:
+      # torch is pinned for Jetson Orin NX compatibility - do not bump
+      - dependency-name: "torch"
+      - dependency-name: "torchaudio"
+      - dependency-name: "torchvision"
+      - dependency-name: "fairseq"
+
+  # Python dependencies for orpheus-agent-event-correlator
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-event-correlator"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(event-correlator)"
+
+  # Python dependencies for orpheus-agent-video-motion
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-video-motion"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(video-motion)"
+
+  # Python dependencies for orpheus-agent-video-snapshotter
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-video-snapshotter"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(video-snapshotter)"
+
+  # Python dependencies for orpheus-agent-video-timelapser
+  - package-ecosystem: "pip"
+    directory: "/agents/orpheus-agent-video-timelapser"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps(video-timelapser)"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
