@@ -707,7 +707,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Cache pip packages (torch/CUDA are large)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: crow-detection-pip-${{ runner.os }}-${{ hashFiles('agents/orpheus-agent-crow-detection/requirements.txt', 'agents/orpheus-agent-crow-detection/pyproject.toml') }}
