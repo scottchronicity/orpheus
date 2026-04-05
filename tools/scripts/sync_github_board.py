@@ -33,10 +33,16 @@ def find_project_number():
         return None
     try:
         projects = json.loads(result)
-        for project in projects.get("projects", []):
-            if project.get("title") == PROJECT_NAME:
+        if isinstance(projects, dict):
+            project_items = projects.get("projects", [])
+        elif isinstance(projects, list):
+            project_items = projects
+        else:
+            return None
+        for project in project_items:
+            if isinstance(project, dict) and project.get("title") == PROJECT_NAME:
                 return project.get("number")
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, TypeError, AttributeError):
         pass
     return None
 
