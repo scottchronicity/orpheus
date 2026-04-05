@@ -76,9 +76,9 @@ The agent uses the unified `orpheus.yaml` configuration from `orpheus-common`. T
 ## Development Workflow
 
 ```bash
-make format        # black
+make format        # ruff
 make lint          # ruff
-make test          # pytest (currently skipped pending implementation)
+make test          # pytest
 ```
 
 All commands operate within the agent-specific virtual environment under `venv/`.
@@ -389,10 +389,8 @@ Retention is controlled by `storage.retention.raw_audio_days` in `orpheus.yaml`.
 
 1. ✅ Multi-channel audio capture implemented ([`audio_source.py`](src/orpheus_agent_audio_motion/audio_source.py))
 2. ✅ Stateful recording with pre-buffer and holdoff ([`detector_algorithm.py`](src/orpheus_agent_audio_motion/detector_algorithm.py))
-3. **TODO**: Complete pytest test suite (remove skip markers once fully tested)
-4. **TODO**: Add integration tests with real MQTT broker
-5. **TODO**: Implement health check endpoints for monitoring
-6. **TODO**: Add metrics collection (detection rate, false positive rate, etc.)
+
+See [GitHub Issues](https://github.com/scottchronicity/orpheus/issues) for planned improvements.
 
 ## License
 

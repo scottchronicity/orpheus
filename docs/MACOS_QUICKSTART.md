@@ -94,7 +94,7 @@ cp config/.env.orpheus.example config/.env.orpheus
 $EDITOR config/.env.orpheus
 ```
 
-`make dev-stack` loads the Jetson config automatically. OrpheusConfig picks up `config/.env.orpheus` and applies your overrides on top.
+`make dev-stack` loads the Jetson config automatically. OrpheusConfig picks up `config/.env.orpheus` and applies your overrides on top. You only need to set `ORPHEUS_CONFIG_PATH` when running individual agents manually outside the dev-stack script.
 
 ### What the `.env` overrides (and why)
 
@@ -169,7 +169,7 @@ make dev-restart SVC=bird-detection   # Restart just bird-detection
 ## See It Work
 
 1. Open [http://localhost:5173](http://localhost:5173) in your browser.
-2. Play a YouTube video of bird calls near your laptop (search "bird calls identification") e.g. [https://www.youtube.com/watch?v=K3OdL-lAjeM](https://www.youtube.com/watch?v=K3OdL-lAjeM).
+2. Play a YouTube video of bird calls near your laptop (search "bird calls identification").
 3. Within 10–20 seconds, you should see:
    - Audio motion events appearing in the UI
    - BirdNET species identifications for detected calls

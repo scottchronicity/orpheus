@@ -1,7 +1,12 @@
 #!/bin/bash
-# condenses the orpheus-bluetooth-autoconnect project files into a single output file for LLM ingestion
+# condenses the orpheus-agent-video-motion project files into a single output file for LLM ingestion
 
-OUTPUT_FILE="orpheus-bluetooth-autoconnect-condensed-for-llm.out"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+cd "$REPO_ROOT/agents/orpheus-agent-video-motion"
+
+OUTPUT_FILE="orpheus-agent-video-motion-condensed-for-llm.out"
 
 # Initialize/Clear the output file
 > "$OUTPUT_FILE"
@@ -54,15 +59,6 @@ done
 
 # Find systemd service files
 find . -type f -name "*.service" \
-    -not -path "*/venv/*" \
-    -not -path "*/.venv/*" \
-    -not -path "*/.*" \
-    -print0 | while IFS= read -r -d '' file; do
-    append_file "$file"
-done
-
-# Find BATS test files (for shell script testing)
-find . -type f -name "*.bats" \
     -not -path "*/venv/*" \
     -not -path "*/.venv/*" \
     -not -path "*/.*" \

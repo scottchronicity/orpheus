@@ -1,3 +1,5 @@
+# Reference snapshot of the crow-tools repository (https://github.com/CrowCall/crow-tools). Used for development context — not part of the Orpheus codebase.
+
 ==========================================
 CROW-TOOLS REPOSITORY SNAPSHOT
 Generated: 2025-12-05 10:35:38

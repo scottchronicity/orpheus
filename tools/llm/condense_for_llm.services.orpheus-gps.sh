@@ -1,7 +1,12 @@
 #!/bin/bash
-# condenses the orpheus-agent-audio-playback project files into a single output file for LLM ingestion
+# condenses the orpheus-gps service files into a single output file for LLM ingestion
 
-OUTPUT_FILE="orpheus-agent-audio-playback-condensed-for-llm.out"
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+cd "$REPO_ROOT/services/orpheus-gps"
+
+OUTPUT_FILE="orpheus-gps-condensed-for-llm.out"
 
 # Initialize/Clear the output file
 > "$OUTPUT_FILE"
@@ -42,7 +47,7 @@ find . -type f -name "*.py" \
     append_file "$file"
 done
 
-# Find Shell scripts (excluding this one)
+# Find Shell scripts (excluding this one and output files)
 find . -type f -name "*.sh" \
     -not -name "condense_for_llm*.sh" \
     -not -path "*/venv/*" \
