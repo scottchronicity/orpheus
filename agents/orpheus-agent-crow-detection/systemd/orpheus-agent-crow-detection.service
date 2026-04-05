@@ -1,0 +1,22 @@
+[Unit]
+Description=Orpheus Crow Detection Agent
+After=network.target time-sync.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-crow-detection
+Environment="PYTHONUNBUFFERED=1"
+Environment="ORPHEUS_DATA_ROOT=/data/orpheus"
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-crow-detection/src"
+ExecStart=/opt/orpheus/agents/orpheus-agent-crow-detection/venv/bin/python -m orpheus_agent_crow_detection.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-crow-detection
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orpheus-ui"
+version = "0.1.0"
+description = "Modern React/FastAPI UI for Orpheus Wildlife Monitoring"
+readme = "README.md"
+requires-python = ">=3.9, <3.10"
+dependencies = [
+    # Dependencies are managed in requirements.txt
+    # This is intentionally minimal to avoid duplication
+]
+
+[tool.setuptools]
+packages = ["orpheus_ui"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+orpheus_ui = ["static/*", "static/**/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = [
+    "UP006",  # Use Dict/List instead of dict/list for Python 3.9 compatibility
+    "UP007",  # Use Optional[X] instead of X | Y for Python 3.9 compatibility
+    "UP035",  # Use typing.Dict/List instead of dict/list for Python 3.9 compatibility
+    "UP045",  # Use Optional[X] instead of X | None for Python 3.9 compatibility
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --strict-markers --cov=src --cov-report=xml:coverage.xml --cov-report=term-missing"
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

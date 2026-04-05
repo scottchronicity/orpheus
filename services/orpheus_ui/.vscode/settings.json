@@ -1,0 +1,6 @@
+{
+  // Python settings for this folder only apply when opening orpheus_ui/ directly.
+  // When using the monorepo workspace, backend/ is its own workspace folder with its own settings.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend/src"]
+}

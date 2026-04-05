@@ -1,0 +1,26 @@
+[Unit]
+Description=Orpheus UI Web Service
+After=network.target time-sync.target
+Documentation=https://github.com/scottchronicity/orpheus
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/ui
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/opt/orpheus/ui/venv/bin"
+Environment="ORPHEUS_CONFIG_PATH=/etc/orpheus/orpheus.yaml"
+Environment="PYTHONPATH=/opt/orpheus/ui/src"
+Environment="ORPHEUS_UI_DATABASE_URL=sqlite+aiosqlite:////data/orpheus/users.db"
+ExecStart=/opt/orpheus/ui/venv/bin/uvicorn orpheus_ui.main:app --host 0.0.0.0 --port 8082
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-ui
+
+[Install]
+WantedBy=multi-user.target

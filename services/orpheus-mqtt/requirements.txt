@@ -1,0 +1,13 @@
+# Orpheus MQTT Service - Dependencies
+# Python 3.9+ compatible (minimal - mostly for sanity tests)
+#
+# Version constraints are aligned with requirements-constraints.txt in repo root.
+# When updating versions, update both files to maintain consistency.
+
+# Core dependencies
+paho-mqtt>=2.1.0,<3.0.0
+
+# Development/Testing dependencies
+ruff>=0.8.0
+pytest>=8.3.0
+debugpy>=1.8.0

@@ -1,0 +1,20 @@
+[Unit]
+Description=Orpheus Event Correlator Agent
+After=network.target time-sync.target orpheus-mqtt.service orpheus-agent-bird-detection.service orpheus-agent-crow-detection.service
+Wants=orpheus-mqtt.service orpheus-agent-bird-detection.service orpheus-agent-crow-detection.service
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/agents/orpheus-agent-event-correlator
+Environment="PATH=/opt/orpheus/agents/orpheus-agent-event-correlator/venv/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=/opt/orpheus/agents/orpheus-agent-event-correlator/src"
+ExecStart=/opt/orpheus/agents/orpheus-agent-event-correlator/venv/bin/python -m orpheus_agent_event_correlator.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

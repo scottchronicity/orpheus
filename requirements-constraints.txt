@@ -1,0 +1,44 @@
+# Orpheus Monorepo - Shared Dependency Versions
+# ==============================================
+# This file documents the version constraints used across all projects.
+# Each project's requirements.txt should mirror these versions.
+#
+# Python Version: 3.9.5+ (Jetson Orin NX compatibility)
+# Last Updated: December 2024
+#
+# To check for consistency, run: make check-deps
+#
+# When updating a version:
+#   1. Update this file
+#   2. Update the same version in all requirements.txt files that use it
+#   3. Run tests in each affected project
+
+# Core Data & Config
+pydantic>=2.10.0,<3.0.0
+pyyaml>=6.0.2
+
+# Networking & API
+requests>=2.32.0
+httpx>=0.28.0
+paho-mqtt>=2.1.0,<3.0.0
+
+# Web Framework (dashboard)
+fastapi>=0.115.0
+uvicorn>=0.32.0
+python-multipart>=0.0.12
+
+# System & Hardware
+psutil>=7.1.0
+Pillow>=11.0.0
+
+# Audio Processing (audio-motion agent)
+numpy>=1.26.0,<3.0
+soundfile>=0.12.0
+sounddevice>=0.5.0
+
+# Development & Testing (all projects)
+ruff>=0.8.0
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+pytest-cov>=6.0.0
+debugpy>=1.8.0

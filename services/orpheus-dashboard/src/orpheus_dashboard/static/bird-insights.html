@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐦‍⬛</text></svg>"
+    />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bird Insights - Orpheus Dashboard</title>
+    <link rel="stylesheet" href="/static/themes.css" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/nav.css" />
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  </head>
+  <body>
+    <!-- Top Navigation Bar -->
+    <nav class="top-nav">
+      <div class="nav-brand">🐦‍⬛ Orpheus Wildlife Station</div>
+      <button
+        class="nav-toggle"
+        onclick="toggleNav()"
+        aria-label="Toggle navigation"
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="/">System Status</a></li>
+        <li><a href="/bird-insights" class="active">Bird Data</a></li>
+        <li><a href="/crow-insights">Crow Data</a></li>
+      </ul>
+    </nav>
+
+    <header>
+      <br />
+      <h1>🐦 Bird Insights</h1>
+      <p class="subtitle">Historical Bird Detection Analysis</p>
+
+      <!-- Date Range Controls -->
+      <div class="date-controls">
+        <label for="start-date">Start Date:</label>
+        <input type="date" id="start-date" />
+
+        <label for="end-date">End Date:</label>
+        <input type="date" id="end-date" />
+
+        <button id="apply-dates" class="btn-primary">Apply</button>
+        <button id="reset-1day" class="btn-secondary">Last 1 Day</button>
+        <button id="reset-dates" class="btn-secondary">Last 7 Days</button>
+        <button id="reset-30days" class="btn-secondary">Last 30 Days</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Species Filter -->
+      <section class="panel full-width">
+        <div id="species-filter" class="species-filter">
+          <div class="loading-spinner">Loading species...</div>
+        </div>
+      </section>
+
+      <!-- Scatter Plot: Time vs Confidence -->
+      <section class="panel full-width">
+        <h2>
+          Detection Timeline <span id="date-range-display">(Last 7 Days)</span>
+        </h2>
+        <p class="chart-description">
+          Scatter plot showing detection time vs. confidence, color-coded by
+          species. Hover over points for details.
+        </p>
+        <div id="scatter-plot" class="chart-container">
+          <div class="loading-spinner">Loading data...</div>
+        </div>
+      </section>
+
+      <!-- Histogram: Daily Sightings -->
+      <section class="panel full-width">
+        <h2>
+          Daily Sightings <span id="date-range-display-2">(Last 7 Days)</span>
+        </h2>
+        <p class="chart-description">
+          Stacked bar chart showing total bird sightings per day, grouped by
+          species.
+        </p>
+        <div id="daily-histogram" class="chart-container">
+          <div class="loading-spinner">Loading data...</div>
+        </div>
+      </section>
+
+      <!-- Non-Bird Sounds Section -->
+      <section class="panel full-width">
+        <h2>
+          Non-Bird Sounds Detected
+          <span id="date-range-display-3">(Last 7 Days)</span>
+        </h2>
+        <p class="chart-description">
+          Detections of non-bird sounds (human activity, sirens, vehicles, etc.)
+          that were filtered from the bird data above.
+        </p>
+        <div id="non-bird-histogram" class="chart-container">
+          <div class="loading-spinner">Loading data...</div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Last updated: <span id="lastUpdate">Never</span></p>
+      <p class="timezone-note">
+        All times displayed in your local timezone (<span
+          id="timezone-name"
+        ></span
+        >)
+      </p>
+      <div class="theme-selector">
+        <label for="theme-select">Theme: </label>
+        <select id="theme-select" onchange="changeTheme(this.value)">
+          <option value="default">Hacker Visible (Default)</option>
+          <option value="legacy">Hacker Dark (Legacy)</option>
+          <option value="universal">Universal (High Contrast)</option>
+        </select>
+      </div>
+    </footer>
+
+    <script src="/static/theme-manager.js"></script>
+    <script src="/static/date-controls.js"></script>
+    <script src="/static/nav.js"></script>
+    <script src="/static/bird-insights.js"></script>
+  </body>
+</html>

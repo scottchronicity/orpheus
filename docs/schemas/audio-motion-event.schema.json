@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://orpheus.scottchronicity.net/schemas/audio-motion-event.schema.json",
+  "title": "Audio Motion Event",
+  "description": "Event published by orpheus-agent-audio-motion when audio activity is detected",
+  "type": "object",
+  "required": [
+    "event_id",
+    "timestamp",
+    "channel_id",
+    "duration_seconds",
+    "peak_energy_db",
+    "audio_clip_path"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Unique identifier for this motion event",
+      "pattern": "^audio_motion_[0-9]{8}T[0-9]{6}_ch[1-4]_[a-z0-9]+$",
+      "examples": ["audio_motion_20251205T143020_ch1_abc123"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when motion started (UTC)"
+    },
+    "channel_id": {
+      "type": "string",
+      "enum": ["1", "2", "3", "4"],
+      "description": "Audio channel ID (1-4)"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Duration of the audio event in seconds"
+    },
+    "peak_energy_db": {
+      "type": "number",
+      "description": "Peak energy level in decibels"
+    },
+    "audio_clip_path": {
+      "type": "string",
+      "description": "Path to audio clip file",
+      "examples": ["/data/orpheus/audio/audio_motion/1/20251205T143020.123456Z.flac"]
+    }
+  },
+  "additionalProperties": false
+}

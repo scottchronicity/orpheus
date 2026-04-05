@@ -1,0 +1,173 @@
+/**
+ * Orpheus Dashboard - Theme System
+ * 
+ * Defines three distinct themes using CSS Custom Properties:
+ * - Hacker Visible (default): High-contrast, WCAG AA compliant
+ * - Hacker Dark (legacy): Original low-light aesthetic  
+ * - Universal: High contrast, CVD-friendly colors
+ */
+
+/* ===== Theme A: Hacker Visible (Default) ===== */
+/* High contrast, outdoor-readable, WCAG AA compliant */
+:root {
+  /* Base colors */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #0f0f0f;
+  --bg-tertiary: #0a0a0a;
+  --bg-panel: #1a1a1a;
+  --bg-hover: #2a2a2a;
+
+  /* Text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #d4d4d4;
+  --text-muted: #b0b0b0;
+  --text-disabled: #888888;
+
+  /* Accent colors - high contrast, WCAG AA tested */
+  --accent-primary: #00ff41;
+  --accent-secondary: #00cc00;
+  --accent-tertiary: #009900;
+
+  /* Status colors */
+  --status-ok: #00ff41;
+  --status-warning: #ffaa00;
+  --status-critical: #ff3333;
+  --status-info: #66b3ff;
+  --status-unknown: #aaaaaa;
+
+  /* Border colors */
+  --border-primary: #00ff41;
+  --border-secondary: #00cc00;
+  --border-muted: #555555;
+  --border-subtle: #2a2a2a;
+
+  /* Interactive elements */
+  --button-bg: #003300;
+  --button-bg-hover: #00ff41;
+  --button-text: #00ff41;
+  --button-text-hover: #000000;
+  --button-border: #00ff41;
+
+  /* Data visualization */
+  --level-low: #00ff41;
+  --level-medium: #ffaa00;
+  --level-high: #ff3333;
+  --level-none: #555555;
+
+  /* Table styling */
+  --table-header-bg: #0f0f0f;
+  --table-row-even: #1a1a1a;
+  --table-row-odd: #222222;
+  --table-row-hover: #2a2a2a;
+  --table-border: #555555;
+}
+
+/* ===== Theme B: Hacker Dark (Legacy) ===== */
+/* Original low-light terminal aesthetic */
+[data-theme="legacy"] {
+  /* Base colors */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #0f0f0f;
+  --bg-tertiary: #050505;
+  --bg-panel: #1a1a1a;
+  --bg-hover: #1a1a1a;
+
+  /* Text colors */
+  --text-primary: #00ff00;
+  --text-secondary: #00cc00;
+  --text-muted: #888888;
+  --text-disabled: #666666;
+
+  /* Accent colors */
+  --accent-primary: #00ff00;
+  --accent-secondary: #00cc00;
+  --accent-tertiary: #009900;
+
+  /* Status colors */
+  --status-ok: #00ff00;
+  --status-warning: #ffaa00;
+  --status-critical: #ff0000;
+  --status-info: #66b3ff;
+  --status-unknown: #999999;
+
+  /* Border colors */
+  --border-primary: #00ff00;
+  --border-secondary: #00cc00;
+  --border-muted: #003300;
+  --border-subtle: #001a00;
+
+  /* Interactive elements */
+  --button-bg: #003300;
+  --button-bg-hover: #00ff00;
+  --button-text: #00ff00;
+  --button-text-hover: #000000;
+  --button-border: #00ff00;
+
+  /* Data visualization */
+  --level-low: #00ff00;
+  --level-medium: #ffaa00;
+  --level-high: #ff0000;
+  --level-none: #333333;
+
+  /* Table styling */
+  --table-header-bg: #0f0f0f;
+  --table-row-even: #0a0a0a;
+  --table-row-odd: #0f0f0f;
+  --table-row-hover: #1a1a1a;
+  --table-border: #003300;
+}
+
+/* ===== Theme C: Universal (High Contrast CVD Friendly) ===== */
+/* Black/white base with blue/orange accents for color vision deficiency */
+[data-theme="universal"] {
+  /* Base colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e8e8e8;
+  --bg-panel: #ffffff;
+  --bg-hover: #e8e8e8;
+
+  /* Text colors */
+  --text-primary: #000000;
+  --text-secondary: #333333;
+  --text-muted: #666666;
+  --text-disabled: #999999;
+
+  /* Accent colors - blue instead of green for CVD distinction */
+  --accent-primary: #005cc5;
+  --accent-secondary: #0366d6;
+  --accent-tertiary: #0550ae;
+
+  /* Status colors - blue/orange palette for CVD friendliness */
+  --status-ok: #005cc5;
+  --status-warning: #ff8c00;
+  --status-critical: #d73a49;
+  --status-info: #0366d6;
+  --status-unknown: #6a737d;
+
+  /* Border colors */
+  --border-primary: #005cc5;
+  --border-secondary: #0366d6;
+  --border-muted: #d1d5da;
+  --border-subtle: #e1e4e8;
+
+  /* Interactive elements */
+  --button-bg: #e8f4ff;
+  --button-bg-hover: #005cc5;
+  --button-text: #005cc5;
+  --button-text-hover: #ffffff;
+  --button-border: #005cc5;
+
+  /* Data visualization */
+  --level-low: #005cc5;
+  --level-medium: #ff8c00;
+  --level-high: #d73a49;
+  --level-none: #d1d5da;
+
+  /* Table styling */
+  --table-header-bg: #f5f5f5;
+  --table-row-even: #ffffff;
+  --table-row-odd: #fafbfc;
+  --table-row-hover: #e8e8e8;
+  --table-border: #d1d5da;
+}

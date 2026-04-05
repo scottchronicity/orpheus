@@ -1,0 +1,27 @@
+[Unit]
+Description=Orpheus GPS Service
+After=network.target time-sync.target orpheus-mqtt.service
+Wants=orpheus-mqtt.service
+Documentation=https://github.com/scottchronicity/orpheus
+
+[Service]
+Type=simple
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/services/orpheus-gps
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/opt/orpheus/services/orpheus-gps/venv/bin"
+Environment="PYTHONPATH=/opt/orpheus/services/orpheus-gps/src"
+EnvironmentFile=-/opt/orpheus/config/.env
+EnvironmentFile=-/.env
+ExecStart=/opt/orpheus/services/orpheus-gps/venv/bin/python -m orpheus_gps.main
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orpheus-gps
+
+[Install]
+WantedBy=multi-user.target
