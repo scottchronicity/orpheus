@@ -21,6 +21,7 @@ Usage:
 
 Environment Variables:
 - GITHUB_OWNER: Repository owner (default: scottchronicity)
+- GITHUB_REPO: Repository name (default: orpheus)
 """
 
 import json
@@ -286,7 +287,7 @@ class GitHubProjectSetup:
             return
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "gh", "project", "link", str(project_number),
                     "--owner", self.owner,

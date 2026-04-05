@@ -44,7 +44,7 @@ A few pieces of the codebase worth reading if you want to understand the platfor
 
 ### `PreRollRingBuffer[T]` — [platform/orpheus-common/src/orpheus_common/utils/buffer.py](platform/orpheus-common/src/orpheus_common/utils/buffer.py)
 
-A type-generic ring buffer parameterized by `max_seconds` and `items_per_second` rather than raw capacity. The same class serves both the audio pipeline (byte chunks) and the video pipeline (frames) without duplication. Its `get_snapshot(exclude_last=True)` method solves the off-by-one problem inherent to triggered pre-roll: when a detection fires, you want the buffer contents *before* the triggering frame — not including it. That parameter carries the full intent of the design.
+A type-generic ring buffer parameterized by `max_seconds` and `items_per_second` rather than raw capacity. The same class serves both the audio pipeline (byte chunks) and the video pipeline (frames) without duplication. Its `get_snapshot(exclude_last=True)` method addresses the off-by-one problem inherent to triggered pre-roll: when a detection fires, you may want the buffer contents *before* the triggering frame — not including it. That parameter carries the full intent of the design.
 
 ### `ClusterManager` — [agents/orpheus-agent-event-correlator/src/orpheus_agent_event_correlator/cluster_manager.py](agents/orpheus-agent-event-correlator/src/orpheus_agent_event_correlator/cluster_manager.py)
 
