@@ -1,12 +1,14 @@
 #!/bin/bash
-# Condense the orpheus-agent-video-snapshotter agent into a single file for LLM ingestion
+# Condense the orpheus-agent-event-correlator agent into a single file for LLM ingestion
 
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$SCRIPT_DIR"
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+COMPONENT_DIR="$REPO_ROOT/agents/orpheus-agent-event-correlator"
+cd "$COMPONENT_DIR"
 
-OUTPUT_FILE="orpheus-agent-video-snapshotter-condensed-for-llm.out"
+OUTPUT_FILE="orpheus-agent-event-correlator-condensed-for-llm.out"
 
 # Initialize/Clear the output file
 > "$OUTPUT_FILE"

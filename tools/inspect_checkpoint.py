@@ -1,3 +1,4 @@
+# Utility: inspect a PyTorch model checkpoint (layer shapes and metadata).
 import torch
 import sys
 

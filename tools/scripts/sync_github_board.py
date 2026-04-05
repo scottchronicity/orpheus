@@ -4,6 +4,11 @@ import sys
 import os
 import re
 
+# Repository owner (used for project commands)
+GITHUB_OWNER = os.getenv("GITHUB_OWNER", "scottchronicity")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "orpheus")
+PROJECT_NAME = "Orpheus Roadmap"
+
 
 def run_gh_command(args):
     """Executes a GitHub CLI command and returns the output."""
@@ -15,6 +20,31 @@ def run_gh_command(args):
     except subprocess.CalledProcessError as e:
         print("Error running command {}: {}".format(" ".join(args), e.stderr))
         return None
+
+
+def find_project_number():
+    """Find the project number for the Orpheus Roadmap project."""
+    result = run_gh_command([
+        "project", "list",
+        "--owner", GITHUB_OWNER,
+        "--format", "json",
+    ])
+    if not result:
+        return None
+    try:
+        projects = json.loads(result)
+        if isinstance(projects, dict):
+            project_items = projects.get("projects", [])
+        elif isinstance(projects, list):
+            project_items = projects
+        else:
+            return None
+        for project in project_items:
+            if isinstance(project, dict) and project.get("title") == PROJECT_NAME:
+                return project.get("number")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+    return None
 
 
 def parse_issue_number(url_or_output):
@@ -36,6 +66,7 @@ def fetch_existing_issues():
     # Fetch up to 500 issues (paginated by gh)
     result = run_gh_command([
         "issue", "list",
+        "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
         "--state", "all",
         "--limit", "500",
         "--json", "number,title,body"
@@ -73,11 +104,15 @@ def sync_board(json_path):
         color = label["color"]
         desc = label.get("description", "")
         res = run_gh_command(
-            ["label", "create", name, "--color", color, "--description", desc]
+            ["label", "create", name,
+             "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+             "--color", color, "--description", desc]
         )
         if not res:
             run_gh_command(
-                ["label", "edit", name, "--color", color, "--description", desc]
+                ["label", "edit", name,
+                 "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+                 "--color", color, "--description", desc]
             )
             print("  ~ Updated label: {}".format(name))
         else:
@@ -91,7 +126,7 @@ def sync_board(json_path):
         title = ms["title"]
         desc = ms.get("description", "")
         res = run_gh_command([
-            "api", "repos/{owner}/{repo}/milestones",
+            "api", "repos/{}/{}/milestones".format(GITHUB_OWNER, GITHUB_REPO),
             "-f", "title={}".format(title),
             "-f", "description={}".format(desc),
         ])
@@ -127,7 +162,9 @@ def sync_board(json_path):
             continue
 
         # Create new issue
-        args = ["issue", "create", "--title", title, "--body", body]
+        args = ["issue", "create",
+                "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+                "--title", title, "--body", body]
         if labels:
             args.extend(["--label", labels])
         if milestone:
@@ -312,13 +349,44 @@ def sync_board(json_path):
             continue
 
         res = run_gh_command(
-            ["issue", "edit", str(issue_num), "--body", body]
+            ["issue", "edit", str(issue_num),
+             "--repo", "{}/{}".format(GITHUB_OWNER, GITHUB_REPO),
+             "--body", body]
         )
         if res is not None:
             push_count += 1
             print("  -> Updated #{}: {}".format(issue_num, title))
         else:
             print("  x Failed to update #{}: {}".format(issue_num, title))
+
+    # =========================================================================
+    # PASS 4: Add Issues to Project Board
+    # =========================================================================
+    print("\n--- PASS 4: Adding Issues to Project Board ---")
+    project_num = find_project_number()
+    project_add_count = 0
+
+    if project_num:
+        repo_full = "{}/{}".format(GITHUB_OWNER, GITHUB_REPO)
+        for title, issue_num in title_to_id.items():
+            url = "https://github.com/{}/issues/{}".format(repo_full, issue_num)
+            res = run_gh_command([
+                "project", "item-add", str(project_num),
+                "--owner", GITHUB_OWNER,
+                "--url", url,
+            ])
+            if res is not None:
+                project_add_count += 1
+                print("  + Added #{} to project".format(issue_num))
+            else:
+                # item-add errors if already added — that's fine
+                print("  = #{} already in project (or error)".format(issue_num))
+    else:
+        print("  ! Project '{}' not found. Run setup_orpheus_project.py first.".format(
+            PROJECT_NAME
+        ))
+
+    print("\n  Pass 4 Summary: {} issues added to project.".format(project_add_count))
 
     # =========================================================================
     # Summary
@@ -329,6 +397,7 @@ def sync_board(json_path):
     print("   Dependencies:    {}".format(linked_count))
     print("   Epics updated:   {}".format(epic_count))
     print("   Bodies pushed:   {}".format(push_count))
+    print("   Project items:   {}".format(project_add_count))
 
 
 def _strip_appended_blocks(body):

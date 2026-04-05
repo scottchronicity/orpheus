@@ -574,7 +574,7 @@ graph LR
 ## Testing Strategy
 
 - **Unit Tests**: Per-component with pytest
-- **Coverage Target**: 80% minimum
+- **Coverage Target**: 70% minimum (most components); orpheus-common 78%, dashboard 80%, audio-motion 72%
 - **CI/CD**: GitHub Actions on push/PR
 - **Platform Tests**: Separate workflows for ARM validation
 
@@ -584,12 +584,12 @@ graph LR
 graph TB
     subgraph Current["✅ Current"]
         AUDIO_NOW[Audio Detection]
+        BIRDNET[BirdNET Integration<br/>Species ID]
         DASH_NOW[Dashboard]
         MQTT_NOW[MQTT Broker]
     end
 
     subgraph Planned["🔮 Planned"]
-        BIRDNET[BirdNET Integration<br/>Species ID]
         YOLO[YOLOv8 Video<br/>Object Detection]
         ACTIVE[Active Inference<br/>Playback Response]
         MULTI[Multi-Station<br/>Distributed Sensors]

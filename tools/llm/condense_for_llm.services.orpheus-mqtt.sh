@@ -1,6 +1,11 @@
 #!/bin/bash
 # condenses the orpheus-mqtt project files into a single output file for LLM ingestion
 
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+cd "$REPO_ROOT/services/orpheus-mqtt"
+
 OUTPUT_FILE="orpheus-mqtt-condensed-for-llm.out"
 
 # Initialize/Clear the output file

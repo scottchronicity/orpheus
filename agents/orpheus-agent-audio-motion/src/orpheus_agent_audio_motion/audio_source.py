@@ -422,9 +422,9 @@ class ALSAAudioSource(AudioSource):
             num_channels=self._num_channels,
             channel_map=self._channel_map,
         )
-        print(
-            f"DEBUG: ALSAAudioSource channel_map built: "
-            f"{dict(sorted(self._channel_map.items()))} (phys_idx -> channel_id)"
+        logger.debug(
+            "ALSAAudioSource channel_map built",
+            channel_map=dict(sorted(self._channel_map.items())),
         )
 
     def _parse_device_string(self, device_string: str) -> tuple:
@@ -543,9 +543,10 @@ class ALSAAudioSource(AudioSource):
             # Debug logging on first callback
             self._callback_count += 1
             if self._callback_count == 1:
-                print(
-                    f"DEBUG: First audio callback: indata.shape={indata.shape}, "
-                    f"channel_map={self._channel_map}"
+                logger.debug(
+                    "First audio callback",
+                    indata_shape=list(indata.shape),
+                    channel_map=self._channel_map,
                 )
 
             # Split multi-channel data and queue frames for each configured channel

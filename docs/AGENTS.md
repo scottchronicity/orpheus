@@ -24,7 +24,7 @@ orpheus/
 │   ├── orpheus-dashboard/       # FastAPI web UI (legacy)
 │   ├── orpheus_ui/              # React/FastAPI web UI (new)
 │   ├── orpheus-mqtt/            # Mosquitto broker wrapper
-│   └── orpheus-bluetooth/       # Bluetooth speaker autoconnect
+│   └── orpheus-bluetooth-autoconnect/ # Bluetooth speaker autoconnect
 ├── agents/
 │   ├── orpheus-agent-audio-motion/      # Layer 1: Audio motion detection
 │   ├── orpheus-agent-video-motion/      # Layer 1: Video motion detection

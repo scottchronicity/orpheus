@@ -5,7 +5,9 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$SCRIPT_DIR"
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+COMPONENT_DIR="$REPO_ROOT/services/orpheus_ui"
+cd "$COMPONENT_DIR"
 
 OUTPUT_FILE="orpheus-ui-condensed-for-llm.out"
 

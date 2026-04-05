@@ -21,6 +21,7 @@ Usage:
 
 Environment Variables:
 - GITHUB_OWNER: Repository owner (default: scottchronicity)
+- GITHUB_REPO: Repository name (default: orpheus)
 """
 
 import json
@@ -34,8 +35,9 @@ from typing import Dict, Optional, List
 class GitHubProjectSetup:
     """Manages GitHub Projects v2 setup via GraphQL API."""
 
-    def __init__(self, owner: str, dry_run: bool = False):
+    def __init__(self, owner: str, repo: str = "orpheus", dry_run: bool = False):
         self.owner = owner
+        self.repo = repo
         self.dry_run = dry_run
         self.owner_id: Optional[str] = None
 
@@ -275,7 +277,32 @@ class GitHubProjectSetup:
             print(f"ℹ️  Could not add Status field (may already exist): {e}")
             return {}
 
-    def setup_project(self, project_name: str = "Orpheus") -> Dict:
+    def link_project_to_repo(self, project_number: int) -> None:
+        """Link the project to the repository so it appears on the repo's Projects tab."""
+        repo_full = f"{self.owner}/{self.repo}"
+        print(f"🔗 Linking project #{project_number} to {repo_full}")
+
+        if self.dry_run:
+            print(f"[DRY RUN] Would link project to {repo_full}")
+            return
+
+        try:
+            subprocess.run(
+                [
+                    "gh", "project", "link", str(project_number),
+                    "--owner", self.owner,
+                    "--repo", repo_full,
+                ],
+                capture_output=True, text=True, check=True,
+            )
+            print(f"✅ Linked project to {repo_full}")
+        except subprocess.CalledProcessError as e:
+            if "already linked" in e.stderr.lower():
+                print(f"ℹ️  Project already linked to {repo_full}")
+            else:
+                print(f"⚠️  Could not link project: {e.stderr}")
+
+    def setup_project(self, project_name: str = "Orpheus Roadmap") -> Dict:
         """
         Main setup function - creates or reuses existing project.
 
@@ -301,6 +328,11 @@ class GitHubProjectSetup:
         # Add Status field (will gracefully handle if exists)
         self.add_status_field(project["id"])
 
+        # Link project to the repository
+        project_number = project.get("number")
+        if project_number:
+            self.link_project_to_repo(project_number)
+
         print(f"\n✨ Project setup complete!")
         print(f"   Project: {project['title']}")
         print(f"   Number: #{project.get('number', 'N/A')}")
@@ -309,7 +341,9 @@ class GitHubProjectSetup:
             project_url = (
                 f"https://github.com/users/{self.owner}/projects/{project['number']}"
             )
+            repo_url = f"https://github.com/{self.owner}/{self.repo}/projects"
             print(f"   URL: {project_url}")
+            print(f"   Repo: {repo_url}")
 
         return project
 
@@ -349,15 +383,21 @@ Token Requirements:
     )
 
     parser.add_argument(
+        "--repo",
+        default=os.getenv("GITHUB_REPO", "orpheus"),
+        help="Repository name (default: orpheus or $GITHUB_REPO)",
+    )
+
+    parser.add_argument(
         "--project-name",
-        default="Orpheus",
-        help="Name of the project to create (default: Orpheus)",
+        default="Orpheus Roadmap",
+        help="Name of the project to create (default: Orpheus Roadmap)",
     )
 
     args = parser.parse_args()
 
     # Run setup
-    setup = GitHubProjectSetup(owner=args.owner, dry_run=args.dry_run)
+    setup = GitHubProjectSetup(owner=args.owner, repo=args.repo, dry_run=args.dry_run)
 
     try:
         setup.setup_project(project_name=args.project_name)

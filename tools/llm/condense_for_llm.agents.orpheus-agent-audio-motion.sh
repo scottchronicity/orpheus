@@ -1,10 +1,12 @@
 #!/bin/bash
-# Condense the orpheus-agent-audio-motionagent into a single file for LLM ingestion
+# Condense the orpheus-agent-audio-motion agent into a single file for LLM ingestion
 
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$SCRIPT_DIR"
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+COMPONENT_DIR="$REPO_ROOT/agents/orpheus-agent-audio-motion"
+cd "$COMPONENT_DIR"
 
 OUTPUT_FILE="orpheus-agent-audio-motion-condensed-for-llm.out"
 

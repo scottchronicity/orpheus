@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from orpheus_common.config import OrpheusConfig
+from orpheus_common.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -38,12 +41,13 @@ class BirdDetectionConfig:
         yaml_model_path = bird_config.get("model_path", "/data/orpheus/models/birdnet.onnx")
         if data_root:
             model_path = f"{data_root}/models/birdnet.onnx"
-            print(
-                f"[BirdDetectionConfig] Overriding model_path with ORPHEUS_DATA_ROOT: {model_path}"
+            logger.debug(
+                "model_path overridden by ORPHEUS_DATA_ROOT",
+                model_path=model_path,
             )
         else:
             model_path = yaml_model_path
-            print(f"[BirdDetectionConfig] Using model_path from YAML: {model_path}")
+            logger.debug("model_path from YAML", model_path=model_path)
 
         # Use OrpheusConfig.site as fallback for location if not in bird_detection config
         site = getattr(config, "site", None)

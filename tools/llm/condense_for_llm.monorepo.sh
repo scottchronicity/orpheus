@@ -1,21 +1,26 @@
 #!/bin/bash
 # Generates a consolidated view of the repository for LLM ingestion.
+# Run from the repo root: ./tools/llm/condense_for_llm.monorepo.sh
 
 set -euo pipefail
 
-cd platform/orpheus-common/ && ./condense_for_llm.platform.orpheus-common.sh && cd ../../
-cd services/orpheus-dashboard/ && ./condense_for_llm.services.orpheus-dashboard.sh && cd ../../
-cd services/orpheus-mqtt/ && ./condense_for_llm.services.orpheus-mqtt.sh && cd ../../
-cd services/orpheus-bluetooth-autoconnect/ && ./condense_for_llm.services.orpheus-bluetooth-autoconnect.sh && cd ../../
-cd agents/orpheus-agent-audio-motion/ && ./condense_for_llm.agents.orpheus-agent-audio-motion.sh && cd ../../
-cd agents/orpheus-agent-audio-playback/ && ./condense_for_llm.agents.orpheus-agent-audio-playback.sh && cd ../../
-cd agents/orpheus-agent-bird-detection/ && ./condense_for_llm.agents.orpheus-agent-bird-detection.sh && cd ../../
-cd agents/orpheus-agent-crow-detection/ && ./condense_for_llm.agents.orpheus-agent-crow-detection.sh && cd ../../
-cd agents/orpheus-agent-video-motion/ && ./condense_for_llm.agents.orpheus-agent-video-motion.sh && cd ../../
-cd agents/orpheus-agent-video-snapshotter/ && ./condense_for_llm.agents.orpheus-agent-video-snapshotter.sh && cd ../../
-cd agents/orpheus-agent-video-timelapser/ && ./condense_for_llm.agents.orpheus-agent-video-timelapser.sh && cd ../../
-cd agents/orpheus-agent-event-correlator/ && ./condense_for_llm.agents.orpheus-agent-event-correlator.sh && cd ../../
-cd services/orpheus_ui/ && ./condense_for_llm.services.orpheus-ui.sh && cd ../../
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+cd "$REPO_ROOT"
+
+"$SCRIPT_DIR/condense_for_llm.platform.orpheus-common.sh"
+"$SCRIPT_DIR/condense_for_llm.services.orpheus-dashboard.sh"
+"$SCRIPT_DIR/condense_for_llm.services.orpheus-mqtt.sh"
+"$SCRIPT_DIR/condense_for_llm.services.orpheus-bluetooth-autoconnect.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-audio-motion.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-audio-playback.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-bird-detection.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-crow-detection.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-video-motion.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-video-snapshotter.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-video-timelapser.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-event-correlator.sh"
+"$SCRIPT_DIR/condense_for_llm.services.orpheus-ui.sh"
 
 OUTPUT_FILE="orpheus-condensed-for-llm.out"
 
