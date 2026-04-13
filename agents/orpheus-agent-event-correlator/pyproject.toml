@@ -10,7 +10,7 @@ authors = [{name = "Orpheus Project"}]
 requires-python = ">=3.9, <3.10"
 dependencies = [
     "orpheus-common",
-    "paho-mqtt>=1.6.0",
+    "paho-mqtt>=2.1.0",
 ]
 
 [project.optional-dependencies]
