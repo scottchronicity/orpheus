@@ -30,7 +30,7 @@ dependencies = [
     "paho-mqtt>=2.1.0",
     "PyYAML>=6.0,<7.0",
     "pyserial>=3.5,<4.0",
-    "pynmea2>=1.18.0,<2.0",
+    "pynmea2>=1.19.0,<2.0",
 ]
 
 [project.optional-dependencies]
