@@ -46,7 +46,7 @@ dependencies = [
     "orpheus-common",
     "opencv-python>=4.8.0",
     "numpy>=1.24.0",
-    "structlog>=23.2.0",
+    "structlog>=25.5.0",
 ]
 
 [project.optional-dependencies]
