@@ -30,7 +30,7 @@ dependencies = [
     "paho-mqtt>=2.1.0",
     "requests>=2.31.0",
     "psutil>=5.9.6",
-    "Pillow>=10.0.0",
+    "Pillow>=11.3.0",
     "structlog>=23.2.0",
 ]
 
