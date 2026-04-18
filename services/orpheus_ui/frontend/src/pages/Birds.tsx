@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { fetchWithAuth, formatDateTime } from '../lib/utils'
 import { POLLING_INTERVALS } from '../config'
-import { Bird, Activity, X, MapPin, GitBranch, Code } from 'lucide-react'
+import { Bird, Activity, X, MapPin, GitBranch, Code, Sparkles } from 'lucide-react'
 import {
   LoadingSpinner,
   PageHeader,
@@ -11,11 +12,11 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, paginate } from '../components/DateRangeFilter'
+import { DateRangeFilter, usePaginatedDateRange, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
 import { ConfidenceScatterChart, DistributionPieChart, SpeciesBarChart, DailyActivityChart } from '../components/Charts'
 import { ClipActions } from '../components/ClipActions'
 import { LocationBadge, SpatiotemporalContext } from '../components/LocationBadge'
-import { BirdEntitySection } from '../components/BirdEntitySection'
+import { SpeciesFilter } from '../components/SpeciesFilter'
 
 /**
  * V2 Detection schema for bird detections.
@@ -40,6 +41,9 @@ interface BirdStats {
   hourly_activity: { hour: number; count: number }[]
   daily_activity: { date: string; count: number }[]
   species_distribution: Record<string, number>
+  /** Unfiltered distribution of every species present in the date range,
+   *  used to populate the species-filter dropdown. */
+  all_species?: Record<string, number>
 }
 
 interface BirdScatterPoint {
@@ -57,21 +61,17 @@ interface BirdHistoryResponse {
   start_date: string
   end_date: string
   stats: BirdStats
+  page?: number
+  page_size?: number
+  total_pages?: number
 }
 
-/**
- * Get confidence level color based on value.
- */
 function getConfidenceColor(confidence: number): string {
   if (confidence >= 0.8) return 'text-green-400'
   if (confidence >= 0.5) return 'text-amber-400'
   return 'text-red-400'
 }
 
-/**
- * Detail drawer for a single bird detection.
- * Shows context (GPS coordinates), lineage (source event), and raw JSON toggle.
- */
 function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection; onClose: () => void }) {
   const [showJson, setShowJson] = useState(false)
 
@@ -90,7 +90,6 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Summary */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-slate-700/50 rounded-lg p-4">
               <p className="text-sm text-slate-400">Confidence</p>
@@ -104,7 +103,6 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
             </div>
           </div>
 
-          {/* Context */}
           {detection.context && (detection.context.lat != null || detection.context.sensor_id) && (
             <Card>
               <div className="flex items-center gap-2 mb-3">
@@ -122,7 +120,6 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
             </Card>
           )}
 
-          {/* Lineage */}
           {detection.source_event_id && (
             <Card>
               <div className="flex items-center gap-2 mb-3">
@@ -135,7 +132,6 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
             </Card>
           )}
 
-          {/* Raw JSON Toggle */}
           <div>
             <button
               onClick={() => setShowJson(!showJson)}
@@ -157,13 +153,43 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
 }
 
 export default function BirdsPage() {
-  const { startDate, endDate, handleDateChange, page, setPage } = usePaginatedDateRange(1)
+  const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedDetection, setSelectedDetection] = useState<BirdDetection | null>(null)
+  const [selectedSpecies, setSelectedSpecies] = useState<Set<string>>(new Set())
+
+  // Reset species selection whenever the date range changes.
+  useEffect(() => {
+    setSelectedSpecies(new Set())
+  }, [startDate, endDate])
+
+  // Query key includes page and species selection so react-query caches per-slice
+  // and prevents stale overwrites when the user changes filters rapidly.
+  const speciesCsv = useMemo(() => {
+    const arr = Array.from(selectedSpecies)
+    return arr.length === 0 ? '' : arr.join(',')
+  }, [selectedSpecies])
+
+  const timeFilterActive = startTime !== DEFAULT_START_TIME || endTime !== DEFAULT_END_TIME
+  const browserTz = useMemo(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+  }, [])
 
   const { data, isLoading, error } = useQuery<BirdHistoryResponse>({
-    queryKey: ['bird-history', startDate, endDate],
+    queryKey: ['bird-history', startDate, endDate, startTime, endTime, page, speciesCsv],
     queryFn: async () => {
-      const res = await fetchWithAuth(`/api/data/birds/history?start_date=${startDate}&end_date=${endDate}`)
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        page: String(page),
+        page_size: String(ITEMS_PER_PAGE),
+      })
+      if (speciesCsv) params.set('species', speciesCsv)
+      if (timeFilterActive) {
+        params.set('start_time', startTime)
+        params.set('end_time', endTime)
+        params.set('tz', browserTz)
+      }
+      const res = await fetchWithAuth(`/api/data/birds/history?${params.toString()}`)
       return res.json()
     },
     refetchInterval: POLLING_INTERVALS.HISTORY,
@@ -183,35 +209,60 @@ export default function BirdsPage() {
     )
   }
 
-  // Use server-side aggregated stats for charts (full date range, no row cap)
   const speciesDist = data?.stats?.species_distribution ?? {}
+  const allSpecies = data?.stats?.all_species ?? {}
   const sortedSpecies = Object.entries(speciesDist)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
 
-  // Paginate detections table (2000 most recent returned by backend)
-  const allDetections = data?.detections || []
-  const { pageItems: pageDetections, totalPages } = paginate(allDetections, page)
+  const availableSpeciesItems = Object.entries(allSpecies)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([value, count]) => ({ value, count }))
+
+  // Detections list comes pre-paginated from the backend.
+  const pageDetections = data?.detections ?? []
+  const totalCount = data?.stats?.total_count ?? data?.count ?? 0
+  const totalPages = data?.total_pages ?? 1
 
   return (
     <div className="space-y-6">
       <PageHeader title="Bird Detections" description="BirdNET species identification history" />
 
-      {/* Date Range Filter */}
+      {/* Raw-vs-entities note: this page is about raw BirdNET detections. */}
+      <Card className="p-4 flex items-start gap-3">
+        <Sparkles className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-slate-300">
+          This page shows <span className="text-white">raw BirdNET detections</span>.
+          For de-duplicated, multi-sensor-correlated sightings see{' '}
+          <Link to="/entities" className="text-blue-400 hover:text-blue-300 underline">
+            Entities
+          </Link>
+          .
+        </div>
+      </Card>
+
+      {/* Date + Time Range Filter */}
       <DateRangeFilter
         startDate={startDate}
         endDate={endDate}
-        onDateChange={handleDateChange}
+        startTime={startTime}
+        endTime={endTime}
+        onChange={handleChange}
       />
 
-      {/* Correlated Bird Entities — "Clean Signal" section */}
-      <BirdEntitySection startDate={startDate} endDate={endDate} />
+      {/* Species Filter */}
+      <SpeciesFilter
+        availableItems={availableSpeciesItems}
+        selected={selectedSpecies}
+        onChange={(next) => { setSelectedSpecies(next); setPage(1) }}
+        label="Species"
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="Total Detections"
-          value={data?.stats?.total_count ?? data?.count ?? 0}
+          value={totalCount}
           icon={Bird}
           color="blue"
         />
@@ -270,17 +321,17 @@ export default function BirdsPage() {
         </Card>
       </div>
 
-      {/* Recent Detections - paginated */}
+      {/* Detections - server-paginated */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium text-white">Detections in Date Range</h2>
-          {allDetections.length > 0 && (
+          {totalCount > 0 && (
             <span className="text-sm text-slate-400">
-              {allDetections.length} total, showing {pageDetections.length} (page {page} of {totalPages})
+              {totalCount.toLocaleString()} total, showing {pageDetections.length} (page {page} of {totalPages})
             </span>
           )}
         </div>
-        {allDetections.length > 0 ? (
+        {pageDetections.length > 0 ? (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -325,11 +376,10 @@ export default function BirdsPage() {
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </>
         ) : (
-          <p className="text-slate-500 text-center py-8">No recent detections</p>
+          <p className="text-slate-500 text-center py-8">No detections</p>
         )}
       </Card>
 
-      {/* Detail Drawer */}
       {selectedDetection && (
         <BirdDetectionDetail detection={selectedDetection} onClose={() => setSelectedDetection(null)} />
       )}

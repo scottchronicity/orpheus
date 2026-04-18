@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithAuth, formatDateTime } from '../lib/utils'
 import { POLLING_INTERVALS } from '../config'
@@ -10,11 +10,12 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, paginate } from '../components/DateRangeFilter'
+import { DateRangeFilter, usePaginatedDateRange, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
 import { ClipActions } from '../components/ClipActions'
 import { HourlyActivityChart, DistributionPieChart, HourlyStackedBarChart, DailyActivityChart, CrowScatterChart } from '../components/Charts'
 import { LocationBadge, SpatiotemporalContext } from '../components/LocationBadge'
 import { CrowEntitySection } from '../components/CrowEntitySection'
+import { SpeciesFilter } from '../components/SpeciesFilter'
 
 /**
  * V2 Detection schema for crow detections.
@@ -45,11 +46,17 @@ interface CrowStatsResponse {
   hourly_activity: { hour: number; count: number }[]
   daily_activity: { date: string; count: number }[]
   call_types: Record<string, number>
+  /** Unfiltered distribution of every call_type present in the date range,
+   *  used to populate the call-type filter dropdown. */
+  all_call_types?: Record<string, number>
   intents: Record<string, number>
   detections: CrowDetection[]
   scatter_sample: CrowScatterPoint[]
   start_date: string
   end_date: string
+  page?: number
+  page_size?: number
+  total_pages?: number
 }
 
 /**
@@ -194,13 +201,41 @@ function deriveHourlyAges(detections: CrowDetection[]): { hour: number; [key: st
 }
 
 export default function CrowsPage() {
-  const { startDate, endDate, handleDateChange, page, setPage } = usePaginatedDateRange(1)
+  const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedDetection, setSelectedDetection] = useState<CrowDetection | null>(null)
+  const [selectedCallTypes, setSelectedCallTypes] = useState<Set<string>>(new Set())
+
+  // Reset call-type selection whenever the date range changes.
+  useEffect(() => {
+    setSelectedCallTypes(new Set())
+  }, [startDate, endDate])
+
+  const callTypesCsv = useMemo(() => {
+    const arr = Array.from(selectedCallTypes)
+    return arr.length === 0 ? '' : arr.join(',')
+  }, [selectedCallTypes])
+
+  const timeFilterActive = startTime !== DEFAULT_START_TIME || endTime !== DEFAULT_END_TIME
+  const browserTz = useMemo(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+  }, [])
 
   const { data, isLoading, error } = useQuery<CrowStatsResponse>({
-    queryKey: ['crow-stats', startDate, endDate],
+    queryKey: ['crow-stats', startDate, endDate, startTime, endTime, page, callTypesCsv],
     queryFn: async () => {
-      const res = await fetchWithAuth(`/api/data/crows/stats?start_date=${startDate}&end_date=${endDate}`)
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        page: String(page),
+        page_size: String(ITEMS_PER_PAGE),
+      })
+      if (callTypesCsv) params.set('call_types', callTypesCsv)
+      if (timeFilterActive) {
+        params.set('start_time', startTime)
+        params.set('end_time', endTime)
+        params.set('tz', browserTz)
+      }
+      const res = await fetchWithAuth(`/api/data/crows/stats?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       return res.json()
     },
@@ -213,22 +248,40 @@ export default function CrowsPage() {
     { hour: 0, count: 0 }
   )
 
-  // Derive hourly call types and ages
+  // Derive hourly call types and ages from the current page slice.
+  // Note: with server-side pagination these reflect only the current page.
+  // They are complemented by the server-computed `call_types` / `age_distribution`
+  // aggregates which span the full filtered range.
   const hourlyCallTypes = data?.detections ? deriveHourlyCallTypes(data.detections) : []
   const hourlyAges = data?.detections ? deriveHourlyAges(data.detections) : []
 
-  const allDetections = data?.detections || []
-  const { pageItems: pageDetections, totalPages } = paginate(allDetections, page)
+  const pageDetections = data?.detections || []
+  const totalCount = data?.total_detections ?? 0
+  const totalPages = data?.total_pages ?? 1
+  const allCallTypes = data?.all_call_types ?? {}
+  const availableCallTypeItems = Object.entries(allCallTypes)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([value, count]) => ({ value, count }))
 
   return (
     <div className="space-y-6">
       <PageHeader title="Crow Analysis" description="Crow detection and vocalization analysis" />
 
-      {/* Date Range Filter */}
+      {/* Date + Time Range Filter */}
       <DateRangeFilter
         startDate={startDate}
         endDate={endDate}
-        onDateChange={handleDateChange}
+        startTime={startTime}
+        endTime={endTime}
+        onChange={handleChange}
+      />
+
+      {/* Call Type Filter */}
+      <SpeciesFilter
+        availableItems={availableCallTypeItems}
+        selected={selectedCallTypes}
+        onChange={(next) => { setSelectedCallTypes(next); setPage(1) }}
+        label="Call Types"
       />
 
       {isLoading ? (
@@ -338,17 +391,17 @@ export default function CrowsPage() {
         </Card>
       </div>
 
-      {/* Recent Detections Table - paginated */}
+      {/* Recent Detections Table - server-paginated */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium text-white">Raw Detections in Date Range</h2>
-          {allDetections.length > 0 && (
+          {totalCount > 0 && (
             <span className="text-sm text-slate-400">
-              {allDetections.length} shown (most recent first), page {page} of {totalPages}
+              {totalCount.toLocaleString()} total, showing {pageDetections.length} (page {page} of {totalPages})
             </span>
           )}
         </div>
-        {allDetections.length > 0 ? (
+        {pageDetections.length > 0 ? (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

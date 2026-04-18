@@ -235,30 +235,6 @@ describe('Crows page', () => {
   })
 })
 
-describe('BirdEntitySection', () => {
-  beforeEach(() => {
-    localStorage.setItem('orpheus_token', 'test-token')
-  })
-
-  it('does not crash when API returns a 500 error body', async () => {
-    // Simulate the CI failure: /api/entities returns 500 with { detail: "..." }
-    // instead of { entities: [...] }. The component must not throw.
-    mockFetch.mockResolvedValue(
-      new Response(JSON.stringify({ detail: 'Failed to get entities: unable to open database' }), { status: 500 })
-    )
-
-    const { BirdEntitySection } = await import('../src/components/BirdEntitySection')
-    expect(() => renderWithProviders(
-      <BirdEntitySection startDate="2026-01-01" endDate="2026-01-07" />
-    )).not.toThrow()
-
-    // Should show loading/empty state, not blow up the page
-    await waitFor(() => {
-      expect(screen.queryByText(/loading entity data/i)).toBeInTheDocument()
-    })
-  })
-})
-
 describe('CrowEntitySection', () => {
   beforeEach(() => {
     localStorage.setItem('orpheus_token', 'test-token')

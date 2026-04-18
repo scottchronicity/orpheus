@@ -2,6 +2,8 @@
 
 Get the Orpheus Observe stack running on your Mac in ~15 minutes. This guide is self-contained — you do not need to read anything else to reach a working dashboard with live detections.
 
+On Windows? See [Windows Quick Start](WINDOWS_QUICKSTART.md) (untested). On generic Linux? See [Linux Quick Start](LINUX_QUICKSTART.md) (untested). For Jetson production, see [Jetson Quick Start](JETSON_QUICKSTART.md).
+
 For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md) and [CODING_AGENT_CONTEXT.md](../CODING_AGENT_CONTEXT.md).
 
 ---

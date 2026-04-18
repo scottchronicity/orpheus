@@ -2,7 +2,7 @@
 
 Get the Orpheus Observe stack running on an NVIDIA Jetson Orin NX. This guide covers both **development** (run from the repo) and **production** (systemd services under `/opt/orpheus`).
 
-For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows (WSL2), see [Windows Quick Start](WINDOWS_QUICKSTART.md) (untested). For generic Linux, see [Linux Quick Start](LINUX_QUICKSTART.md) (untested). For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithAuth, formatDateTime } from '../lib/utils'
 import { POLLING_INTERVALS } from '../config'
@@ -11,9 +11,10 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, paginate } from '../components/DateRangeFilter'
+import { DateRangeFilter, usePaginatedDateRange, paginate, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
 import { ClipActions } from '../components/ClipActions'
 import { HourlyActivityChart, DistributionPieChart, DailyActivityChart, EntityScatterChart } from '../components/Charts'
+import { SpeciesFilter } from '../components/SpeciesFilter'
 
 interface EntityEvidence {
   event_id: string
@@ -45,6 +46,9 @@ interface EntityStats {
   hourly_activity: { hour: number; count: number }[]
   daily_activity: { date: string; count: number }[]
   species_distribution: Record<string, number>
+  /** Unfiltered distribution of every species present in the date range,
+   *  used to populate the species-filter dropdown. */
+  all_species?: Record<string, number>
 }
 
 interface EntityScatterPoint {
@@ -174,13 +178,36 @@ function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () =>
 }
 
 export default function EntitiesPage() {
-  const { startDate, endDate, handleDateChange, page, setPage } = usePaginatedDateRange(1)
+  const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedEntity, setSelectedEntity] = useState<EntityEvent | null>(null)
+  const [selectedSpecies, setSelectedSpecies] = useState<Set<string>>(new Set())
+
+  // Reset species selection whenever the date range changes.
+  useEffect(() => {
+    setSelectedSpecies(new Set())
+  }, [startDate, endDate])
+
+  const speciesCsv = useMemo(() => {
+    const arr = Array.from(selectedSpecies)
+    return arr.length === 0 ? '' : arr.join(',')
+  }, [selectedSpecies])
+
+  const timeFilterActive = startTime !== DEFAULT_START_TIME || endTime !== DEFAULT_END_TIME
+  const browserTz = useMemo(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
+  }, [])
 
   const { data, isLoading, error } = useQuery<EntitiesResponse>({
-    queryKey: ['entities', startDate, endDate],
+    queryKey: ['entities', startDate, endDate, startTime, endTime, speciesCsv],
     queryFn: async () => {
-      const res = await fetchWithAuth(`/api/entities?start_date=${startDate}&end_date=${endDate}`)
+      const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
+      if (speciesCsv) params.set('species', speciesCsv)
+      if (timeFilterActive) {
+        params.set('start_time', startTime)
+        params.set('end_time', endTime)
+        params.set('tz', browserTz)
+      }
+      const res = await fetchWithAuth(`/api/entities?${params.toString()}`)
       return res.json()
     },
     refetchInterval: POLLING_INTERVALS.HISTORY,
@@ -203,6 +230,10 @@ export default function EntitiesPage() {
   // Use server-side aggregated stats for charts (covers full date range, no row cap)
   const hourlyData = data?.stats?.hourly_activity ?? []
   const speciesDist = data?.stats?.species_distribution ?? {}
+  const allSpecies = data?.stats?.all_species ?? {}
+  const availableSpeciesItems = Object.entries(allSpecies)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([value, count]) => ({ value, count }))
 
   // Paginate the table
   const allEntities = data?.entities || []
@@ -212,11 +243,21 @@ export default function EntitiesPage() {
     <div className="space-y-6">
       <PageHeader title="Entities" description="Correlated animal detection events from multiple sensors" />
 
-      {/* Date Range Filter */}
+      {/* Date + Time Range Filter */}
       <DateRangeFilter
         startDate={startDate}
         endDate={endDate}
-        onDateChange={handleDateChange}
+        startTime={startTime}
+        endTime={endTime}
+        onChange={handleChange}
+      />
+
+      {/* Species Filter */}
+      <SpeciesFilter
+        availableItems={availableSpeciesItems}
+        selected={selectedSpecies}
+        onChange={(next) => { setSelectedSpecies(next); setPage(1) }}
+        label="Species"
       />
 
       {/* Stats */}

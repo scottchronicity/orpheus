@@ -23,7 +23,7 @@ test.describe('Context & Lineage Verification', () => {
   })
 
   test('Birds page shows location and lineage from V2 context', async ({ page }) => {
-    // Mock entity section (BirdEntitySection fetches this; return empty so page renders)
+    // Defensive: if anything in the Birds flow ever queries /api/entities, return empty.
     await page.route('**/api/entities*', async (route) => {
       await route.fulfill({
         status: 200,
