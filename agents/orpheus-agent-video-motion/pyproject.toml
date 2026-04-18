@@ -26,7 +26,7 @@ dependencies = [
     "paho-mqtt>=2.1.0",
     "PyYAML>=6.0,<7.0",
     "numpy>=1.26.0,<3.0",
-    "opencv-python>=4.8.0",
+    "opencv-python>=4.13.0.92",
     "structlog>=23.2.0",
 ]
 
