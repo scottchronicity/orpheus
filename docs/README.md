@@ -26,6 +26,13 @@ Central documentation hub for the Orpheus wildlife monitoring platform.
 - **[INSTALLATION.md](./INSTALLATION.md)** - Detailed installation guide, prerequisites, step-by-step setup
 - **[CI_WORKFLOWS.md](./CI_WORKFLOWS.md)** - GitHub Actions workflows, path filtering system, adding new component tests
 
+### Platform Quickstarts
+
+- **[MACOS_QUICKSTART.md](./MACOS_QUICKSTART.md)** - Development/demo setup on macOS (tested)
+- **[JETSON_QUICKSTART.md](./JETSON_QUICKSTART.md)** - Dev and production setup on NVIDIA Jetson Orin NX (tested)
+- **[WINDOWS_QUICKSTART.md](./WINDOWS_QUICKSTART.md)** - Development via WSL2 on Windows (⚠️ untested — contributions welcome)
+- **[LINUX_QUICKSTART.md](./LINUX_QUICKSTART.md)** - Development/demo on desktop Linux (⚠️ untested — contributions welcome)
+
 ### Standards & Conventions
 
 - **[LOGGING.md](./LOGGING.md)** - Structured logging with structlog: keyword patterns, log levels, best practices

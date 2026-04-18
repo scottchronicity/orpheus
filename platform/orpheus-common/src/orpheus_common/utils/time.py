@@ -6,7 +6,12 @@ services and agents.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Tuple
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python <3.9 fallback; should not hit on supported stacks
+    ZoneInfo = None  # type: ignore[assignment]
 
 
 def utc_now() -> datetime:
@@ -159,3 +164,66 @@ def parse_duration_string(duration_str: str) -> int:
         )
 
     return int(value * multipliers[suffix])
+
+
+def parse_hhmm(value: Optional[str]) -> Optional[Tuple[int, int]]:
+    """Parse "HH:MM" into (hour, minute). Returns None on invalid input.
+
+    Example:
+        >>> parse_hhmm("08:30")
+        (8, 30)
+        >>> parse_hhmm("24:00") is None
+        True
+    """
+    if not value:
+        return None
+    try:
+        hour_str, minute_str = value.split(":")
+        hour = int(hour_str)
+        minute = int(minute_str)
+    except (ValueError, AttributeError):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def is_full_day(start_hhmm: Tuple[int, int], end_hhmm: Tuple[int, int]) -> bool:
+    """True if the window covers the whole day (00:00..23:59 default).
+
+    Used by callers to skip the filter entirely when the user has not
+    narrowed the time window.
+    """
+    return start_hhmm == (0, 0) and end_hhmm == (23, 59)
+
+
+def timestamp_in_window(
+    ts: datetime,
+    start_hhmm: Tuple[int, int],
+    end_hhmm: Tuple[int, int],
+    tz_name: Optional[str] = None,
+) -> bool:
+    """True if `ts` falls inside the HH:MM window interpreted in `tz_name`.
+
+    Wraps midnight when start_hhmm > end_hhmm (e.g. 20:00 to 06:00 keeps
+    evening of each day plus early morning of the next). If `tz_name` is
+    None or invalid, the timestamp's own timezone is used.
+
+    Example:
+        >>> from datetime import datetime, timezone
+        >>> ts = datetime(2026, 1, 1, 22, 30, tzinfo=timezone.utc)
+        >>> timestamp_in_window(ts, (20, 0), (6, 0))  # 22:30 UTC, window 20:00-06:00 UTC
+        True
+    """
+    local = ts
+    if tz_name and ZoneInfo is not None:
+        try:
+            local = ts.astimezone(ZoneInfo(tz_name))
+        except Exception:
+            local = ts
+    local_minutes = local.hour * 60 + local.minute
+    start_minutes = start_hhmm[0] * 60 + start_hhmm[1]
+    end_minutes = end_hhmm[0] * 60 + end_hhmm[1]
+    if start_minutes <= end_minutes:
+        return start_minutes <= local_minutes <= end_minutes
+    return local_minutes >= start_minutes or local_minutes <= end_minutes

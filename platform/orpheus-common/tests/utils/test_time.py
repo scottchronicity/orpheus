@@ -6,9 +6,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from orpheus_common.utils.time import (
+    is_full_day,
     parse_duration_string,
+    parse_hhmm,
     parse_iso_timestamp,
     timestamp_age_seconds,
+    timestamp_in_window,
     utc_now,
     utc_now_iso,
 )
@@ -202,3 +205,83 @@ class TestParseDurationString:
             parse_duration_string("abc")
         with pytest.raises(ValueError, match="Invalid duration format"):
             parse_duration_string("10.5.3h")
+
+
+class TestParseHhmm:
+    """Tests for parse_hhmm function."""
+
+    def test_parses_valid_hhmm(self) -> None:
+        assert parse_hhmm("08:30") == (8, 30)
+        assert parse_hhmm("00:00") == (0, 0)
+        assert parse_hhmm("23:59") == (23, 59)
+
+    def test_none_or_empty(self) -> None:
+        assert parse_hhmm(None) is None
+        assert parse_hhmm("") is None
+
+    def test_out_of_range(self) -> None:
+        assert parse_hhmm("24:00") is None
+        assert parse_hhmm("12:60") is None
+        assert parse_hhmm("-1:00") is None
+
+    def test_malformed(self) -> None:
+        assert parse_hhmm("8") is None
+        assert parse_hhmm("08-30") is None
+        assert parse_hhmm("abc") is None
+
+
+class TestIsFullDay:
+    """Tests for is_full_day function."""
+
+    def test_full_day_defaults(self) -> None:
+        assert is_full_day((0, 0), (23, 59)) is True
+
+    def test_not_full_day(self) -> None:
+        assert is_full_day((0, 0), (23, 58)) is False
+        assert is_full_day((0, 1), (23, 59)) is False
+        assert is_full_day((8, 0), (18, 0)) is False
+
+
+class TestTimestampInWindow:
+    """Tests for timestamp_in_window function, including midnight wrap-around."""
+
+    def _ts(self, hour: int, minute: int = 0) -> datetime:
+        return datetime(2026, 3, 15, hour, minute, tzinfo=timezone.utc)
+
+    def test_inside_non_wrapping_window(self) -> None:
+        # 08:00-18:00 window, timestamp at 10:30 UTC
+        assert timestamp_in_window(self._ts(10, 30), (8, 0), (18, 0)) is True
+
+    def test_outside_non_wrapping_window(self) -> None:
+        # 08:00-18:00 window, timestamp at 20:00 UTC
+        assert timestamp_in_window(self._ts(20, 0), (8, 0), (18, 0)) is False
+
+    def test_at_window_start(self) -> None:
+        # Inclusive start
+        assert timestamp_in_window(self._ts(8, 0), (8, 0), (18, 0)) is True
+
+    def test_at_window_end(self) -> None:
+        # Inclusive end
+        assert timestamp_in_window(self._ts(18, 0), (8, 0), (18, 0)) is True
+
+    def test_wrap_around_evening_side(self) -> None:
+        # 20:00-06:00 window, timestamp at 22:30 UTC
+        assert timestamp_in_window(self._ts(22, 30), (20, 0), (6, 0)) is True
+
+    def test_wrap_around_morning_side(self) -> None:
+        # 20:00-06:00 window, timestamp at 03:00 UTC
+        assert timestamp_in_window(self._ts(3, 0), (20, 0), (6, 0)) is True
+
+    def test_wrap_around_outside(self) -> None:
+        # 20:00-06:00 window, timestamp at 12:00 UTC (daytime)
+        assert timestamp_in_window(self._ts(12, 0), (20, 0), (6, 0)) is False
+
+    def test_timezone_conversion_shifts_hour(self) -> None:
+        # 20:00 UTC is 12:00 PST (UTC-8). Window 08:00-18:00 in PST should include it.
+        ts = datetime(2026, 3, 15, 20, 0, tzinfo=timezone.utc)
+        assert timestamp_in_window(ts, (8, 0), (18, 0), tz_name="America/Los_Angeles") is True
+
+    def test_unknown_timezone_falls_back(self) -> None:
+        # Invalid tz name should not raise; falls back to the ts's own tz.
+        ts = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
+        assert timestamp_in_window(ts, (8, 0), (18, 0), tz_name="Not/A/Zone") is True

@@ -213,8 +213,12 @@ This separation means that porting Orpheus to a new single-board computer (e.g.,
 | --- | --- | --- |
 | **macOS** (development / demo) | **[macOS Quick Start](docs/MACOS_QUICKSTART.md)** | ~15 min |
 | **Jetson Orin NX** (production) | **[Jetson Quick Start](docs/JETSON_QUICKSTART.md)** | ~30 min |
+| **Windows** (WSL2, untested) | **[Windows Quick Start](docs/WINDOWS_QUICKSTART.md)** | ~20 min\* |
+| **Linux** (dev/demo, untested) | **[Linux Quick Start](docs/LINUX_QUICKSTART.md)** | ~15 min\* |
 
-Both guides are self-contained — pick the one for your hardware and go.
+All guides are self-contained — pick the one for your hardware and go.
+
+\* *The Windows and Linux guides have not yet been verified end-to-end. They're published to give future contributors a starting point — expect rough edges and please open an issue or PR if you hit one.*
 
 ---
 

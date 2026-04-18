@@ -23,6 +23,7 @@ from orpheus_common.storage import (
     get_video_path,
     normalize_sensor_id,
 )
+from orpheus_common.utils.time import is_full_day, parse_hhmm, timestamp_in_window
 from pydantic import BaseModel, Field
 
 from orpheus_ui.auth.backend import current_active_user, current_user_or_token_param
@@ -661,42 +662,73 @@ def get_bird_history(
     days: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    species: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    tz: Optional[str] = None,
+    page: Optional[int] = None,
+    page_size: Optional[int] = None,
     user: User = Depends(current_active_user),
 ):
     """Get bird detection history with server-side aggregated stats.
 
-    Returns a limited detection list (2000 most recent) for table display,
-    plus aggregated stats (hourly activity, species distribution) computed
-    from the full date range so charts are not biased by the row cap.
+    Query params:
+      species: comma-separated species codes/common names to keep (case-insensitive).
+      start_time, end_time: HH:MM time-of-day window (interpreted in `tz`).
+        When start > end the window wraps midnight.
+      tz: IANA timezone name (e.g. "America/Los_Angeles") for interpreting start_time/end_time.
+      page, page_size: when both provided, return the given 1-indexed slice instead of
+        the legacy 2000-row cap; response adds page/page_size/total_pages.
+
+    Omitting page/page_size preserves the legacy response shape (first 2000 rows).
+    Omitting start_time/end_time or leaving them at 00:00/23:59 disables the time filter.
     """
     try:
         db = DetectionDB()
 
         if start_date:
-            start_time = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
             if end_date:
-                end_time = datetime.fromisoformat(end_date).replace(
+                end_dt = datetime.fromisoformat(end_date).replace(
                     hour=23, minute=59, second=59, tzinfo=timezone.utc
                 )
             else:
-                end_time = datetime.now(timezone.utc)
+                end_dt = datetime.now(timezone.utc)
         else:
             days = days or 7
-            start_time = datetime.now(timezone.utc) - timedelta(days=days)
-            end_time = datetime.now(timezone.utc)
+            start_dt = datetime.now(timezone.utc) - timedelta(days=days)
+            end_dt = datetime.now(timezone.utc)
+
+        species_allow: Optional[set] = None
+        if species:
+            species_allow = {
+                s.strip().lower() for s in species.split(",") if s.strip()
+            }
+            if not species_allow:
+                species_allow = None
+
+        # Time-of-day window (HH:MM in user's timezone). Applied AFTER the date range.
+        start_hhmm = parse_hhmm(start_time)
+        end_hhmm = parse_hhmm(end_time)
+        apply_time_window = (
+            start_hhmm is not None
+            and end_hhmm is not None
+            and not is_full_day(start_hhmm, end_hhmm)
+        )
 
         detections = db.query(
             detection_type="species.detected",
-            start_time=start_time,
-            end_time=end_time,
+            start_time=start_dt,
+            end_time=end_dt,
             limit=100000,
         )
 
         from collections import defaultdict
 
-        # Compute stats from the full dataset (no row cap)
+        # Compute stats from the full (possibly species-filtered) dataset
         hourly_counts: Dict[int, int] = defaultdict(int)
         species_counts: Dict[str, int] = defaultdict(int)
+        all_species_counts: Dict[str, int] = defaultdict(int)
         all_results = []
         filtered_count = 0
 
@@ -709,9 +741,28 @@ def get_bird_history(
                 filtered_count += 1
                 continue
 
-            # Accumulate stats across full dataset
-            hourly_counts[det.timestamp.hour] += 1
+            # Time-of-day filter (interpreted in user's tz) — applied before
+            # species accumulation so stats reflect the final filtered set.
+            if apply_time_window and not timestamp_in_window(
+                det.timestamp, start_hhmm, end_hhmm, tz
+            ):
+                continue
+
             display_name = det.species_common or det.species_code or species_code
+            # Always track the full (unfiltered-by-species) distribution so the
+            # frontend species-filter dropdown can list every species in range.
+            all_species_counts[display_name] += 1
+
+            # Species filter: apply AFTER is_bird_sound so non-bird rows stay filtered out.
+            if species_allow is not None:
+                if (
+                    species_common.lower() not in species_allow
+                    and species_code.lower() not in species_allow
+                    and display_name.lower() not in species_allow
+                ):
+                    continue
+
+            hourly_counts[det.timestamp.hour] += 1
             species_counts[display_name] += 1
 
             context = None
@@ -743,9 +794,24 @@ def get_bird_history(
             {"date": d, "count": daily_counts[d]} for d in sorted(daily_counts.keys())
         ]
 
-        # Most-recent 2000 for the table
+        # Sort descending so the table shows most-recent first
         all_results.sort(key=lambda x: x["timestamp"], reverse=True)
-        results = all_results[:2000]
+
+        # Pagination: opt-in via page+page_size. Otherwise preserve legacy 2000-row cap.
+        paged_response: Dict[str, Any] = {}
+        if page is not None and page_size is not None:
+            p = max(1, page)
+            ps = max(1, min(page_size, 1000))
+            total_pages = max(1, (total_count + ps - 1) // ps)
+            start_idx = (p - 1) * ps
+            results = all_results[start_idx : start_idx + ps]
+            paged_response = {
+                "page": p,
+                "page_size": ps,
+                "total_pages": total_pages,
+            }
+        else:
+            results = all_results[:2000]
 
         # Evenly-distributed scatter sample (max 500 points spanning full range)
         sorted_asc = sorted(all_results, key=lambda x: x["timestamp"])
@@ -772,12 +838,12 @@ def get_bird_history(
                 for i in range(500)
             ]
 
-        return {
+        response = {
             "detections": results,
             "count": total_count,
             "filtered_count": filtered_count,
-            "start_date": start_time.date().isoformat(),
-            "end_date": end_time.date().isoformat(),
+            "start_date": start_dt.date().isoformat(),
+            "end_date": end_dt.date().isoformat(),
             "scatter_sample": scatter_sample,
             "stats": {
                 "total_count": total_count,
@@ -785,8 +851,11 @@ def get_bird_history(
                 "hourly_activity": hourly_activity,
                 "daily_activity": daily_activity,
                 "species_distribution": dict(species_counts),
+                "all_species": dict(all_species_counts),
             },
         }
+        response.update(paged_response)
+        return response
     except Exception as e:
         logger.error("Failed to fetch bird history", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to fetch bird history: {e}")
@@ -797,32 +866,62 @@ def get_crow_stats(
     days: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    call_types: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    tz: Optional[str] = None,
+    page: Optional[int] = None,
+    page_size: Optional[int] = None,
     user: User = Depends(current_active_user),
 ):
     """Get crow detection statistics for dashboard visualization.
 
-    Returns aggregated statistics and a list of recent detections.
+    Query params:
+      call_types: comma-separated call_type values to keep (case-insensitive).
+      start_time, end_time: HH:MM time-of-day window (interpreted in `tz`).
+        When start > end the window wraps midnight.
+      tz: IANA timezone name for interpreting start_time/end_time.
+      page, page_size: when both provided, return the given 1-indexed slice instead of
+        the legacy 2000-row cap; response adds page/page_size/total_pages.
+
+    Omitting page/page_size preserves the legacy response shape (first 2000 rows).
     """
     try:
         db = DetectionDB()
 
         if start_date:
-            start_time = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
             if end_date:
-                end_time = datetime.fromisoformat(end_date).replace(
+                end_dt = datetime.fromisoformat(end_date).replace(
                     hour=23, minute=59, second=59, tzinfo=timezone.utc
                 )
             else:
-                end_time = datetime.now(timezone.utc)
+                end_dt = datetime.now(timezone.utc)
         else:
             days = days or 7
-            start_time = datetime.now(timezone.utc) - timedelta(days=days)
-            end_time = datetime.now(timezone.utc)
+            start_dt = datetime.now(timezone.utc) - timedelta(days=days)
+            end_dt = datetime.now(timezone.utc)
+
+        call_types_allow: Optional[set] = None
+        if call_types:
+            call_types_allow = {
+                s.strip().lower() for s in call_types.split(",") if s.strip()
+            }
+            if not call_types_allow:
+                call_types_allow = None
+
+        start_hhmm = parse_hhmm(start_time)
+        end_hhmm = parse_hhmm(end_time)
+        apply_time_window = (
+            start_hhmm is not None
+            and end_hhmm is not None
+            and not is_full_day(start_hhmm, end_hhmm)
+        )
 
         detections = db.query(
             detection_type="crow.analyzed",
-            start_time=start_time,
-            end_time=end_time,
+            start_time=start_dt,
+            end_time=end_dt,
             limit=100000,
         )
 
@@ -832,22 +931,36 @@ def get_crow_stats(
         hourly_counts: Dict[int, int] = defaultdict(int)
         daily_counts: Dict[str, int] = defaultdict(int)
         call_type_counts: Dict[str, int] = defaultdict(int)
+        all_call_type_counts: Dict[str, int] = defaultdict(int)
         intent_counts: Dict[str, int] = defaultdict(int)
 
         # Build detections list for table display
         detection_list = []
 
         for det in detections:
+            metadata = det.metadata or {}
+            attributes = metadata.get("attributes", {})
+            call_type = metadata.get("call_type") or "unknown"
+
+            # Always track the full distribution so the frontend dropdown can
+            # list every call_type present in the date range.
+            all_call_type_counts[call_type] += 1
+
+            if call_types_allow is not None and call_type.lower() not in call_types_allow:
+                continue
+
+            if apply_time_window and not timestamp_in_window(
+                det.timestamp, start_hhmm, end_hhmm, tz
+            ):
+                continue
+
             hour = det.timestamp.hour
             hourly_counts[hour] += 1
             daily_counts[det.timestamp.date().isoformat()] += 1
 
-            metadata = det.metadata or {}
-            attributes = metadata.get("attributes", {})
             age = attributes.get("age", "unknown") if attributes else "unknown"
             age_counts[age] += 1
 
-            call_type = metadata.get("call_type") or "unknown"
             call_type_counts[call_type] += 1
 
             intent = attributes.get("intent", "unknown") if attributes else "unknown"
@@ -884,9 +997,8 @@ def get_crow_stats(
         ]
 
         # Evenly-distributed scatter sample (max 500 points spanning full date range).
-        # Must be computed BEFORE truncating detection_list to 2000 so the sample
-        # spans all dates, not just the most-recent slice.
-        # Only include entries with non-null confidence so the chart has useful data.
+        # Must be computed BEFORE paginating so the sample spans all dates, not
+        # just the most-recent slice.  Only include entries with non-null confidence.
         sorted_asc = sorted(
             [d for d in detection_list if d["confidence"] is not None],
             key=lambda x: x["timestamp"],
@@ -912,22 +1024,41 @@ def get_crow_stats(
                 for i in range(500)
             ]
 
-        # Sort by timestamp descending and limit to 2000 most recent for the table
+        # Sort by timestamp descending (most-recent first) for the table
         detection_list.sort(key=lambda x: x["timestamp"], reverse=True)
-        detection_list = detection_list[:2000]
+        total_count = len(detection_list)
 
-        return {
-            "total_detections": len(detections),
+        # Pagination: opt-in via page+page_size. Otherwise preserve legacy 2000-row cap.
+        paged_response: Dict[str, Any] = {}
+        if page is not None and page_size is not None:
+            p = max(1, page)
+            ps = max(1, min(page_size, 1000))
+            total_pages = max(1, (total_count + ps - 1) // ps)
+            start_idx = (p - 1) * ps
+            detection_list = detection_list[start_idx : start_idx + ps]
+            paged_response = {
+                "page": p,
+                "page_size": ps,
+                "total_pages": total_pages,
+            }
+        else:
+            detection_list = detection_list[:2000]
+
+        response = {
+            "total_detections": total_count,
             "age_distribution": dict(age_counts),
             "hourly_activity": hourly_data,
             "daily_activity": daily_activity,
             "call_types": dict(call_type_counts),
+            "all_call_types": dict(all_call_type_counts),
             "intents": dict(intent_counts),
             "detections": detection_list,
             "scatter_sample": scatter_sample,
-            "start_date": start_time.date().isoformat(),
-            "end_date": end_time.date().isoformat(),
+            "start_date": start_dt.date().isoformat(),
+            "end_date": end_dt.date().isoformat(),
         }
+        response.update(paged_response)
+        return response
     except Exception as e:
         logger.error("Failed to fetch crow stats", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to fetch crow stats: {e}")

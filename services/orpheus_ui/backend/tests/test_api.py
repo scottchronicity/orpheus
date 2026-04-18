@@ -1598,3 +1598,428 @@ class TestEntitiesAPI:
         call_kwargs = mock_compute_stats.call_args[1]
         assert call_kwargs.get("exclude_species") is None  # no filter in this call
         assert call_kwargs.get("species") is None
+
+
+class TestBirdHistoryEndpoint:
+    """Tests for the /api/data/birds/history endpoint query params.
+
+    Covers: backward-compat (no page/page_size -> legacy 2000 cap),
+    server-side pagination, and the species filter.
+    """
+
+    def _make_detection(self, timestamp, species_code, species_common, confidence=0.9):
+        from datetime import datetime as _dt
+
+        from orpheus_common.detection.models import Detection
+
+        if isinstance(timestamp, str):
+            timestamp = _dt.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return Detection(
+            timestamp=timestamp,
+            detection_type="species.detected",
+            channel=1,
+            species_code=species_code,
+            species_common=species_common,
+            confidence=confidence,
+            audio_clip_path=None,
+        )
+
+    def _fake_db(self, detections):
+        mock_db = MagicMock()
+        mock_db.query.return_value = detections
+        return mock_db
+
+    def test_legacy_shape_when_no_pagination_params(self):
+        """Omitting page/page_size preserves the original response shape (2000-cap)."""
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_detection("2026-01-01T12:00:00+00:00", "amecro", "American Crow"),
+            self._make_detection("2026-01-02T12:00:00+00:00", "norcar", "Northern Cardinal"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-07",
+                user=mock_user,
+            )
+
+        assert "detections" in result
+        assert "stats" in result
+        assert result["stats"]["total_count"] == 2
+        assert "page" not in result
+        assert "page_size" not in result
+        assert "total_pages" not in result
+        assert "all_species" in result["stats"]
+
+    def test_pagination_slices_detections(self):
+        """page+page_size returns the 1-indexed slice and total_pages."""
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_detection(
+                f"2026-01-{i:02d}T12:00:00+00:00", "amecro", "American Crow"
+            )
+            for i in range(1, 11)
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            page1 = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                page=1,
+                page_size=3,
+                user=mock_user,
+            )
+            page2 = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                page=2,
+                page_size=3,
+                user=mock_user,
+            )
+
+        assert page1["page"] == 1
+        assert page1["page_size"] == 3
+        assert page1["total_pages"] == 4  # ceil(10/3)
+        assert len(page1["detections"]) == 3
+        assert page1["stats"]["total_count"] == 10
+
+        assert page2["page"] == 2
+        assert len(page2["detections"]) == 3
+        # Most-recent-first sort: page1 should contain newer timestamps than page2
+        assert page1["detections"][0]["timestamp"] > page2["detections"][0]["timestamp"]
+
+    def test_species_filter_keeps_only_matching_rows(self):
+        """species=csv filters detections to the listed species (case-insensitive)."""
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_detection("2026-01-01T12:00:00+00:00", "amecro", "American Crow"),
+            self._make_detection("2026-01-02T12:00:00+00:00", "norcar", "Northern Cardinal"),
+            self._make_detection("2026-01-03T12:00:00+00:00", "amecro", "American Crow"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                species="American Crow",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 2
+        assert all(d["species_common"] == "American Crow" for d in result["detections"])
+        # all_species should still include both species so the dropdown stays populated
+        assert set(result["stats"]["all_species"].keys()) == {
+            "American Crow",
+            "Northern Cardinal",
+        }
+        # species_distribution reflects the filter
+        assert set(result["stats"]["species_distribution"].keys()) == {"American Crow"}
+
+    def test_species_filter_matches_species_code(self):
+        """Species filter also matches on species_code, not just common name."""
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_detection("2026-01-01T12:00:00+00:00", "amecro", "American Crow"),
+            self._make_detection("2026-01-02T12:00:00+00:00", "norcar", "Northern Cardinal"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                species="amecro",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 1
+        assert result["detections"][0]["species_code"] == "amecro"
+
+    def test_non_bird_sounds_still_filtered(self):
+        """is_bird_sound filter must run before species filter, not after."""
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_detection("2026-01-01T12:00:00+00:00", "human", "Human whistle"),
+            self._make_detection("2026-01-02T12:00:00+00:00", "amecro", "American Crow"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 1
+        assert result["filtered_count"] == 1
+
+
+class TestCrowStatsEndpoint:
+    """Tests for the /api/data/crows/stats endpoint query params."""
+
+    def _make_crow_detection(self, timestamp, call_type, confidence=0.8):
+        from datetime import datetime as _dt
+
+        from orpheus_common.detection.models import Detection
+
+        if isinstance(timestamp, str):
+            timestamp = _dt.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return Detection(
+            timestamp=timestamp,
+            detection_type="crow.analyzed",
+            channel=1,
+            confidence=confidence,
+            audio_clip_path=None,
+            metadata={"call_type": call_type, "attributes": {"age": "adult"}},
+        )
+
+    def _fake_db(self, detections):
+        mock_db = MagicMock()
+        mock_db.query.return_value = detections
+        return mock_db
+
+    def test_legacy_shape_when_no_pagination_params(self):
+        from orpheus_ui.api.diagnostics import get_crow_stats
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_crow_detection("2026-01-01T12:00:00+00:00", "caw"),
+            self._make_crow_detection("2026-01-02T12:00:00+00:00", "rattle"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_crow_stats(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                user=mock_user,
+            )
+
+        assert "page" not in result
+        assert result["total_detections"] == 2
+        assert "all_call_types" in result
+        assert set(result["all_call_types"].keys()) == {"caw", "rattle"}
+
+    def test_call_types_filter(self):
+        from orpheus_ui.api.diagnostics import get_crow_stats
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_crow_detection("2026-01-01T12:00:00+00:00", "caw"),
+            self._make_crow_detection("2026-01-02T12:00:00+00:00", "rattle"),
+            self._make_crow_detection("2026-01-03T12:00:00+00:00", "caw"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_crow_stats(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                call_types="caw",
+                user=mock_user,
+            )
+
+        assert result["total_detections"] == 2
+        assert all(d["call_type"] == "caw" for d in result["detections"])
+        # all_call_types unfiltered so dropdown still shows both
+        assert set(result["all_call_types"].keys()) == {"caw", "rattle"}
+        # call_types (filtered distribution) only has caw
+        assert set(result["call_types"].keys()) == {"caw"}
+
+    def test_pagination_slices_detections(self):
+        from orpheus_ui.api.diagnostics import get_crow_stats
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._make_crow_detection(f"2026-01-{i:02d}T12:00:00+00:00", "caw")
+            for i in range(1, 11)
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            page1 = get_crow_stats(
+                start_date="2026-01-01",
+                end_date="2026-01-31",
+                page=1,
+                page_size=4,
+                user=mock_user,
+            )
+
+        assert page1["page"] == 1
+        assert page1["page_size"] == 4
+        assert page1["total_pages"] == 3  # ceil(10/4)
+        assert len(page1["detections"]) == 4
+        assert page1["total_detections"] == 10
+
+
+class TestTimeOfDayFilter:
+    """Endpoint-level tests for the start_time/end_time/tz query params."""
+
+    def _bird_detection(self, ts_iso):
+        from datetime import datetime as _dt
+
+        from orpheus_common.detection.models import Detection
+
+        ts = _dt.fromisoformat(ts_iso.replace("Z", "+00:00"))
+        return Detection(
+            timestamp=ts,
+            detection_type="species.detected",
+            channel=1,
+            species_code="amecro",
+            species_common="American Crow",
+            confidence=0.9,
+            audio_clip_path=None,
+        )
+
+    def _crow_detection(self, ts_iso, call_type="caw"):
+        from datetime import datetime as _dt
+
+        from orpheus_common.detection.models import Detection
+
+        ts = _dt.fromisoformat(ts_iso.replace("Z", "+00:00"))
+        return Detection(
+            timestamp=ts,
+            detection_type="crow.analyzed",
+            channel=1,
+            confidence=0.8,
+            audio_clip_path=None,
+            metadata={"call_type": call_type, "attributes": {"age": "adult"}},
+        )
+
+    def _fake_db(self, detections):
+        mock_db = MagicMock()
+        mock_db.query.return_value = detections
+        return mock_db
+
+    def test_birds_time_window_keeps_daytime_only(self):
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._bird_detection("2026-03-15T03:00:00+00:00"),  # night (UTC)
+            self._bird_detection("2026-03-15T10:00:00+00:00"),  # day
+            self._bird_detection("2026-03-15T22:00:00+00:00"),  # night
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-03-15",
+                end_date="2026-03-15",
+                start_time="08:00",
+                end_time="18:00",
+                tz="UTC",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 1
+        assert result["detections"][0]["timestamp"].startswith("2026-03-15T10:00")
+
+    def test_birds_time_window_wraps_midnight(self):
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._bird_detection("2026-03-15T03:00:00+00:00"),  # early morning
+            self._bird_detection("2026-03-15T12:00:00+00:00"),  # daytime (excluded)
+            self._bird_detection("2026-03-15T22:00:00+00:00"),  # evening
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-03-15",
+                end_date="2026-03-15",
+                start_time="20:00",
+                end_time="06:00",  # wraps midnight
+                tz="UTC",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 2
+        times = {d["timestamp"][11:16] for d in result["detections"]}
+        assert times == {"03:00", "22:00"}
+
+    def test_birds_full_day_window_is_noop(self):
+        from orpheus_ui.api.diagnostics import get_bird_history
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._bird_detection("2026-03-15T03:00:00+00:00"),
+            self._bird_detection("2026-03-15T22:00:00+00:00"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_bird_history(
+                start_date="2026-03-15",
+                end_date="2026-03-15",
+                start_time="00:00",
+                end_time="23:59",
+                tz="UTC",
+                user=mock_user,
+            )
+
+        assert result["stats"]["total_count"] == 2
+
+    def test_crows_time_window_keeps_evening(self):
+        from orpheus_ui.api.diagnostics import get_crow_stats
+        from orpheus_ui.auth.models import User
+
+        detections = [
+            self._crow_detection("2026-03-15T10:00:00+00:00"),
+            self._crow_detection("2026-03-15T21:00:00+00:00"),
+        ]
+        mock_user = MagicMock(spec=User)
+        with patch(
+            "orpheus_ui.api.diagnostics.DetectionDB",
+            return_value=self._fake_db(detections),
+        ):
+            result = get_crow_stats(
+                start_date="2026-03-15",
+                end_date="2026-03-15",
+                start_time="18:00",
+                end_time="23:59",
+                tz="UTC",
+                user=mock_user,
+            )
+
+        assert result["total_detections"] == 1
+        assert result["detections"][0]["timestamp"].startswith("2026-03-15T21:00")

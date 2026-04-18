@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from orpheus_common.detection import DetectionDB
 from orpheus_common.logging import get_logger
+from orpheus_common.utils.time import is_full_day, parse_hhmm, timestamp_in_window
 
 from orpheus_ui.auth.backend import current_active_user
 from orpheus_ui.auth.models import User
@@ -43,6 +44,9 @@ def _compute_entity_stats(
     end_time: Optional[datetime] = None,
     species: Optional[str] = None,
     exclude_species: Optional[str] = None,
+    start_hhmm: Optional[tuple] = None,
+    end_hhmm: Optional[tuple] = None,
+    tz: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compute aggregated chart stats for all entities in the date range (no limit).
 
@@ -125,6 +129,45 @@ def _compute_entity_stats(
             params,
         )
         all_scatter_rows = cursor.fetchall()
+
+        # If a time-of-day window is active, filter the rows and recompute
+        # all aggregates in Python. The SQL GROUP BY above has already run
+        # but its results are replaced for consistency with the filtered view.
+        apply_time_window = (
+            start_hhmm is not None
+            and end_hhmm is not None
+            and not is_full_day(start_hhmm, end_hhmm)
+        )
+        if apply_time_window:
+            filtered_rows = []
+            hourly_counts: Dict[int, int] = defaultdict(int)
+            daily_counts: Dict[str, int] = defaultdict(int)
+            species_counts: Dict[str, int] = defaultdict(int)
+            for r in all_scatter_rows:
+                ts_str = r["timestamp"]
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                if not timestamp_in_window(ts, start_hhmm, end_hhmm, tz):
+                    continue
+                filtered_rows.append(r)
+                # For hourly activity we use the timestamp's own hour field
+                # (same semantics as the legacy SQL GROUP BY, which used UTC).
+                hourly_counts[ts.hour] += 1
+                daily_counts[ts.date().isoformat()] += 1
+                species_counts[r["name"]] += 1
+            total = len(filtered_rows)
+            hourly_activity = [{"hour": h, "count": hourly_counts[h]} for h in range(24)]
+            daily_activity = [
+                {"date": d, "count": daily_counts[d]} for d in sorted(daily_counts.keys())
+            ]
+            species_dist = dict(species_counts)
+            unique_species = set(species_counts.keys())
+            all_scatter_rows = filtered_rows
+
         n_scatter = len(all_scatter_rows)
         if n_scatter <= 500:
             scatter_sample = [
@@ -172,6 +215,52 @@ def _empty_stats() -> Dict[str, Any]:
     }
 
 
+def _compute_all_species_in_range(
+    db: DetectionDB,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> Dict[str, int]:
+    """Return species_name -> count for the date range, ignoring filters.
+
+    Used to populate the species-filter dropdown so the full list of species
+    available in the range stays visible even after the user narrows the
+    selection.
+    """
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(str(db.db_path))
+    conn.row_factory = _sqlite3.Row
+    try:
+        cursor = conn.cursor()
+        where_clauses = ["1=1"]
+        params: list = []
+        if start_time:
+            ts = start_time.replace(microsecond=0)
+            if ts.tzinfo is None:
+                from datetime import timezone
+
+                ts = ts.replace(tzinfo=timezone.utc)
+            where_clauses.append("timestamp >= ?")
+            params.append(ts.isoformat())
+        if end_time:
+            ts = end_time.replace(microsecond=999999)
+            if ts.tzinfo is None:
+                from datetime import timezone
+
+                ts = ts.replace(tzinfo=timezone.utc)
+            where_clauses.append("timestamp <= ?")
+            params.append(ts.isoformat())
+        where = " AND ".join(where_clauses)
+        cursor.execute(
+            f"SELECT COALESCE(NULLIF(common_name,''), species) as name, COUNT(*) as count "
+            f"FROM entities WHERE {where} GROUP BY species ORDER BY count DESC",
+            params,
+        )
+        return {r["name"]: r["count"] for r in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
 def on_entity_event_message(topic: str, payload: Dict[str, Any]) -> None:
     """Handle entity event messages from MQTT (orpheus/entities/animal).
 
@@ -193,42 +282,59 @@ def get_entities(
     ),
     start_date: Optional[str] = Query(None, description="Start date (ISO 8601)"),
     end_date: Optional[str] = Query(None, description="End date (ISO 8601)"),
+    start_time: Optional[str] = Query(
+        None, description="Time-of-day start, HH:MM in the tz given by `tz`."
+    ),
+    end_time: Optional[str] = Query(
+        None, description="Time-of-day end, HH:MM. If start > end the window wraps midnight."
+    ),
+    tz: Optional[str] = Query(
+        None, description="IANA timezone for interpreting start_time/end_time."
+    ),
     limit: int = Query(2000, description="Maximum results"),
     user: User = Depends(current_active_user),
 ) -> Dict[str, Any]:
     """Get entity events from the database.
 
-    Supports filtering by species, exclude_species, start_date and end_date
-    so that the Bird and Crow pages can fetch only the data they need.
+    Supports filtering by species, exclude_species, date range, and an optional
+    time-of-day window.
     """
     try:
         db = _get_db()
 
-        start_time: Optional[datetime] = None
-        end_time: Optional[datetime] = None
+        start_dt: Optional[datetime] = None
+        end_dt: Optional[datetime] = None
 
         if start_date:
             try:
-                start_time = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-                if start_time.tzinfo is None:
-                    start_time = start_time.replace(tzinfo=timezone.utc)
+                start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_date format")
         if end_date:
             try:
-                end_time = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-                if end_time.tzinfo is None:
-                    end_time = end_time.replace(tzinfo=timezone.utc)
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
                 # Set to end of day (23:59:59.999999) to include all events on end_date
-                end_time = end_time.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid end_date format")
+
+        start_hhmm = parse_hhmm(start_time)
+        end_hhmm = parse_hhmm(end_time)
+        apply_time_window = (
+            start_hhmm is not None
+            and end_hhmm is not None
+            and not is_full_day(start_hhmm, end_hhmm)
+        )
 
         entities = db.get_entities(
             species=species,
             exclude_species=exclude_species,
-            start_time=start_time,
-            end_time=end_time,
+            start_time=start_dt,
+            end_time=end_dt,
             limit=limit,
         )
 
@@ -246,6 +352,20 @@ def get_entities(
         # Enrich each entity with aggregated metadata from its evidence.
         entity_dicts: List[Dict[str, Any]] = []
         for ent in entities:
+            if apply_time_window:
+                ts = ent.timestamp if isinstance(ent.timestamp, datetime) else None
+                if ts is None:
+                    try:
+                        ts = datetime.fromisoformat(str(ent.timestamp).replace("Z", "+00:00"))
+                    except Exception:
+                        ts = None
+                if ts is None:
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if not timestamp_in_window(ts, start_hhmm, end_hhmm, tz):
+                    continue
+
             # Aggregate metadata from all evidence detections
             metadata_agg = _aggregate_evidence_metadata(ent, detection_metadata)
 
@@ -265,18 +385,29 @@ def get_entities(
             )
 
         # Compute aggregated stats for charts (runs over full date range, no row limit).
-        # Pass species filters so stats and scatter_sample match the filtered view.
+        # Pass species + time filters so stats and scatter_sample match the filtered view.
         try:
             stats = _compute_entity_stats(
                 db,
-                start_time,
-                end_time,
+                start_dt,
+                end_dt,
                 species=species,
                 exclude_species=exclude_species,
+                start_hhmm=start_hhmm if apply_time_window else None,
+                end_hhmm=end_hhmm if apply_time_window else None,
+                tz=tz if apply_time_window else None,
             )
         except Exception as stats_err:
             logger.warning("Failed to compute entity stats", error=str(stats_err))
             stats = _empty_stats()
+
+        # Always include the unfiltered species distribution so the frontend
+        # dropdown stays fully populated even after the user narrows the selection.
+        try:
+            stats["all_species"] = _compute_all_species_in_range(db, start_dt, end_dt)
+        except Exception as all_species_err:
+            logger.warning("Failed to compute all_species", error=str(all_species_err))
+            stats.setdefault("all_species", {})
 
         # scatter_sample comes from _compute_entity_stats which queries the full
         # date range without the per-request row cap, so it spans all dates.
