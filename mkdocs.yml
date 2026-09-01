@@ -1,0 +1,206 @@
+site_name: Orpheus
+# This is the meta description: what a search result and every link preview shows,
+# before anyone reaches the front page. Keep it the public one-liner from README.md.
+site_description: >-
+  Orpheus listens to a place and tells you what is there — several machine-learning
+  models over live audio and video, reconciled into one entry per real animal. It runs
+  on hardware you own, and the recordings stay there.
+# Published from the public repository to GitHub Pages, which serves it from a
+# subpath. Without site_url the search index and canonical links resolve against
+# the domain root and 404.
+site_url: https://scottchronicity.github.io/orpheus/docs/
+docs_dir: docs
+# AGENTS.md / CLAUDE.md / README.md / CODING_AGENT_CONTEXT.md stay at the repo root
+# (auto-loaders). They are surfaced in the site via include-markdown stubs under
+# docs/ — never moved, never copied.
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - toc.follow
+  # Follows the reader's system preference; the toggle overrides it. Both schemes
+  # take their colours from docs/stylesheets/extra.css.
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-sunny, name: Light mode }
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - include-markdown:           # inline root-pinned files in place (no fork, no move)
+      # Custom delimiters: design docs contain default-syntax {% include-markdown %}
+      # EXAMPLES that must render as text, not execute. Only our stubs use {! … !}.
+      opening_tag: "{!"
+      closing_tag: "!}"
+
+# Build-time link rewrite for the inlined root files (single-source; sources unchanged).
+hooks:
+  - docs/_hooks.py
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight: { anchor_linenums: true }
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.tasklist: { custom_checkbox: true }
+  - tables
+  - toc: { permalink: true }
+  - attr_list
+  - md_in_html
+
+# Hard-gate nav + in-site links; warn on intentional ../-escaping references to the
+# source tree (component READMEs etc.) that are deliberately not in the doc site.
+validation:
+  nav:
+    not_found: warn        # under --strict this fails the build on a bad nav path
+    omitted_files: info
+  links:
+    # Source-tree pointers are now absolute GitHub URLs rather than ../-escapes,
+    # so a relative link that does not resolve is a real defect. warn surfaces it
+    # in the build log without failing --strict on the remaining stragglers.
+    not_found: warn
+    absolute_links: ignore
+    unrecognized_links: ignore
+
+# Build tooling + the deprecated root-dup, kept out of the rendered site.
+exclude_docs: |
+  _hooks.py
+  requirements-docs.txt
+  /README.md
+  # Internal planning. Not a page, so nav rules do not cover it — without this
+  # line MkDocs copies it verbatim to the published site.
+  backlog.json
+
+# Present in docs/ but intentionally not in the nav.
+not_in_nav: |
+  AGENTS.md
+  README.md
+  copilot-workspace-instructions/**
+
+nav:
+  - Home: index.md
+  - What's new: whats-new.md
+  - How Orpheus compares: comparison.md
+  # Audience-first. Operator's Manual = install/deploy/run/monitor; User Guide =
+  # using the dashboard; Architecture/Contributing/Process = building Orpheus
+  # (humans and coding agents read the same tree — there is no shadow doc set).
+  - Operator's Manual:
+      - Overview: operator-manual/index.md
+      - Installation: INSTALLATION.md
+      - Installing with an AI assistant: llm-assisted-install.md
+      - Quickstarts:
+          - macOS: MACOS_QUICKSTART.md
+          - Linux: LINUX_QUICKSTART.md
+          - Windows: WINDOWS_QUICKSTART.md
+          - Jetson: JETSON_QUICKSTART.md
+      - Deployment: DEPLOYMENT.md
+      - Security: security.md
+      - Logging: LOGGING.md
+      - Version Compatibility: version-compat-matrix.md
+      - Runbooks:
+          - Overview: runbooks/README.md
+          - Laptop verification (pre-deploy): runbooks/laptop-verification.md
+          - Jetson upgrade checklist (one page): runbooks/jetson-upgrade-checklist.md
+          - Jetson rollout (with backups): runbooks/jetson-rollout.md
+          - Jetson rollback: runbooks/jetson-rollback.md
+          - What's new — testing tour: runbooks/whats-new-testing-tour.md
+          - Cross-classifier-identity deploy: runbooks/cross-classifier-identity-deploy.md
+          - Backbone on the NUC: runbooks/distributed-backbone-on-nuc.md
+          - Agents split across hosts: runbooks/distributed-agents-split.md
+          - Portal on its own host: runbooks/distributed-portal.md
+          - Ollama local-LLM guidance: runbooks/ollama-local-llm.md
+  - User Guide:
+      - Overview: user-guide/index.md
+  - Architecture & Design:
+      - Overview: ARCHITECTURE.md
+      - The dashboard service: ORPHEUS_UI.md
+      - Data Models: Orpheus_Standard_Data_Models.md
+      - Event Schemas: schemas/README.md
+      - Decision Records (ADRs):
+          - adr/README.md
+          - adr/0001-documentation-and-instruction-consolidation.md
+          - adr/0002-video-snapshot-architecture.md
+          - adr/0003-timelapse-generation-architecture.md
+          - adr/0004-jetson-video-codec-strategy.md
+          - adr/0005-event-driven-architecture-and-context.md
+          - adr/0006-event-hierarchy-and-taxonomy.md
+          - adr/0007-timelapse-scheduling-race-condition-and-label-requirement.md
+          - adr/0008-shared-makefile-deploy-logic.md
+          - adr/0009-uv-python-version-management.md
+          - adr/0010-birdnet-multi-label-and-soft-geo-admit.md
+          - adr/0011-temporal-localisation-and-taxonomy-references.md
+          - adr/0012-agents-own-their-detection-stream.md
+          - adr/0013-source-identity-entities.md
+          - adr/0014-independent-component-versioning.md
+          - adr/0015-event-bus-abstraction.md
+          - adr/0016-entity-type-taxonomy.md
+          - adr/0017-actor-model-nats-backplane.md
+          - adr/0018-distributed-backplane-and-config-service.md
+      - Design Docs:
+          - designs/README.md
+          - designs/actor-model-and-control-plane.md
+          - designs/observability-and-event-sourcing.md
+          - designs/event-sourcing-determinism-contract.md
+          - designs/distributed-and-config-service.md
+          - designs/distributed-deployment.md
+          - designs/read-only-portal.md
+          - designs/cross-classifier-identity.md
+          - designs/entity-source-identity.md
+          - designs/audio-events-agent.md
+          - designs/sim-test-matrix.md
+          - designs/storage-retention.md
+  - Coding & Contributing:
+      - Contributing: contributing.md
+      - Voice & Audience: contributing/voice-and-audience.md
+      - Pre-release Review Lenses: contributing/release-review.md
+      - Docs Review — Outstanding: contributing/docs-review-outstanding.md
+      - Agent Index (AGENTS.md): agents-index.md
+      - Agent Instructions: agent-instructions/README.md
+      - Non-Negotiables: agent-instructions/00-non-negotiables.md
+      - Tooling: agent-instructions/10-tooling.md
+      - Testing: agent-instructions/11-testing.md
+      - Test Conventions: TESTING.md
+      - Git & LFS: agent-instructions/12-git-and-lfs.md
+      - CI/CD: agent-instructions/13-ci-cd.md
+      - CI Workflows: CI_WORKFLOWS.md
+      - Architecture (agent): agent-instructions/20-architecture.md
+      - Event Bus & Data Flow: agent-instructions/21-event-bus-and-data-flow.md
+      - Schema & Migrations: agent-instructions/22-schema-and-migrations.md
+      - Recipes:
+          - Adding an Agent: agent-instructions/30-recipes-adding-agent.md
+          - Schema Changes: agent-instructions/31-recipes-schema-changes.md
+          - Frontend Page: agent-instructions/32-recipes-frontend-page.md
+      - Deployment (agent): agent-instructions/40-deployment.md
+      - Gotchas: agent-instructions/99-gotchas.md
+  - Project:
+      - README: project-readme.md
+      - Changelog: changelog.md
+      - Code of Conduct: code-of-conduct.md
+      - Reporting a vulnerability: project-security-policy.md

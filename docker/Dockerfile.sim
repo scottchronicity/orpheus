@@ -1,0 +1,12 @@
+# Simulacrum sim-source image (build context = repo root). Installs orpheus-common
+# and runs the synthetic-detection driver that exercises the collective.
+FROM python:3.9-slim
+
+WORKDIR /opt/orpheus
+ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+
+COPY platform/orpheus-common ./platform/orpheus-common
+RUN pip install ./platform/orpheus-common
+COPY docker/sim-source/sim_source.py ./sim_source.py
+
+CMD ["python", "sim_source.py"]

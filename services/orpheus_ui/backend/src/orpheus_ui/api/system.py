@@ -11,14 +11,18 @@ import time
 from typing import List, Optional
 
 import psutil
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from orpheus_common.hardware.storage import get_storage_hardware_info
 from orpheus_common.logging import get_logger
+from orpheus_common.system import list_storage_volumes
 from orpheus_common.system.health import get_data_storage_usage
 from pydantic import BaseModel
 
+from orpheus_ui.api._responses import set_cache_control
 from orpheus_ui.auth.backend import current_active_user
 from orpheus_ui.auth.models import User
+from orpheus_ui.storage_categories import build_headroom_payload
+from orpheus_ui.storage_history import compute_rate_and_projection, get_storage_history_db
 
 logger = get_logger(__name__)
 
@@ -112,6 +116,111 @@ def get_health(user: User = Depends(current_active_user)):
 def get_storage_data(user: User = Depends(current_active_user)):
     """Get storage usage for the external data drive."""
     return get_data_storage_usage()
+
+
+class StorageHistoryPoint(BaseModel):
+    """One daily storage sample."""
+
+    day: str
+    total_bytes: Optional[int] = None
+    used_bytes: Optional[int] = None
+    free_bytes: Optional[int] = None
+
+
+class StorageVolumeTrend(BaseModel):
+    """Current usage + daily history + fill-rate projection for one volume."""
+
+    key: str
+    label: str
+    path: str
+    total: Optional[int] = None
+    used: Optional[int] = None
+    free: Optional[int] = None
+    percent: float = 0.0
+    ok: bool = True
+    error: Optional[str] = None
+    series: List[StorageHistoryPoint] = []
+    # Signed slope of free space: negative = filling up. None until there
+    # are at least two days of history.
+    free_bytes_per_day: Optional[float] = None
+    # Days until free space hits zero at the current rate. None when free
+    # space is flat/growing, or before there's enough history.
+    projected_days_until_full: Optional[float] = None
+
+
+class StorageHistoryResponse(BaseModel):
+    """Per-volume storage trends over the requested window."""
+
+    days: int
+    volumes: List[StorageVolumeTrend]
+
+
+@router.get("/system/storage/history", response_model=StorageHistoryResponse)
+def get_storage_history(
+    days: int = 30,
+    response: Response = None,  # type: ignore[assignment]
+    user: User = Depends(current_active_user),
+):
+    """Daily storage history + fill-rate projection for every tracked volume.
+
+    For each storage space (system, orpheus data, …) returns its current
+    usage, the daily free-space series over the last ``days`` days, and —
+    once there are at least two days of history — the rate free space is
+    changing and the projected days until full. History is forward-looking:
+    it starts accumulating the day the sampler first runs.
+    """
+    days = max(1, min(days, 365))
+    # Storage data updates ~daily so a 30s browser cache absorbs the
+    # 60s react-query poll on Diagnostics without staleness mattering.
+    # Matches the Cache-Control pattern used on the data history
+    # endpoints in api/diagnostics.py.
+    if response is not None:
+        # Storage history polls slower than the data-history endpoints, so it
+        # keeps its own max-age=30 / swr=60 rather than the shared 3x default —
+        # see api/_responses.set_cache_control.
+        set_cache_control(response, max_age=30, stale_while_revalidate=60)
+    db = get_storage_history_db()
+    volumes = []
+    for vol in list_storage_volumes():
+        series = db.history(vol["key"], days=days)
+        projection = compute_rate_and_projection(series, vol.get("free"))
+        volumes.append(
+            StorageVolumeTrend(
+                key=vol["key"],
+                label=vol["label"],
+                path=vol["path"],
+                total=vol.get("total"),
+                used=vol.get("used"),
+                free=vol.get("free"),
+                percent=vol.get("percent", 0.0),
+                ok=vol.get("ok", False),
+                error=vol.get("error"),
+                series=[StorageHistoryPoint(**p) for p in series],
+                free_bytes_per_day=projection["free_bytes_per_day"],
+                projected_days_until_full=projection["projected_days_until_full"],
+            )
+        )
+    return StorageHistoryResponse(days=days, volumes=volumes)
+
+
+@router.get("/system/storage/headroom")
+def get_storage_headroom(
+    response: Response = None,  # type: ignore[assignment]
+    user: User = Depends(current_active_user),
+):
+    """What each recording category is using, and which of them get trimmed.
+
+    Serves the report orpheus-storage-sweep published on its last run —
+    nothing here walks the filesystem, because the sweep already surveys the
+    data root every few minutes and already holds the retention policy. Every
+    category has a size; only some have a ceiling, and the payload keeps those
+    two facts apart. Values carry the timestamp of the run that measured them.
+    """
+    if response is not None:
+        # The report refreshes on the sweep cadence (minutes), so a short
+        # browser cache costs nothing and absorbs the Diagnostics poll.
+        set_cache_control(response, max_age=30, stale_while_revalidate=60)
+    return build_headroom_payload()
 
 
 @router.get("/hardware/storage")

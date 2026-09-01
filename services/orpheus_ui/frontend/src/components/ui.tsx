@@ -5,7 +5,7 @@
  * to ensure consistency and reduce code duplication.
  */
 import { type ReactNode } from 'react'
-import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, RefreshCw, type LucideIcon } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 /**
@@ -264,32 +264,52 @@ export function ProgressBar({
 /**
  * Pagination controls: Previous / Page N of M / Next.
  * Only renders when totalPages > 1.
+ *
+ * ``isLoading`` (default false) — when true, both buttons are disabled
+ * and a small spinner replaces the "Page N of M" label. Wire it from
+ * react-query's ``isFetching`` so the user sees feedback while a slow
+ * page-change request is in flight. Without this, ``placeholderData:
+ * previousData`` (used on all detection-history pages) hides the fact
+ * that anything is happening — the previous page's rows stay visible
+ * and clicking Next appears to do nothing for several seconds.
  */
 export function Pagination({
   page,
   totalPages,
   onPageChange,
+  isLoading = false,
 }: {
   page: number
   totalPages: number
   onPageChange: (p: number) => void
+  isLoading?: boolean
 }) {
   if (totalPages <= 1) return null
+  const disablePrev = isLoading || page <= 1
+  const disableNext = isLoading || page >= totalPages
   return (
     <div className="flex items-center justify-center gap-4 pt-4">
       <button
         onClick={() => onPageChange(Math.max(1, page - 1))}
-        disabled={page <= 1}
+        disabled={disablePrev}
         aria-label="Previous"
         className="flex items-center gap-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors"
       >
         <ChevronLeft className="w-4 h-4" />
         Previous
       </button>
-      <span className="text-sm text-slate-400">Page {page} of {totalPages}</span>
+      <span
+        className="text-sm text-slate-400 flex items-center gap-2 min-w-[8rem] justify-center"
+        aria-live="polite"
+      >
+        {isLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden />}
+        <span>
+          Page {page} of {totalPages}
+        </span>
+      </span>
       <button
         onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-        disabled={page >= totalPages}
+        disabled={disableNext}
         aria-label="Next"
         className="flex items-center gap-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors"
       >

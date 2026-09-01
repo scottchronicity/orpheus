@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Settings, User, Shield, Database, Bell, Code, ChevronDown, ChevronRight } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { Card, CardHeader, PageHeader } from '../components/ui'
 
 /**
@@ -49,10 +49,7 @@ export default function SettingsPage() {
   // Fetch runtime configuration
   const { data: debugConfig, isLoading: configLoading } = useQuery<Record<string, unknown>>({
     queryKey: ['debug-config'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/debug/config')
-      return res.json()
-    },
+    queryFn: () => fetchJson<Record<string, unknown>>('/api/debug/config'),
     staleTime: 60000, // Cache for 1 minute
   })
 

@@ -1,0 +1,45 @@
+# Distributed-topology overlay for the Simulacrum (docs/designs/distributed-deployment.md §3).
+#
+# Layered over docker-compose.dev.yml to validate the per-host distributed config
+# WITHOUT real hosts:
+#   - the backbone is reached by a STAND-IN hostname (backbone-nuc), a network
+#     alias decoupled from the compose service name — standing in for a real NUC;
+#   - agents are pointed at it via the PRODUCTION env seam
+#     (ORPHEUS_EVENT_BUS__NATS_URL) — the exact string `make install-host
+#     BACKBONE=...` writes into /opt/orpheus/config/.env — overriding sim.yaml's
+#     nats_url, so this exercises config.py's env-override path, not a compose
+#     shortcut;
+#   - cold-broker reconnect (E3) is exercised by starting an agent before the
+#     backbone (see docker/sim-distributed-validate.sh).
+#
+#   make sim-distributed-up | sim-distributed-validate | sim-distributed-down
+
+# Container log bounds. Docker's default json-file driver is UNBOUNDED: a
+# container stuck in a log loop grows /var/lib/docker until the host disk is
+# gone. 20 MB x 3 files caps each container at 60 MB, which is generous for a
+# demo run and finite by construction.
+x-log-bounds: &log-bounds
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  orpheus-backplane:
+    logging: *log-bounds
+    networks:
+      default:
+        aliases:
+          - backbone-nuc
+
+  orpheus-correlator:
+    logging: *log-bounds
+    environment:
+      # Production env seam: where is the backbone? A remote-style hostname, not
+      # the compose service name — proves topology is just this URL.
+      ORPHEUS_EVENT_BUS__NATS_URL: "nats://backbone-nuc:4222"
+
+  orpheus-sim-source:
+    logging: *log-bounds
+    environment:
+      ORPHEUS_EVENT_BUS__NATS_URL: "nats://backbone-nuc:4222"

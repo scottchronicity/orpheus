@@ -25,12 +25,21 @@ test.describe('Login Flow', () => {
     await expect(page.getByLabel(/password/i)).toBeVisible()
   })
 
-  test('displays default credentials hint', async ({ page }) => {
+  test('never displays credentials', async ({ page }) => {
     await page.goto('/')
-    
-    // Should show the default credentials
-    await expect(page.getByText('admin@orpheus.example.com')).toBeVisible()
-    await expect(page.getByText('changeme')).toBeVisible()
+
+    // The page must not hand out a working account to anyone who loads it.
+    const body = await page.locator('body').innerText()
+    expect(body).not.toContain('changeme')
+    expect(body).not.toContain('guest@orpheus.example.com')
+    expect(body).not.toContain('admin@orpheus.example.com')
+  })
+
+  test('offers one-click guest sign-in', async ({ page }) => {
+    await page.goto('/')
+
+    // Quick sign-in is on by default; the password stays on the server.
+    await expect(page.getByRole('button', { name: /guest/i })).toBeVisible()
   })
 
   test('successful login redirects to dashboard', async ({ page }) => {
@@ -84,13 +93,10 @@ test.describe('Login Page Accessibility', () => {
   test('has proper form labels', async ({ page }) => {
     await page.goto('/')
     
-    // Email field should have label
-    const emailLabel = page.getByText('Email address')
-    await expect(emailLabel).toBeVisible()
-    
-    // Password field should have label
-    const passwordLabel = page.getByText('Password')
-    await expect(passwordLabel).toBeVisible()
+    // Scoped to the label elements: other copy on the page mentions
+    // passwords, so a loose text match is ambiguous.
+    await expect(page.locator('label[for="email"]')).toHaveText('Email address')
+    await expect(page.locator('label[for="password"]')).toHaveText('Password')
   })
 
   test('form is keyboard navigable', async ({ page }) => {

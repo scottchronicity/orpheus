@@ -1,0 +1,54 @@
+index,mid,display_name
+0,/m/09x0r,Speech
+4,/m/01h8n0,Conversation
+16,/m/01j3sz,Laughter
+40,/m/01w250,Whistling
+73,/m/068hy,"Domestic animals, pets"
+74,/m/0bt9lr,Dog
+75,/m/05tny_,Bark
+81,/m/01yrx,Cat
+86,/m/0ch8v,"Livestock, farm animals, working animals"
+101,/m/07qn5dc,"Crowing, cock-a-doodle-doo"
+102,/m/01rd7k,Turkey
+103,/m/07svc2k,"Gobble"
+104,/m/09ddx,Duck
+105,/m/07qdb04,"Quack"
+106,/m/0dbvp,Goose
+107,/m/07qwf61,"Honk"
+108,/m/01280g,Wild animals
+111,/m/015p6,Bird
+112,/m/020bb7,"Bird vocalization, bird call, bird song"
+113,/m/07pggtn,"Chirp, tweet"
+114,/m/07sx8x_,"Squawk"
+115,/m/0h0rv,"Pigeon, dove"
+116,/m/07r_25d,"Coo"
+117,/m/04s8yn,Crow
+118,/m/07r5c2p,Caw
+119,/m/09d5_,Owl
+120,/m/07r_80w,"Hoot"
+121,/m/05_wcq,"Bird flight, flapping wings"
+126,/m/03vt0,Insect
+127,/m/09xqv,Cricket
+131,/m/01h3n,"Bee, wasp, etc."
+132,/m/09ld4,Frog
+137,/m/04rlf,Music
+283,/m/03m9d0z,Wind
+286,/m/0jb2l,Thunderstorm
+287,/m/0ngt1,Thunder
+288,/m/0838f,Water
+289,/m/06mb1,Rain
+292,/m/0j6m2,Stream
+298,/m/02_41,Fire
+300,/m/07yv9,Vehicle
+307,/m/0k4j,Car
+316,/m/07r04,Truck
+321,/m/01bjv,Bus
+326,/m/04_sv,Motorcycle
+327,/m/0btp2,"Traffic noise, roadway noise"
+329,/m/07jdr,Train
+339,/m/09ct_,Helicopter
+340,/m/0cmf2,"Fixed-wing aircraft, airplane"
+346,/m/01yg9g,Lawn mower
+418,/m/07k1x,Tools
+427,/m/032s66,"Gunshot, gunfire"
+445,/m/07rrlb6,"Splash, splatter"

@@ -1,13 +1,15 @@
 [build-system]
-requires = ["setuptools>=40.8.0"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "orpheus-common"
-version = "0.1.0"
+# Version is the single source of truth in the VERSION file (read at build
+# time). Bump it with scripts/bump-version.sh. See docs/adr/0014.
+dynamic = ["version"]
 description = "Shared platform library for Orpheus cross-species communication system"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9, <3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Orpheus Project", email = "scottchronicity@gmail.com"}
@@ -27,6 +29,9 @@ classifiers = [
 dependencies = [
     "pydantic>=2.5.0",
     "pyyaml>=6.0",
+    # The messaging backplane: NATS+JetStream is the default transport; paho-mqtt
+    # stays for the mqtt fallback backend (event_bus.backend: mqtt).
+    "nats-py>=2.6,<3",
     "paho-mqtt>=2.1.0",
     "requests>=2.31.0",
     "psutil>=5.9.6",
@@ -39,8 +44,15 @@ dev = [
     "pytest>=8.3.5",
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.21.0",
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "mypy>=1.7.0"
+]
+# OpenTelemetry tracing ([REFACTOR] OTel Migration). Optional so the default
+# install footprint is unchanged; without it, get_tracer/setup_tracing no-op.
+# Pinned <1.42: 1.41.x is the last line supporting Python 3.9 (the repo floor).
+telemetry = [
+    "opentelemetry-sdk>=1.38,<1.42",
+    "opentelemetry-exporter-otlp-proto-http>=1.38,<1.42",
 ]
 
 [project.urls]
@@ -48,6 +60,19 @@ Homepage = "https://github.com/scottchronicity/orpheus"
 Documentation = "https://github.com/scottchronicity/orpheus/tree/main/platform/orpheus-common"
 Repository = "https://github.com/scottchronicity/orpheus"
 Issues = "https://github.com/scottchronicity/orpheus/issues"
+
+[project.scripts]
+orpheus-replay = "orpheus_common.replay:main"
+orpheus-weather = "orpheus_common.weather:main"
+orpheus-mirror = "orpheus_common.mirror:main"
+orpheus-public-export = "orpheus_common.portal.export:main"
+orpheus-config-push = "orpheus_common.config_push:main"
+orpheus-reconcile = "orpheus_common.reconcile:main"
+orpheus-manifest-gen = "orpheus_common.manifest_gen:main"
+orpheus-storage-sweep = "orpheus_common.storage.sweep:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools.package-dir]
 "" = "src"

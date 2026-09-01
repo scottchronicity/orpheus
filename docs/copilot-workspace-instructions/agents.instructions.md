@@ -4,9 +4,9 @@ applyTo: "agents/**"
 
 # Agent Development Instructions
 
-**See [`CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains agent-specific implementation details.
+**See [`CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains agent-specific implementation details.
 
-**See [`docs/AGENTS.md`](../AGENTS.md) for agent architecture and design patterns.**
+**See [`docs/AGENTS.md`](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md) for agent architecture and design patterns.**
 
 ---
 

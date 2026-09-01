@@ -158,7 +158,7 @@ class TestGeographicFilter:
 
     @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
     @patch("pathlib.Path.exists")
-    def test_predict_species_open_world_none_lat(
+    def test_predict_probabilities_open_world_none_lat(
         self, mock_exists: Mock, mock_interpreter_class: Mock
     ) -> None:
         """Should return None when lat is None (Open World mode)."""
@@ -169,13 +169,13 @@ class TestGeographicFilter:
         mock_interpreter_class.return_value = mock_interpreter
 
         geo_filter = GeographicFilter("/fake/model.tflite")
-        result = geo_filter.predict_species(None, -83.5, datetime(2024, 1, 15))
+        result = geo_filter.predict_probabilities(None, -83.5, datetime(2024, 1, 15))
 
         assert result is None
 
     @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
     @patch("pathlib.Path.exists")
-    def test_predict_species_open_world_none_lon(
+    def test_predict_probabilities_open_world_none_lon(
         self, mock_exists: Mock, mock_interpreter_class: Mock
     ) -> None:
         """Should return None when lon is None (Open World mode)."""
@@ -186,16 +186,16 @@ class TestGeographicFilter:
         mock_interpreter_class.return_value = mock_interpreter
 
         geo_filter = GeographicFilter("/fake/model.tflite")
-        result = geo_filter.predict_species(42.5, None, datetime(2024, 1, 15))
+        result = geo_filter.predict_probabilities(42.5, None, datetime(2024, 1, 15))
 
         assert result is None
 
     @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
     @patch("pathlib.Path.exists")
-    def test_predict_species_valid_coordinates(
+    def test_predict_probabilities_returns_full_vector(
         self, mock_exists: Mock, mock_interpreter_class: Mock
     ) -> None:
-        """Should return filtered species codes for valid coordinates."""
+        """Should return the raw per-species probability vector (caller does gating)."""
         mock_exists.return_value = True
 
         # Mock TFLite interpreter
@@ -205,24 +205,27 @@ class TestGeographicFilter:
 
         # Mock output probabilities (100 species)
         probabilities = np.zeros(100, dtype=np.float32)
-        probabilities[0] = 0.5  # Species 0: High probability
-        probabilities[5] = 0.08  # Species 5: Above threshold
-        probabilities[10] = 0.02  # Species 10: Below threshold
+        probabilities[0] = 0.5
+        probabilities[5] = 0.08
+        probabilities[10] = 0.02
         mock_interpreter.get_tensor.return_value = np.array([probabilities])
 
         mock_interpreter_class.return_value = mock_interpreter
 
         geo_filter = GeographicFilter("/fake/model.tflite")
 
-        # Test with NYC coordinates in winter (Jan 15)
-        species_codes = geo_filter.predict_species(
-            lat=40.7128, lon=-74.0060, date=datetime(2024, 1, 15), min_prob=0.03
+        # NYC, Jan 15
+        result = geo_filter.predict_probabilities(
+            lat=40.7128, lon=-74.0060, date=datetime(2024, 1, 15)
         )
 
-        assert species_codes is not None
-        assert len(species_codes) == 2  # Only species 0 and 5 above threshold
-        assert "0" in species_codes
-        assert "5" in species_codes
+        assert result is not None
+        assert result.shape == (100,)
+        # Raw probabilities preserved — no thresholding at this layer
+        assert result[0] == pytest.approx(0.5)
+        assert result[5] == pytest.approx(0.08)
+        assert result[10] == pytest.approx(0.02)
+        assert result[1] == 0.0
 
         # Verify correct input was passed to model
         calls = mock_interpreter.set_tensor.call_args_list
@@ -238,7 +241,7 @@ class TestGeographicFilter:
 
     @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
     @patch("pathlib.Path.exists")
-    def test_predict_species_inference_error(
+    def test_predict_probabilities_inference_error(
         self, mock_exists: Mock, mock_interpreter_class: Mock
     ) -> None:
         """Should raise GeoFilterError if TFLite inference fails."""
@@ -253,38 +256,7 @@ class TestGeographicFilter:
         geo_filter = GeographicFilter("/fake/model.tflite")
 
         with pytest.raises(GeoFilterError, match="TFLite inference failed"):
-            geo_filter.predict_species(40.7128, -74.0060, datetime(2024, 1, 15))
-
-    @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
-    @patch("pathlib.Path.exists")
-    def test_predict_species_different_thresholds(
-        self, mock_exists: Mock, mock_interpreter_class: Mock
-    ) -> None:
-        """Should filter species by different probability thresholds."""
-        mock_exists.return_value = True
-
-        mock_interpreter = MagicMock()
-        mock_interpreter.get_input_details.return_value = [{"shape": [1, 3], "index": 0}]
-        mock_interpreter.get_output_details.return_value = [{"shape": [1, 100], "index": 0}]
-
-        # Mock output probabilities
-        probabilities = np.zeros(100, dtype=np.float32)
-        probabilities[0] = 0.5
-        probabilities[1] = 0.1
-        probabilities[2] = 0.05
-        probabilities[3] = 0.02
-        mock_interpreter.get_tensor.return_value = np.array([probabilities])
-        mock_interpreter_class.return_value = mock_interpreter
-
-        geo_filter = GeographicFilter("/fake/model.tflite")
-
-        # Test with default threshold (0.03)
-        result = geo_filter.predict_species(40.7128, -74.0060, datetime(2024, 1, 15))
-        assert len(result) == 3  # Species 0, 1, 2
-
-        # Test with higher threshold (0.1)
-        result = geo_filter.predict_species(40.7128, -74.0060, datetime(2024, 1, 15), min_prob=0.1)
-        assert len(result) == 2  # Only species 0, 1
+            geo_filter.predict_probabilities(40.7128, -74.0060, datetime(2024, 1, 15))
 
     @patch("orpheus_agent_bird_detection.geo_filter.tf.lite.Interpreter")
     @patch("pathlib.Path.exists")

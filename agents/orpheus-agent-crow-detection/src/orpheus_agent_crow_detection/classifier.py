@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 from orpheus_common.logging import get_logger
+from orpheus_common.utils import select_torch_device
 
 from .model import MultiTaskCrowNet
 
@@ -56,9 +57,11 @@ class CrowDetectionResult:
 class CrowClassifier:
     """Multi-task classifier for crow vocalizations."""
 
-    def __init__(self, model_path: str | Path) -> None:
+    def __init__(self, model_path: str | Path, device: str = "auto") -> None:
         self.model_path = Path(model_path)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # "auto" is byte-identical to the previous no-arg call; an explicit "cuda"
+        # on a GPU-less host fails loud via select_torch_device rather than silently.
+        self.device = torch.device(select_torch_device(device))
 
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found at {self.model_path}")

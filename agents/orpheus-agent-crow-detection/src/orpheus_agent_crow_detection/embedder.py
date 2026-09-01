@@ -9,6 +9,7 @@ import fairseq.checkpoint_utils
 import numpy as np
 import torch
 from orpheus_common.logging import get_logger
+from orpheus_common.utils import select_torch_device
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -19,17 +20,23 @@ logger = get_logger(__name__)
 class AVESEmbedder:
     """AVES audio embedder for crow detection."""
 
-    def __init__(self, model_path: str | Path, sample_rate: int = 16000) -> None:
+    def __init__(
+        self, model_path: str | Path, sample_rate: int = 16000, device: str = "auto"
+    ) -> None:
         """
         Initialize AVES embedder.
 
         Args:
             model_path: Path to AVES model file (e.g., aves-base-bio.pt)
             sample_rate: Expected audio sample rate (16kHz for AVES)
+            device: Requested torch device ("auto"→cuda-if-available-else-cpu,
+                "cpu", "cuda", …). Resolved via select_torch_device so a "cuda"
+                on a GPU-less host fails loud rather than silently. Default
+                "auto" is byte-identical to the previous no-arg behavior.
         """
         self.model_path = Path(model_path)
         self.sample_rate = sample_rate
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(select_torch_device(device))
 
         if not self.model_path.exists():
             msg = f"AVES model not found at {self.model_path}"

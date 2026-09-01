@@ -9,11 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional  # noqa: UP035
 
+from orpheus_common import EventBus, create_event_bus
+from orpheus_common.actor import (
+    build_operational_health,
+    health_on_bus_active,
+    kv_publish_best_effort,
+)
 from orpheus_common.audio import MAX_VOLUME, get_audio_player, get_sound_registry
 from orpheus_common.config import OrpheusConfig
 from orpheus_common.detection import DetectionDB
 from orpheus_common.logging import get_logger, setup_logging
-from orpheus_common.mqtt import MQTTClient
 from orpheus_common.storage import get_data_root
 
 logger = get_logger(__name__)
@@ -26,6 +31,10 @@ class AudioPlaybackAgent:
     TOPIC_REQUEST = "orpheus/audio/playback/request"
     TOPIC_RESPONSE = "orpheus/audio/playback/response"
     TOPIC_HEALTH = "orpheus/audio/playback/health"
+    # Playback-window event for corollary discharge: the event-correlator
+    # subscribes to this and blanks self-generated detections that overlap our
+    # own audio output (see [CORE] Implement Corollary Discharge).
+    TOPIC_ACTUATION_AUDIO_PLAYBACK = "orpheus/actuation/audio/playback"
 
     def __init__(
         self,
@@ -43,7 +52,7 @@ class AudioPlaybackAgent:
             self._config = OrpheusConfig.load(config_path=config_path)
 
         self._log_level_override = log_level_override
-        self._mqtt_client: Optional[MQTTClient] = None
+        self._mqtt_client: Optional[EventBus] = None
         self._stop_event = asyncio.Event()
         self._health_task: Optional[asyncio.Task] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -123,10 +132,8 @@ class AudioPlaybackAgent:
             broker_host=self._config.mqtt.broker_host,
             broker_port=self._config.mqtt.broker_port,
         )
-        self._mqtt_client = MQTTClient(
-            broker_host=self._config.mqtt.broker_host,
-            broker_port=self._config.mqtt.broker_port,
-            keepalive=self._config.mqtt.keepalive,
+        self._mqtt_client = create_event_bus(
+            self._config,
             client_id="orpheus-agent-audio-playback",
         )
 
@@ -137,7 +144,7 @@ class AudioPlaybackAgent:
         # Connect to broker
         self._mqtt_client.connect()
         logger.info(
-            "Connected to MQTT broker",
+            "Connected to event bus (backplane)",
             broker_host=self._config.mqtt.broker_host,
             broker_port=self._config.mqtt.broker_port,
         )
@@ -331,7 +338,13 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 task_id=id(asyncio.current_task()),
             )
+            playback_start = datetime.now(timezone.utc)
             await player.play(sound_path, repeat_count, pause_between)
+            self._publish_playback_window(
+                playback_start,
+                (datetime.now(timezone.utc) - playback_start).total_seconds(),
+                sound_name,
+            )
             logger.info("Playback completed", sound_name=sound_name)
         except asyncio.CancelledError:
             logger.warning(
@@ -345,6 +358,29 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 error=str(e),
             )
+
+    def _publish_playback_window(
+        self, start: datetime, duration_seconds: float, sound_name: str
+    ) -> None:
+        """Publish a playback-window event so the event-correlator can blank
+        self-generated detections (corollary discharge).
+
+        ``duration_seconds`` is the actual measured playback time (player.play
+        blocks until done), so no clip-length lookup is needed. Best-effort: a
+        publish failure must never affect playback.
+        """
+        if self._mqtt_client is None:
+            return
+        event = {
+            "start_time": start.isoformat(),
+            "duration_seconds": round(duration_seconds, 3),
+            "source": "audio_playback_agent",
+            "sound_name": sound_name,
+        }
+        try:
+            self._mqtt_client.publish(self.TOPIC_ACTUATION_AUDIO_PLAYBACK, event, qos=1)
+        except Exception:  # noqa: BLE001 - telemetry must not break playback
+            logger.exception("Failed to publish playback-window event", sound_name=sound_name)
 
     def _handle_audio_source_request(
         self,
@@ -453,6 +489,7 @@ class AudioPlaybackAgent:
 
             # Play the audio synchronously using asyncio.run
             player = get_audio_player()
+            playback_start = datetime.now(timezone.utc)
             asyncio.run(
                 player.play(
                     audio_path,
@@ -462,6 +499,11 @@ class AudioPlaybackAgent:
                     duration=duration,
                     volume=volume,
                 )
+            )
+            self._publish_playback_window(
+                playback_start,
+                (datetime.now(timezone.utc) - playback_start).total_seconds(),
+                str(file_path or detection_id or ""),
             )
 
             # Publish success response
@@ -596,6 +638,15 @@ class AudioPlaybackAgent:
     async def _publish_health_status(self) -> None:
         """Periodically publish health status to MQTT."""
         publish_interval = 10.0  # Publish every 10 seconds
+        # §11 Phase 1b: dual-write health to the operational KV plane (key
+        # "audio-playback") IN ADDITION to the bus publish, when health_kv_enabled +
+        # KV backend. None ⇒ no-op (default; bus publish unchanged). self._config is
+        # the OrpheusConfig singleton (has event_bus). Built once.
+        op_health = build_operational_health(self._mqtt_client, self._config)
+        # §11 Phase 5a: the ONE shared gate (anti-skew warning included).
+        publish_health_to_bus = health_on_bus_active(
+            self._config, op_health, agent="audio-playback"
+        )
 
         logger.info("Health status publishing started", interval=publish_interval)
 
@@ -621,14 +672,11 @@ class AudioPlaybackAgent:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
-                # Publish to MQTT
-                if self._mqtt_client:
+                if self._mqtt_client and publish_health_to_bus:
                     self._mqtt_client.publish(self.TOPIC_HEALTH, status, qos=0)
-                    logger.debug(
-                        "Published health status",
-                        is_playing=status["is_playing"],
-                        sound_count=len(status["available_sounds"]),
-                    )
+                # §11 Phase 1b: dual-write to the operational KV plane (independent of
+                # the bus gate above), best-effort.
+                kv_publish_best_effort(op_health, "audio-playback", status)
 
             except asyncio.CancelledError:
                 logger.info("Health publishing cancelled, shutting down")

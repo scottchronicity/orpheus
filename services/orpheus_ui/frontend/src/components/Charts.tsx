@@ -19,7 +19,11 @@ import {
   ScatterChart,
   Scatter,
   ZAxis,
+  AreaChart,
+  Area,
 } from 'recharts'
+import { scatterXDomain } from './chartDomain'
+import { formatBytes } from '../lib/utils'
 
 // Color palette for charts
 const COLORS = [
@@ -184,9 +188,8 @@ export function ConfidenceScatterChart({
   // Use selected date range for X-axis domain when provided.
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
-  const xDomain: [number | string, number | string] = startDate && endDate
-    ? [new Date(startDate + 'T00:00:00').getTime(), new Date(endDate + 'T23:59:59').getTime()]
-    : ['auto', 'auto']
+  // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
+  const xDomain = scatterXDomain(startDate, endDate)
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -293,9 +296,8 @@ export function EntityScatterChart({
   // Use selected date range for X-axis domain when provided.
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
-  const xDomain: [number | string, number | string] = startDate && endDate
-    ? [new Date(startDate + 'T00:00:00').getTime(), new Date(endDate + 'T23:59:59').getTime()]
-    : ['auto', 'auto']
+  // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
+  const xDomain = scatterXDomain(startDate, endDate)
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -489,9 +491,8 @@ export function CrowScatterChart({
 
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
-  const xDomain: [number | string, number | string] = startDate && endDate
-    ? [new Date(startDate + 'T00:00:00').getTime(), new Date(endDate + 'T23:59:59').getTime()]
-    : ['auto', 'auto']
+  // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
+  const xDomain = scatterXDomain(startDate, endDate)
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -601,5 +602,75 @@ export function HourlyStackedBarChart({
         </BarChart>
       </ResponsiveContainer>
     </div>
+  )
+}
+
+interface StoragePoint {
+  day: string
+  free_bytes: number | null
+  total_bytes?: number | null
+}
+
+/**
+ * Free-space-over-time area chart for one storage volume. The Y axis is in
+ * GiB; the tooltip shows the exact free size per day.
+ */
+export function StorageTrendChart({ series }: { series: StoragePoint[] }) {
+  const points = (series ?? []).filter((p) => p.free_bytes !== null)
+  if (points.length === 0) {
+    return (
+      <div className="text-slate-500 text-center py-8 text-sm">
+        No storage history yet — a point is recorded each day.
+      </div>
+    )
+  }
+
+  const GIB = 1024 ** 3
+  const data = points.map((p) => ({
+    day: p.day,
+    freeGiB: (p.free_bytes as number) / GIB,
+    free_bytes: p.free_bytes as number,
+  }))
+
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+        <defs>
+          <linearGradient id="freeSpaceFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.5} />
+            <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.05} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+        <XAxis
+          dataKey="day"
+          stroke="#64748b"
+          tick={{ fill: '#64748b', fontSize: 10 }}
+          tickFormatter={(value: string) => value.slice(5)}
+        />
+        <YAxis
+          stroke="#64748b"
+          tick={{ fill: '#64748b', fontSize: 10 }}
+          width={48}
+          tickFormatter={(value: number) => `${value.toFixed(0)}G`}
+        />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: '#1e293b',
+            border: '1px solid #334155',
+            borderRadius: '8px',
+            color: '#f1f5f9',
+          }}
+          formatter={(value) => [formatBytes((value as number) * GIB), 'Free']}
+        />
+        <Area
+          type="monotone"
+          dataKey="freeGiB"
+          stroke="#06b6d4"
+          fill="url(#freeSpaceFill)"
+          strokeWidth={2}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
   )
 }

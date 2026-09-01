@@ -42,7 +42,7 @@ def setup_logging(service_name: str, level: str = "INFO", use_json: bool = False
     the configuration, ensuring consistent behavior across modules.
 
     Args:
-        service_name: Name of the service (e.g., "orpheus-dashboard") - used for SYSLOG_IDENTIFIER
+        service_name: Name of the service (e.g., "orpheus-ui") - used for SYSLOG_IDENTIFIER
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
             Can be overridden by LOG_LEVEL env var.
         use_json: Output structured JSON logs (useful for log aggregation)

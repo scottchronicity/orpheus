@@ -1,6 +1,10 @@
 # ADR 0001: Documentation and Instruction Consolidation
 
-**Status:** Accepted
+**Status:** Superseded — `AGENTS.md` replaced `CODING_AGENT_CONTEXT.md` as the
+canonical agent entry point, and the themed files in `docs/agent-instructions/`
+replaced the single-document model. The `docs/adr/` and `docs/` consolidation
+below remains live. `docs/DASHBOARD.md` was never created — dashboard guidance
+is in [`ORPHEUS_UI.md`](../ORPHEUS_UI.md).
 
 **Date:** 2025-12-24
 
@@ -104,14 +108,6 @@ New contributors and AI agents can quickly find what they need by following a cl
 4. Review `docs/copilot-workspace-instructions/` for component-specific guidance
 
 ## Consequences
-
-### Positive
-
-- **Single entry point** for AI agents reduces confusion
-- **Reduced duplication** makes maintenance easier
-- **Clear hierarchy** improves discoverability
-- **ADRs provide historical context** for architectural decisions
-- **Consistent structure** across all documentation
 
 ### Negative
 

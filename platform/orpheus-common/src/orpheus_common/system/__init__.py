@@ -12,6 +12,7 @@ from orpheus_common.system.health import (
     get_data_storage_usage,
     get_system_metrics,
 )
+from orpheus_common.system.storage_volumes import list_storage_volumes
 
 __all__ = [
     "SystemHealth",
@@ -20,4 +21,5 @@ __all__ = [
     "get_system_metrics",
     "get_data_storage_usage",
     "check_service_status",
+    "list_storage_volumes",
 ]

@@ -183,39 +183,23 @@ venv/bin/pip install --upgrade pip
 venv/bin/pip install "${COMMON_PATH}"
 venv/bin/pip install -r "${TMP_REQUIREMENTS}"
 
-# Generate systemd service file with dynamic paths
-echo "Generating systemd service file..."
-cat > /opt/orpheus/ui/systemd/orpheus-ui.service <<EOF
-[Unit]
-Description=Orpheus UI Web Service
-After=network.target time-sync.target
-Documentation=https://github.com/scottchronicity/orpheus
+# Install the systemd unit FROM the checked-in file. This used to be a heredoc
+# that regenerated the unit here, and the two silently diverged: the generated
+# one never gained EnvironmentFile=, so /opt/orpheus/config/.env — the per-host
+# backbone URL and the seeded account passwords — never reached the service,
+# and any hand-edit to the installed unit was overwritten by the next install.
+echo "Installing systemd service file..."
+UNIT_SRC="${SCRIPT_DIR}/orpheus-ui.service"
+UNIT_DST="${SERVICE_DIR}/systemd/orpheus-ui.service"
+if [ ! -f "${UNIT_SRC}" ]; then
+    echo "ERROR: systemd unit not found at ${UNIT_SRC}" >&2
+    exit 1
+fi
+# The unit is written against /opt/orpheus/ui; rewrite it if this install uses
+# a different prefix, so there is still exactly one source of truth.
+sed "s|/opt/orpheus/ui|${SERVICE_DIR}|g" "${UNIT_SRC}" > "${UNIT_DST}"
 
-[Service]
-Type=simple
-User=orpheus
-Group=orpheus
-WorkingDirectory=${SERVICE_DIR}
-Environment="PYTHONUNBUFFERED=1"
-Environment="PATH=${SERVICE_DIR}/.node/bin:${SERVICE_DIR}/venv/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="ORPHEUS_CONFIG_PATH=/etc/orpheus/orpheus.yaml"
-Environment="PYTHONPATH=${SERVICE_DIR}/src"
-Environment="ORPHEUS_UI_DATABASE_URL=sqlite+aiosqlite:////data/orpheus/users.db"
-ExecStart=${SERVICE_DIR}/venv/bin/uvicorn orpheus_ui.main:app --host 0.0.0.0 --port 8082
-Restart=always
-RestartSec=10
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=orpheus-ui
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Install systemd service
-cp /opt/orpheus/ui/systemd/orpheus-ui.service /etc/systemd/system/
+cp "${UNIT_DST}" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable orpheus-ui
 systemctl restart orpheus-ui
@@ -225,7 +209,8 @@ echo "✓ Service installed and started"
 echo "✓ Node.js ${NODE_VERSION} installed at ${SERVICE_DIR}/.node"
 echo "✓ UI backend runs on port 8082"
 echo "✓ User database stored at ${USER_DB_PATH} (persists across updates)"
-echo "✓ Config at /etc/orpheus/orpheus.yaml"
+echo "✓ Config at /opt/orpheus/config/orpheus.yaml (same search order as every agent)"
+echo "✓ Credentials/backbone env at /opt/orpheus/config/.env (optional)"
 echo "✓ Service enabled (will auto-start on boot)"
 echo ""
 echo "Check service status:"

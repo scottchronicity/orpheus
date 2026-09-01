@@ -9,6 +9,7 @@ import pytest
 from orpheus_common.storage.cleanup import (
     CleanupPolicy,
     CleanupResult,
+    DiskSpace,
     FileInfo,
     StorageCleanup,
     cleanup_old_files_by_age,
@@ -28,6 +29,32 @@ class TestCleanupPolicy:
         assert policy.cleanup_trigger_percent == 90.0
         assert policy.cleanup_amount_percent == 25.0
         assert policy.min_file_age_hours == 1.0
+
+    def test_from_storage_retention_maps_all_operator_knobs(self):
+        """The mapper must carry EVERY operator knob through — the bug was agents
+        hand-rolling getattr(default) reads that silently ignored storage.retention.*."""
+        from orpheus_common.config import StorageRetention
+
+        retention = StorageRetention(
+            raw_audio_days=45,
+            raw_video_days=10,
+            max_size_gb=250.0,
+            cleanup_strategy="largest",
+            cleanup_trigger_percent=80.0,
+            cleanup_amount_percent=40.0,
+            min_file_age_hours=3.0,
+        )
+        policy = CleanupPolicy.from_storage_retention(
+            retention, max_age_days=retention.raw_audio_days, file_pattern="*.flac"
+        )
+        assert policy.max_size_gb == 250.0  # NOT the 50.0 hardcoded default
+        assert policy.cleanup_strategy == "largest"
+        assert policy.cleanup_trigger_percent == 80.0
+        assert policy.cleanup_amount_percent == 40.0
+        assert policy.min_file_age_hours == 3.0
+        assert policy.max_age_days == 45
+        assert policy.file_pattern == "*.flac"
+        policy.validate()  # a mapped policy is a valid policy
 
     def test_validate_positive_max_size(self):
         """Test that max_size_gb must be positive."""
@@ -768,3 +795,448 @@ class TestStorageCleanupIntegration:
             cleanup.policy.cleanup_strategy = "largest"
             selected_largest = cleanup.select_files_to_delete(files)
             assert selected_largest[0].path == old_large  # Largest file
+
+
+class TestFreeSpaceBackstop:
+    """The last-resort guard: the disk is nearly full, whatever the budgets say.
+
+    Every directory can sit inside its own ``max_size_gb`` while the shared
+    filesystem runs out underneath them, because the budgets are per-directory
+    and the disk is not. These tests fake the disk reading rather than filling
+    a real one.
+    """
+
+    GIB = 1024**3
+
+    @staticmethod
+    def _disk(free_percent: float, total_gb: float = 1000.0):
+        """A disk-space reader reporting a fixed free percentage."""
+        total = int(total_gb * (1024**3))
+        return lambda _path: DiskSpace(
+            total_bytes=total, free_bytes=int(total * free_percent / 100)
+        )
+
+    @staticmethod
+    def _write_aged(directory: Path, name: str, size_bytes: int, age_hours: float) -> Path:
+        """A file of a given size whose mtime is ``age_hours`` in the past."""
+        import os
+
+        path = directory / name
+        path.write_bytes(b"x" * size_bytes)
+        stamp = (datetime.now() - timedelta(hours=age_hours)).timestamp()
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_fires_when_disk_is_low_even_though_directory_is_under_budget(self):
+        """The case the per-directory budget cannot see: 8% free, tiny directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_aged(Path(tmpdir), "old.flac", 1024, age_hours=48)
+
+            # 700 GB budget, a directory holding one kilobyte: nowhere near it.
+            policy = CleanupPolicy(
+                max_size_gb=700, cleanup_trigger_percent=95, min_free_space_percent=10
+            )
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=8))
+
+            _, used_percent = cleanup.calculate_usage(Path(tmpdir))
+            assert used_percent < policy.cleanup_trigger_percent  # budget says "fine"
+            assert cleanup.needs_cleanup(Path(tmpdir)) is True  # the disk does not
+
+    def test_does_not_fire_when_free_space_is_healthy(self):
+        """A comfortable disk leaves files alone."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_aged(Path(tmpdir), "old.flac", 1024, age_hours=48)
+
+            policy = CleanupPolicy(
+                max_size_gb=700, cleanup_trigger_percent=95, min_free_space_percent=10
+            )
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=61))
+
+            assert cleanup.free_space_shortfall(Path(tmpdir)) is None
+            assert cleanup.needs_cleanup(Path(tmpdir)) is False
+
+            result = cleanup.cleanup(Path(tmpdir), dry_run=False)
+            assert result.files_removed == 0
+
+    def test_zero_disables_the_guard(self):
+        """0 restores purely budget-driven cleanup, however full the disk is."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_aged(Path(tmpdir), "old.flac", 1024, age_hours=48)
+
+            policy = CleanupPolicy(
+                max_size_gb=700, cleanup_trigger_percent=95, min_free_space_percent=0
+            )
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=1))
+
+            assert cleanup.free_space_shortfall(Path(tmpdir)) is None
+            assert cleanup.needs_cleanup(Path(tmpdir)) is False
+
+    def test_removes_oldest_first(self):
+        """Oldest-first, even when the configured strategy is something else."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d = Path(tmpdir)
+            newest = self._write_aged(d, "newest.flac", 4096, age_hours=10)
+            oldest = self._write_aged(d, "oldest.flac", 1024, age_hours=100)
+            middle = self._write_aged(d, "middle.flac", 2048, age_hours=50)
+
+            # "largest" would take newest.flac first; the guard must not.
+            policy = CleanupPolicy(
+                cleanup_strategy="largest", min_free_space_percent=10, min_file_age_hours=1
+            )
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=8))
+
+            files = cleanup.scan_directory(d)
+            selected = cleanup.select_files_for_free_space(files, bytes_needed=1024 + 2048)
+
+            assert [f.path for f in selected] == [oldest, middle]
+            assert newest not in [f.path for f in selected]
+
+    def test_never_removes_a_file_that_is_still_being_written(self):
+        """``min_file_age_hours`` is a floor the guard does not cross."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d = Path(tmpdir)
+            fresh = self._write_aged(d, "recording-now.flac", 8192, age_hours=0.1)
+            old = self._write_aged(d, "old.flac", 1024, age_hours=48)
+
+            policy = CleanupPolicy(min_free_space_percent=10, min_file_age_hours=1.0)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=1))
+
+            files = cleanup.scan_directory(d)
+            # Ask for more than the eligible files can supply: even under
+            # pressure the fresh file is not a candidate.
+            selected = cleanup.select_files_for_free_space(files, bytes_needed=10**9)
+
+            assert [f.path for f in selected] == [old]
+            assert fresh.exists()
+
+    def test_stops_once_the_threshold_is_cleared(self):
+        """Frees what is needed plus the margin, not the whole directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d = Path(tmpdir)
+            for i in range(10):
+                self._write_aged(d, f"clip-{i:02d}.flac", 1024, age_hours=100 - i)
+
+            policy = CleanupPolicy(min_free_space_percent=10, min_file_age_hours=1)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=8))
+
+            files = cleanup.scan_directory(d)
+            selected = cleanup.select_files_for_free_space(files, bytes_needed=2048)
+
+            # Two 1 KiB files cover the need; the other eight stay.
+            assert len(selected) == 2
+
+    def test_shortfall_targets_past_the_threshold_not_exactly_onto_it(self):
+        """Recovering to exactly the threshold re-fires on the next writes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            total_gb = 1000.0
+            policy = CleanupPolicy(min_free_space_percent=10)
+            cleanup = StorageCleanup(
+                policy, disk_space=self._disk(free_percent=8, total_gb=total_gb)
+            )
+
+            shortfall = cleanup.free_space_shortfall(Path(tmpdir))
+            assert shortfall is not None
+            space, bytes_needed = shortfall
+
+            # 8% free, recovering to 10% * 1.2 = 12% of 1000 GiB => 40 GiB.
+            expected = int(total_gb * self.GIB * 0.12) - space.free_bytes
+            assert bytes_needed == expected
+            assert bytes_needed > 0
+
+    def test_unreadable_disk_does_not_trigger_deletions(self):
+        """A failed capacity read must not be mistaken for a full disk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_aged(Path(tmpdir), "old.flac", 1024, age_hours=48)
+
+            policy = CleanupPolicy(min_free_space_percent=10)
+            cleanup = StorageCleanup(policy, disk_space=lambda _path: None)
+
+            assert cleanup.free_space_shortfall(Path(tmpdir)) is None
+
+    def test_the_warning_says_what_disappeared_and_why(self, capsys, caplog):
+        """An operator reconstructs the event from the log alone.
+
+        Reads both the stream and stdlib capture: structlog writes straight to
+        stdout on its own, but routes through stdlib once another test has
+        configured that, so which one holds the line depends on test order.
+        """
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d = Path(tmpdir)
+            self._write_aged(d, "oldest.flac", 4096, age_hours=100)
+            self._write_aged(d, "newer.flac", 4096, age_hours=20)
+
+            policy = CleanupPolicy(min_free_space_percent=10, min_file_age_hours=1)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=8))
+
+            with caplog.at_level(logging.WARNING):
+                result = cleanup.cleanup(d, dry_run=True, manifest_dir=d / "manifests")
+
+            assert result.files_removed > 0
+            captured = capsys.readouterr()
+            text = captured.out + captured.err + caplog.text
+            # Why it ran, and against what threshold.
+            assert "Low disk space" in text
+            assert "min_free_space_percent" in text
+            assert "free_percent" in text
+            # What it took, and the window it came from.
+            assert "Low-disk cleanup complete" in text
+            assert "files_removed" in text
+            assert "oldest_removed" in text
+            assert "newest_removed" in text
+
+    def test_a_full_disk_sweep_actually_frees_the_files(self):
+        """End to end: the guard fires, oldest files go, newest survives."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d = Path(tmpdir)
+            oldest = self._write_aged(d, "a-oldest.flac", 4096, age_hours=100)
+            newest = self._write_aged(d, "c-newest.flac", 4096, age_hours=5)
+
+            policy = CleanupPolicy(min_free_space_percent=10, min_file_age_hours=1)
+            # Needs ~40 GiB freed, so everything eligible goes; the fresh file
+            # is protected by min_file_age_hours only, not by the target.
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=8))
+
+            result = cleanup.cleanup(d, dry_run=False, manifest_dir=d / "manifests")
+
+            assert result.files_removed == 2
+            assert not oldest.exists()
+            assert not newest.exists()
+            assert result.manifest_path is not None
+
+
+class TestRetentionConfigParsing:
+    """The low-disk guard as an operator configures it."""
+
+    def test_absent_key_defaults_to_on(self):
+        """A config written before the guard existed still gets protected."""
+        from orpheus_common.config import StorageRetention
+
+        retention = StorageRetention.from_dict({"max_size_gb": 700})
+
+        assert retention.min_free_space_percent == 10.0
+
+    def test_zero_is_accepted_as_off(self):
+        """0 is the documented off switch, not an invalid value."""
+        from orpheus_common.config import StorageRetention
+
+        retention = StorageRetention.from_dict({"min_free_space_percent": 0})
+
+        assert retention.min_free_space_percent == 0.0
+        policy = CleanupPolicy.from_storage_retention(retention, max_age_days=30)
+        assert policy.min_free_space_percent == 0.0
+
+    def test_the_knob_reaches_the_policy(self):
+        """An operator's value has to survive the trip into cleanup."""
+        from orpheus_common.config import StorageRetention
+
+        retention = StorageRetention.from_dict({"min_free_space_percent": 25})
+        policy = CleanupPolicy.from_storage_retention(retention, max_age_days=30)
+
+        assert policy.min_free_space_percent == 25.0
+
+    @pytest.mark.parametrize("bad_value", [-1, 100, 150])
+    def test_out_of_range_is_refused_at_load(self, bad_value):
+        """A guard that can never fire (or always fires) is a config error."""
+        from orpheus_common.config import ConfigError, StorageRetention
+
+        with pytest.raises(ConfigError, match="min_free_space_percent"):
+            StorageRetention.from_dict({"min_free_space_percent": bad_value})
+
+
+class TestReport:
+    """The publishable view of a sweep.
+
+    The sweeper is the only component that walks the directory and holds the
+    policy, so these assertions are about it telling the truth to whoever
+    reads its health payload — not about the deleting itself.
+    """
+
+    GIB = 1024**3
+
+    @staticmethod
+    def _disk(free_percent: float, total_gb: float = 1000.0):
+        total = int(total_gb * (1024**3))
+        return lambda _path: DiskSpace(
+            total_bytes=total, free_bytes=int(total * free_percent / 100)
+        )
+
+    @staticmethod
+    def _write_aged(directory: Path, name: str, size_bytes: int, age_hours: float) -> Path:
+        import os
+
+        path = directory / name
+        path.write_bytes(b"x" * size_bytes)
+        stamp = (datetime.now() - timedelta(hours=age_hours)).timestamp()
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_reports_usage_against_the_limit_that_will_be_enforced(self):
+        """percent_of_limit must be measured against the same ceiling cleanup uses."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir)
+            # 1 GiB budget, half a GiB on disk.
+            self._write_aged(path, "a.flac", self.GIB // 4, age_hours=48)
+            self._write_aged(path, "b.flac", self.GIB // 4, age_hours=24)
+
+            policy = CleanupPolicy(
+                max_size_gb=1.0, cleanup_trigger_percent=90, file_pattern="*.flac"
+            )
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=50))
+
+            report = cleanup.report(path)
+
+            assert report["limit_bytes"] == self.GIB
+            assert report["bytes"] == self.GIB // 2
+            assert report["percent_of_limit"] == pytest.approx(50.0, abs=0.5)
+            assert report["trigger_percent"] == 90
+            assert report["file_pattern"] == "*.flac"
+            assert report["path"] == str(path)
+
+    def test_reports_the_guard_threshold_it_will_enforce(self):
+        """Several directories share one filesystem; this is the rule for it."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy = CleanupPolicy(max_size_gb=700, min_free_space_percent=10)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=42))
+
+            report = cleanup.report(Path(tmpdir))
+
+            assert report["min_free_space_percent"] == 10
+            assert report["guard_enabled"] is True
+            assert report["guard_tripped"] is False
+
+    def test_does_not_re_report_the_disk_the_survey_already_measured(self):
+        """One number, one timestamp: the survey owns the disk reading."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cleanup = StorageCleanup(
+                CleanupPolicy(max_size_gb=700), disk_space=self._disk(free_percent=42)
+            )
+
+            report = cleanup.report(Path(tmpdir))
+
+            assert "disk_total_bytes" not in report
+            assert "disk_free_bytes" not in report
+            assert "disk_free_percent" not in report
+
+    def test_says_the_guard_is_tripped_while_it_is_tripped(self):
+        """The condition that overrides the budget has to be visible as such."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy = CleanupPolicy(max_size_gb=700, min_free_space_percent=10)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=4))
+
+            assert cleanup.report(Path(tmpdir))["guard_tripped"] is True
+
+    def test_a_disabled_guard_reports_as_disabled_not_as_zero_percent(self):
+        """0 means "no guard", which reads very differently from "0% free"."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy = CleanupPolicy(max_size_gb=700, min_free_space_percent=0)
+            cleanup = StorageCleanup(policy, disk_space=self._disk(free_percent=1))
+
+            report = cleanup.report(Path(tmpdir))
+
+            assert report["guard_enabled"] is False
+            assert report["guard_tripped"] is False  # cannot trip when disabled
+
+    def test_an_unreadable_disk_cannot_trip_the_guard(self):
+        """No reading is not the same as a bad reading; do not act on nothing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy = CleanupPolicy(max_size_gb=700, min_free_space_percent=10)
+            cleanup = StorageCleanup(policy, disk_space=lambda _path: None)
+
+            assert cleanup.report(Path(tmpdir))["guard_tripped"] is False
+
+    def test_no_sweep_yet_is_absent_rather_than_an_empty_sweep(self):
+        """A zero-file sweep and "nothing has run" are different facts."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cleanup = StorageCleanup(CleanupPolicy(max_size_gb=700))
+
+            assert cleanup.report(Path(tmpdir))["last_sweep"] is None
+
+            quiet = CleanupResult(files_removed=0, bytes_freed=0)
+            assert cleanup.report(Path(tmpdir), last_result=quiet)["last_sweep"] is None
+
+    def test_folds_in_what_the_last_sweep_removed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cleanup = StorageCleanup(CleanupPolicy(max_size_gb=700))
+            result = CleanupResult(
+                files_removed=12,
+                bytes_freed=5_000_000,
+                oldest_removed="2026-06-01T00:00:00+00:00",
+                newest_removed="2026-06-03T00:00:00+00:00",
+            )
+
+            sweep = cleanup.report(Path(tmpdir), last_result=result)["last_sweep"]
+
+            assert sweep["files_removed"] == 12
+            assert sweep["bytes_freed"] == 5_000_000
+            assert sweep["oldest_removed"] == "2026-06-01T00:00:00+00:00"
+            assert sweep["newest_removed"] == "2026-06-03T00:00:00+00:00"
+
+
+class TestRemovedWindow:
+    """Which recordings disappeared, not just how many bytes did.
+
+    "Freed 4 GB" does not tell an operator whether they lost last night or
+    last spring; the mtime window of the deleted files does.
+    """
+
+    @staticmethod
+    def _write_aged(directory: Path, name: str, size_bytes: int, age_hours: float) -> Path:
+        import os
+
+        path = directory / name
+        path.write_bytes(b"x" * size_bytes)
+        stamp = (datetime.now() - timedelta(hours=age_hours)).timestamp()
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_records_the_window_of_recording_that_was_deleted(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir)
+            for hours in (240, 200, 160, 5):
+                self._write_aged(path, f"clip_{hours}.wav", 400_000, age_hours=hours)
+
+            # Tiny budget, so the sweep is forced to take the oldest files.
+            policy = CleanupPolicy(
+                max_size_gb=0.000_9,
+                cleanup_trigger_percent=50,
+                cleanup_amount_percent=50,
+                min_file_age_hours=24,
+                file_pattern="*.wav",
+            )
+            result = StorageCleanup(policy).cleanup(path, dry_run=False)
+
+            assert result.files_removed > 0
+            assert result.oldest_removed is not None
+            assert result.newest_removed is not None
+            # Oldest-first: the window must start older than it ends, and the
+            # 5-hour-old file is below min_file_age_hours so it survives.
+            assert result.oldest_removed <= result.newest_removed
+            assert (path / "clip_5.wav").exists()
+
+    def test_a_sweep_that_removed_nothing_has_no_window(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir)
+            self._write_aged(path, "keep.wav", 1024, age_hours=48)
+
+            policy = CleanupPolicy(max_size_gb=700, cleanup_trigger_percent=90)
+            result = StorageCleanup(policy).cleanup(path, dry_run=False)
+
+            assert result.files_removed == 0
+            assert result.oldest_removed is None
+            assert result.newest_removed is None
+
+    def test_the_window_survives_to_dict(self):
+        """It has to reach the health payload, which is a dict."""
+        result = CleanupResult(
+            files_removed=1,
+            bytes_freed=10,
+            oldest_removed="2026-06-01T00:00:00+00:00",
+            newest_removed="2026-06-02T00:00:00+00:00",
+        )
+
+        payload = result.to_dict()
+
+        assert payload["oldest_removed"] == "2026-06-01T00:00:00+00:00"
+        assert payload["newest_removed"] == "2026-06-02T00:00:00+00:00"

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { CAMERA_IDS, POLLING_INTERVALS } from '../config'
 import { Image, Video, Download, Calendar, ChevronLeft, ChevronRight, Clock, Info } from 'lucide-react'
 import {
@@ -81,10 +82,7 @@ function TimelapsConfigSection({ selectedCamera }: { selectedCamera: string }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const { data, isLoading } = useQuery<TimelapseConfigResponse>({
     queryKey: ['timelapse-config'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/media/timelapse-config')
-      return res.json()
-    },
+    queryFn: () => fetchJson<TimelapseConfigResponse>('/api/media/timelapse-config'),
     staleTime: 60000,
   })
 

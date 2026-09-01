@@ -27,6 +27,44 @@ class TestBirdDetectionConfig:
             assert config.confidence_threshold == 0.50
             assert config.location_lat == 43.965542
             assert config.location_lon == -84.943588
+            assert config.geo_filter_min_prob == 0.03
+            assert config.geo_filter_weak_admit_prob == 0.0005
+            assert config.geo_filter_weak_admit_conf == 0.85
+            assert config.site_species_whitelist == []
+
+    def test_from_orpheus_config_with_geo_overrides_and_whitelist(self) -> None:
+        """Should read geo filter knobs and site whitelist from YAML."""
+        with patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": ""}):
+            config_stub = self.ConfigStub(
+                {
+                    "bird_detection": {
+                        "geo_filter_min_prob": 0.05,
+                        "geo_filter_weak_admit_prob": 0.001,
+                        "geo_filter_weak_admit_conf": 0.9,
+                        "site_species_whitelist": [
+                            "Antrostomus vociferus",
+                            "Scolopax minor",
+                        ],
+                    }
+                }
+            )
+            config = BirdDetectionConfig.from_orpheus_config(config_stub)
+            assert config.geo_filter_min_prob == 0.05
+            assert config.geo_filter_weak_admit_prob == 0.001
+            assert config.geo_filter_weak_admit_conf == 0.9
+            assert config.site_species_whitelist == [
+                "Antrostomus vociferus",
+                "Scolopax minor",
+            ]
+
+    def test_from_orpheus_config_with_invalid_whitelist_type(self) -> None:
+        """A non-list whitelist value should be ignored (logged warning, defaults to [])."""
+        with patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": ""}):
+            config_stub = self.ConfigStub(
+                {"bird_detection": {"site_species_whitelist": "not a list"}}
+            )
+            config = BirdDetectionConfig.from_orpheus_config(config_stub)
+            assert config.site_species_whitelist == []
 
     def test_from_orpheus_config_with_custom_values(self) -> None:
         """Should use custom values when provided."""

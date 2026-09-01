@@ -1,10 +1,12 @@
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Entities from './pages/Entities'
 import Birds from './pages/Birds'
 import Crows from './pages/Crows'
+import AudioEvents from './pages/AudioEvents'
+import Equivalences from './pages/Equivalences'
 import Cameras from './pages/Cameras'
 import Audio from './pages/Audio'
 import Video from './pages/Video'
@@ -20,6 +22,7 @@ import Layout from './components/Layout'
  */
 function ProtectedLayout() {
   const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
 
   if (isLoading) {
     return (
@@ -30,7 +33,10 @@ function ProtectedLayout() {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
+    // Carry the original ``location`` (path + search + hash) through the
+    // login bounce so that bookmarked URLs with filter params survive an
+    // auth round-trip. Login reads ``location.state.from`` and replays it.
+    return <Navigate to="/login" replace state={{ from: location }} />
   }
 
   return (
@@ -51,6 +57,8 @@ function App() {
         <Route path="/entities" element={<Entities />} />
         <Route path="/birds" element={<Birds />} />
         <Route path="/crows" element={<Crows />} />
+        <Route path="/audio-events" element={<AudioEvents />} />
+        <Route path="/equivalences" element={<Equivalences />} />
         <Route path="/cameras" element={<Cameras />} />
         <Route path="/audio" element={<Audio />} />
         <Route path="/video" element={<Video />} />

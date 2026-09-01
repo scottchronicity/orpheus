@@ -14,6 +14,7 @@ from typing import Optional
 import cv2
 
 from orpheus_common.logging import get_logger
+from orpheus_common.utils.urls import redact_url_credentials
 
 logger = get_logger(__name__)
 
@@ -126,7 +127,11 @@ class RTSPVideoSource(VideoSource):
 
     async def _start_internal(self) -> None:
         """Start RTSP capture."""
-        logger.info("Starting RTSP capture", camera_id=self._camera_id, rtsp_url=self._rtsp_url)
+        logger.info(
+            "Starting RTSP capture",
+            camera_id=self._camera_id,
+            rtsp_url=redact_url_credentials(self._rtsp_url),
+        )
         self._stop_event.clear()
 
         # Open RTSP stream with OpenCV

@@ -170,7 +170,7 @@ correlation:
 ```bash
 make install           # Create venv, install dependencies
 
-sudo make install-service  # Install as systemd service
+make install-service       # Install as systemd service
 sudo systemctl enable orpheus-agent-event-correlator
 sudo systemctl start orpheus-agent-event-correlator
 ```

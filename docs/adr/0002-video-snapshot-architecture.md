@@ -86,13 +86,6 @@ The snapshotter runs as a standalone systemd service:
 
 ## Consequences
 
-### Positive
-
-- Low resource usage through on-demand connections
-- Simple, reliable operation with no external dependencies
-- Easy cleanup via date directory deletion
-- Snapshots available for both timelapse and real-time analysis
-
 ### Negative
 
 - Momentary latency (1-2 seconds) for each capture due to RTSP handshake
@@ -121,5 +114,5 @@ Rejected for this use case: Motion-triggered snapshots are handled by video-moti
 ## Related
 
 - [ADR 0003: Timelapse Generation Architecture](0003-timelapse-generation-architecture.md)
-- [agents/orpheus-agent-video-snapshotter/README.md](../../agents/orpheus-agent-video-snapshotter/README.md)
+- [agents/orpheus-agent-video-snapshotter/README.md](https://github.com/scottchronicity/orpheus/blob/main/agents/orpheus-agent-video-snapshotter/README.md)
 - [docs/ARCHITECTURE.md](../ARCHITECTURE.md)

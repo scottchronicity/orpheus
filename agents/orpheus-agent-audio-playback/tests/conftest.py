@@ -4,6 +4,23 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from orpheus_common.config import OrpheusConfig
+
+
+@pytest.fixture(autouse=True)
+def reset_orpheus_config_singleton() -> None:
+    """Reset OrpheusConfig singleton between tests.
+
+    Prevents cross-test config pollution. See
+    docs/agent-instructions/99-gotchas.md.
+    """
+    original_instance = OrpheusConfig._instance
+    original_dotenv = OrpheusConfig._DOTENV_LOADED
+    OrpheusConfig._instance = None
+    OrpheusConfig._DOTENV_LOADED = False
+    yield
+    OrpheusConfig._instance = original_instance
+    OrpheusConfig._DOTENV_LOADED = original_dotenv
 
 
 @pytest.fixture
@@ -23,13 +40,13 @@ def mock_orpheus_config():
 @pytest.fixture
 def mock_mqtt_client():
     """Mock MQTT client for testing."""
-    with patch("orpheus_agent_audio_playback.main.MQTTClient") as mock_client_class:
+    with patch("orpheus_agent_audio_playback.main.create_event_bus") as mock_factory:
         mock_client = MagicMock()
         mock_client.connect = MagicMock()
         mock_client.disconnect = MagicMock()
         mock_client.subscribe = MagicMock()
         mock_client.publish = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_factory.return_value = mock_client
         yield mock_client
 
 

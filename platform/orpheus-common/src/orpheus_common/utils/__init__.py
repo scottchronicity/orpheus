@@ -11,6 +11,8 @@ from orpheus_common.utils.time import (
     utc_now,
     utc_now_iso,
 )
+from orpheus_common.utils.torch_device import select_torch_device
+from orpheus_common.utils.urls import redact_url_credentials
 
 __all__ = [
     "PreRollRingBuffer",
@@ -18,4 +20,6 @@ __all__ = [
     "utc_now_iso",
     "parse_iso_timestamp",
     "timestamp_age_seconds",
+    "select_torch_device",
+    "redact_url_credentials",
 ]

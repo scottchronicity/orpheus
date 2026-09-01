@@ -4,7 +4,14 @@ Crow vocalization detection agent using crow-tools classifier models (AVES embed
 
 ## Overview
 
-Subscribes to audio motion events from `orpheus-agent-audio-motion` and performs crow vocalization detection using the crow-tools deep learning models. The system uses a two-stage pipeline:
+Subscribes to **bird-detection events** AND **audio-events events**, runs
+crow-tools analysis whenever EITHER classifier flags a corvid in the clip.
+The cross-classifier-identity work means crow-tools picks up corvid signals
+regardless of whether BirdNET (Corvidae species names) or PANNs (AudioSet
+"Crow" / "Caw" tags) was the one to spot them. Dedup by clip_path prevents
+double-processing when both classifiers fire on the same audio.
+
+The system uses a two-stage pipeline:
 
 1. **AVES Embedder**: Generates 768-dimensional embeddings from 16kHz audio
 2. **Multi-task Classifier**: Classifies embeddings for species, call type, and quality
@@ -35,7 +42,7 @@ Publishes detection events to MQTT and stores results in DetectionDB.
 make install
 
 # Install systemd service
-sudo make install-service
+make install-service
 ```
 
 ## Configuration

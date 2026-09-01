@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchWithAuth, formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { POLLING_INTERVALS } from '../config'
-import { Brain, Activity, MapPin, X, ChevronRight, Code, Volume2 } from 'lucide-react'
+import { Brain, Activity, MapPin, X, ChevronRight, Code, Volume2, GitBranch, ExternalLink } from 'lucide-react'
+import { buildSpeciesLinks } from '../lib/speciesLinks'
 import {
   LoadingSpinner,
   PageHeader,
@@ -11,17 +13,45 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, paginate, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
+import { DateRangeFilter, usePaginatedDateRange, useUrlMultiSelect, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
 import { ClipActions } from '../components/ClipActions'
 import { HourlyActivityChart, DistributionPieChart, DailyActivityChart, EntityScatterChart } from '../components/Charts'
 import { SpeciesFilter } from '../components/SpeciesFilter'
+
+/**
+ * Layer 2 (event-based clustering): each piece of evidence carries its
+ * own species claim and which classifier produced it. See
+ * docs/designs/cross-classifier-identity.md §4.
+ */
+interface EntityTaxonomyRef {
+  namespace: string
+  id: string
+  common_name?: string | null
+}
+
+interface EntityTemporalInterval {
+  start_seconds: number
+  end_seconds: number
+  confidence?: number | null
+}
 
 interface EntityEvidence {
   event_id: string
   source_event_id?: string
   sensor_id: string
   clip_path?: string
+  // Backend-computed: does the backing audio clip still exist on disk?
+  // The DB row outlives the clip (retention rolls clips off), so old
+  // evidence references files that are gone. Drives the preemptive
+  // "Clip expired" state in ClipActions.
+  clip_available?: boolean
   confidence: number
+  intervals?: EntityTemporalInterval[] | null
+  // Layer 2 per-evidence fields:
+  species_code?: string | null
+  species_common?: string | null
+  taxonomy?: EntityTaxonomyRef | null
+  detection_type?: string
 }
 
 interface EntityContext {
@@ -30,14 +60,41 @@ interface EntityContext {
   timestamp?: string
 }
 
+interface EntityAlsoDetected {
+  species_code: string
+  species_common: string
+  confidence: number
+  detection_type: string
+}
+
+interface EntityEventSignature {
+  audio_motion_source_ids?: string[]
+  sensor_ids?: string[]
+  start_time?: string
+  end_time?: string
+  // Co-occurring OTHER sources in the same window — context, not evidence
+  // for this entity's label (source-identity, see design doc).
+  also_detected?: EntityAlsoDetected[]
+}
+
 interface EntityEvent {
   entity_id: string
   timestamp: string
+  // Legacy display label — populated from the highest-confidence evidence's
+  // species. NOT authoritative; the truth is in evidence[].
   species_code: string
   common_name: string
   confidence: number
   context: EntityContext
   evidence: EntityEvidence[]
+  // Layer 2 traceability metadata.
+  event_signature?: EntityEventSignature | null
+  // Corollary discharge — true when this entity overlapped our own audio
+  // playback (the system hearing itself, not wildlife).
+  is_self_generated?: boolean
+  // Coarse state-space type, e.g. "Animal.Bird.Crow" ([ARCH] entity taxonomy).
+  // Null/absent for legacy or unresolved entities.
+  entity_type?: string | null
 }
 
 interface EntityStats {
@@ -61,14 +118,222 @@ interface EntityScatterPoint {
 interface EntitiesResponse {
   entities: EntityEvent[]
   scatter_sample: EntityScatterPoint[]
-  count: number
+  count: number  // full filtered count, not page size
   stats: EntityStats
+  page?: number
+  page_size?: number
+  total_pages?: number
 }
 
 function getConfidenceColor(confidence: number): string {
   if (confidence >= 0.8) return 'text-green-400'
   if (confidence >= 0.5) return 'text-amber-400'
   return 'text-red-400'
+}
+
+
+/**
+ * Chain panel — fetches every Detection in the lineage rooted at the
+ * given audio.motion event(s). The "metadata appended to metadata" view.
+ *
+ * One Entity may have multiple audio.motion roots in multi-mic scenarios.
+ * v1 fetches the chain for the FIRST root only — multi-root entities
+ * just show that root's chain. Multi-root chain merging is a follow-up.
+ */
+interface ChainDetection {
+  event_id: string
+  timestamp: string
+  detection_type: string
+  channel?: number | null
+  species_code?: string | null
+  species_common?: string | null
+  confidence?: number | null
+  source_event_id?: string | null
+  root_event_id?: string | null
+  audio_clip_path?: string | null
+  intervals?: EntityTemporalInterval[] | null
+  taxonomy?: EntityTaxonomyRef | null
+  metadata?: Record<string, unknown> | null
+}
+
+// Metadata keys worth surfacing inline on each chain row. Hand-curated
+// to avoid drowning the reader in noise; these are the ones that carry
+// downstream-enrichment value (model version, call-type analysis output,
+// etc).
+const NOTABLE_METADATA_KEYS = [
+  'model_version',
+  'model',
+  'inference_time_ms',
+  'call_type',
+  'age',
+  'quality_score',
+  'duration_seconds',
+  'peak_energy_db',
+] as const
+
+function notableMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): Array<[string, string]> {
+  if (!metadata) return []
+  const result: Array<[string, string]> = []
+  for (const key of NOTABLE_METADATA_KEYS) {
+    if (key in metadata) {
+      const value = metadata[key]
+      if (value === null || value === undefined) continue
+      result.push([key, String(value)])
+    }
+  }
+  return result
+}
+
+interface ChainResponse {
+  root_event_id: string
+  count: number
+  chain: ChainDetection[]
+}
+
+function EntityChainPanel({ rootEventIds }: { rootEventIds: string[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const primaryRoot = rootEventIds[0]
+  const { data, isLoading, error } = useQuery<ChainResponse>({
+    queryKey: ['entity-chain', primaryRoot],
+    queryFn: () => fetchJson<ChainResponse>(`/api/chain/${encodeURIComponent(primaryRoot)}`),
+    enabled: expanded,  // lazy — only fetch when user expands
+  })
+
+  return (
+    <Card>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <GitBranch className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-medium text-white">
+            Detection chain
+          </h3>
+        </div>
+        <span className="text-xs text-slate-400">
+          {expanded ? 'Hide' : 'Show'} ({rootEventIds.length} root
+          {rootEventIds.length === 1 ? '' : 's'})
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3">
+          <p className="text-[11px] text-slate-500 mb-2">
+            Every Detection in this physical event's lineage — audio.motion →
+            classifier outputs → downstream enrichment. Source of truth for
+            "metadata appended to metadata."
+          </p>
+          {isLoading && (
+            <p className="text-xs text-slate-500">Loading chain…</p>
+          )}
+          {error && (
+            <p className="text-xs text-red-400">Failed to load chain.</p>
+          )}
+          {data?.chain && (
+            <ol className="space-y-2 text-xs">
+              {data.chain.map((det, i) => (
+                <li
+                  key={det.event_id}
+                  className="border-l-2 border-emerald-400/40 pl-3 py-1"
+                >
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-700 text-slate-200">
+                      {det.detection_type}
+                    </span>
+                    {det.species_common && (
+                      <span className="text-white">{det.species_common}</span>
+                    )}
+                    {det.confidence != null && (
+                      <span className={getConfidenceColor(det.confidence)}>
+                        {(det.confidence * 100).toFixed(0)}%
+                      </span>
+                    )}
+                    <span className="text-slate-500 ml-auto text-[10px] font-mono">
+                      {det.timestamp.slice(11, 23)}
+                    </span>
+                  </div>
+                  {det.taxonomy && (
+                    <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      {det.taxonomy.namespace}:{det.taxonomy.id}
+                    </p>
+                  )}
+                  {/* Notable metadata — model_version, call_type, age, etc. */}
+                  {(() => {
+                    const md = notableMetadata(det.metadata)
+                    if (md.length === 0) return null
+                    return (
+                      <div className="text-[10px] text-slate-500 mt-0.5 flex flex-wrap gap-x-2">
+                        {md.map(([k, v]) => (
+                          <span key={k}>
+                            <span className="text-slate-600">{k}=</span>
+                            <span className="text-slate-400">{v}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                  {det.channel != null && (
+                    <p className="text-[10px] text-slate-600 mt-0.5">
+                      channel {det.channel}
+                    </p>
+                  )}
+                  {det.source_event_id && i > 0 && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      ← {det.source_event_id}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+
+/**
+ * Compact row of external species references (iNaturalist, Wikipedia,
+ * GBIF) built from the IOC scientific name when known, common name as
+ * fallback. ``onClick stopPropagation`` so clicking a link inside a
+ * clickable row doesn't trigger the row's own onClick.
+ */
+function SpeciesExternalLinks({
+  scientificName,
+  commonName,
+  audiosetMid,
+}: {
+  scientificName?: string | null
+  commonName?: string | null
+  audiosetMid?: string | null
+}) {
+  const links = buildSpeciesLinks({
+    scientificName,
+    commonName,
+    audiosetMid,
+  })
+  if (links.length === 0) return null
+  return (
+    <div className="mt-1 flex items-center gap-2 flex-wrap">
+      {links.map((link) => (
+        <a
+          key={link.label}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-3 h-3" />
+          {link.label}
+        </a>
+      ))}
+    </div>
+  )
 }
 
 
@@ -85,8 +350,44 @@ function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () =>
         {/* Header */}
         <div className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-medium text-white">{entity.common_name}</h2>
-            <p className="text-sm text-slate-400">{formatDateTime(entity.timestamp)}</p>
+            <h2 className="text-lg font-medium text-white">
+              {entity.common_name}
+              {entity.is_self_generated && (
+                <span
+                  className="ml-2 align-middle rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-300"
+                  title="Overlapped our own audio playback (corollary discharge)"
+                >
+                  self-generated
+                </span>
+              )}
+            </h2>
+            {/* Coarse state-space type ([ARCH] entity taxonomy). */}
+            {entity.entity_type && (
+              <div className="mt-0.5 text-xs text-slate-400" title="State-space entity type">
+                {entity.entity_type}
+              </div>
+            )}
+            {/* Scientific name from the highest-confidence evidence
+                that has a TaxonomyRef in the IOC namespace, when
+                available — falls back to nothing for legacy entities. */}
+            {(() => {
+              const iocEvidence = entity.evidence.find(
+                (ev) => ev.taxonomy?.namespace === 'ioc',
+              )
+              const scientific = iocEvidence?.taxonomy?.id ?? null
+              return (
+                <>
+                  {scientific && (
+                    <p className="text-xs text-slate-500 italic">{scientific}</p>
+                  )}
+                  <p className="text-sm text-slate-400">{formatDateTime(entity.timestamp)}</p>
+                  <SpeciesExternalLinks
+                    scientificName={scientific}
+                    commonName={entity.common_name}
+                  />
+                </>
+              )
+            })()}
           </div>
           <button
             onClick={onClose}
@@ -124,37 +425,154 @@ function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () =>
             </Card>
           )}
 
-          {/* Evidence List */}
+          {/* Event Signature — Layer 2 traceability */}
+          {entity.event_signature && (
+            <Card>
+              <div className="flex items-center gap-2 mb-3">
+                <Volume2 className="w-4 h-4 text-blue-400" />
+                <h3 className="text-sm font-medium text-white">Event Lineage</h3>
+              </div>
+              {entity.event_signature.audio_motion_source_ids &&
+                entity.event_signature.audio_motion_source_ids.length > 0 && (
+                  <div className="text-xs text-slate-400 mb-2">
+                    <span className="text-slate-500">Audio.motion roots: </span>
+                    <span className="font-mono break-all">
+                      {entity.event_signature.audio_motion_source_ids.join(', ')}
+                    </span>
+                  </div>
+                )}
+              {entity.event_signature.sensor_ids &&
+                entity.event_signature.sensor_ids.length > 0 && (
+                  <div className="text-xs text-slate-400">
+                    <span className="text-slate-500">Sensors: </span>
+                    {entity.event_signature.sensor_ids.join(', ')}
+                  </div>
+                )}
+              {entity.event_signature.start_time && entity.event_signature.end_time && (
+                <div className="text-xs text-slate-400 mt-1">
+                  <span className="text-slate-500">Time span: </span>
+                  {entity.event_signature.start_time} → {entity.event_signature.end_time}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Chain view — every Detection that traces back to the same
+              audio.motion root via root_event_id. The "metadata appended
+              to metadata" view. Only visible when event_signature has at
+              least one audio.motion source_id. */}
+          {entity.event_signature?.audio_motion_source_ids &&
+            entity.event_signature.audio_motion_source_ids.length > 0 && (
+              <EntityChainPanel
+                rootEventIds={entity.event_signature.audio_motion_source_ids}
+              />
+            )}
+
+          {/* Evidence List — Layer 2: shows each classifier's opinion */}
           <div>
             <h3 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
               <Volume2 className="w-4 h-4 text-purple-400" />
-              Evidence ({entity.evidence.length} sources)
+              Evidence ({entity.evidence.length} classifier observations)
             </h3>
             <div className="space-y-2">
               {entity.evidence.map((ev, i) => (
                 <div
                   key={ev.event_id || i}
-                  className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between"
+                  className="bg-slate-700/50 rounded-lg p-3"
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">
-                      Sensor: {ev.sensor_id || 'Unknown'}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Confidence: {(ev.confidence * 100).toFixed(0)}%
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      {/* Per-classifier species claim */}
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-white">
+                          {ev.species_common || ev.species_code || '—'}
+                        </p>
+                        {ev.detection_type && (
+                          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-200">
+                            {ev.detection_type}
+                          </span>
+                        )}
+                      </div>
+                      {/* Canonical taxonomy ref (when known) */}
+                      {ev.taxonomy && (
+                        <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                          {ev.taxonomy.namespace}:{ev.taxonomy.id}
+                        </p>
+                      )}
+                      {/* Per-evidence species links — different classifier
+                          opinions might want different lookups, so each
+                          gets its own. */}
+                      <SpeciesExternalLinks
+                        scientificName={
+                          ev.taxonomy?.namespace === 'ioc' ? ev.taxonomy.id : null
+                        }
+                        commonName={ev.species_common}
+                        audiosetMid={
+                          ev.taxonomy?.namespace === 'audioset' ? ev.taxonomy.id : null
+                        }
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Sensor: <span className="text-slate-300">{ev.sensor_id || 'unknown'}</span>
+                        <span className="mx-1">·</span>
+                        Confidence: <span className={getConfidenceColor(ev.confidence)}>
+                          {(ev.confidence * 100).toFixed(0)}%
+                        </span>
+                      </p>
+                      {/* Intra-clip intervals when present (Layer 2 carries them per-evidence) */}
+                      {ev.intervals && ev.intervals.length > 0 && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {ev.intervals.length} interval{ev.intervals.length === 1 ? '' : 's'}:{' '}
+                          {ev.intervals
+                            .slice(0, 3)
+                            .map(
+                              (iv) =>
+                                `${iv.start_seconds.toFixed(1)}–${iv.end_seconds.toFixed(1)}s`,
+                            )
+                            .join(', ')}
+                          {ev.intervals.length > 3 && ` +${ev.intervals.length - 3} more`}
+                        </p>
+                      )}
+                    </div>
+                    {ev.clip_path && (
+                      <ClipActions
+                        clipPath={ev.clip_path}
+                        type="audio"
+                        channelId={ev.sensor_id}
+                        clipAvailable={ev.clip_available}
+                      />
+                    )}
                   </div>
-                  {ev.clip_path && (
-                    <ClipActions
-                      clipPath={ev.clip_path}
-                      type="audio"
-                      channelId={ev.sensor_id}
-                    />
-                  )}
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Also detected at this time — co-occurring OTHER sources in the
+              same window. Context, NOT evidence for this entity's label. */}
+          {entity.event_signature?.also_detected &&
+            entity.event_signature.also_detected.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-white mb-2">
+                  Also detected at this time
+                </h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  Other sources heard in the same window — not evidence for this entity.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {entity.event_signature.also_detected.map((a, i) => (
+                    <span
+                      key={`${a.species_code}-${i}`}
+                      className="text-xs bg-slate-700/40 rounded px-2 py-1 text-slate-300"
+                    >
+                      {a.species_common || a.species_code || '—'}
+                      <span className={`ml-1 ${getConfidenceColor(a.confidence)}`}>
+                        {(a.confidence * 100).toFixed(0)}%
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
           {/* Raw JSON Toggle */}
           <div>
@@ -180,12 +598,10 @@ function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () =>
 export default function EntitiesPage() {
   const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedEntity, setSelectedEntity] = useState<EntityEvent | null>(null)
-  const [selectedSpecies, setSelectedSpecies] = useState<Set<string>>(new Set())
-
-  // Reset species selection whenever the date range changes.
-  useEffect(() => {
-    setSelectedSpecies(new Set())
-  }, [startDate, endDate])
+  // Species selection lives in ``?species=...`` so the URL captures the
+  // full filter state — bookmark-able, shareable, reload-safe. No
+  // date-change reset: the URL is the source of truth.
+  const [selectedSpecies, setSelectedSpecies] = useUrlMultiSelect('species')
 
   const speciesCsv = useMemo(() => {
     const arr = Array.from(selectedSpecies)
@@ -197,20 +613,29 @@ export default function EntitiesPage() {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
   }, [])
 
-  const { data, isLoading, error } = useQuery<EntitiesResponse>({
-    queryKey: ['entities', startDate, endDate, startTime, endTime, speciesCsv],
+  const { data, isLoading, isFetching, error, isPlaceholderData } = useQuery<EntitiesResponse>({
+    queryKey: ['entities', startDate, endDate, startTime, endTime, speciesCsv, page],
     queryFn: async () => {
-      const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        // Server-side pagination, same shape Birds/Crows use — client-side
+        // slicing over a capped fetch silently truncates big filter results.
+        page: String(page),
+        page_size: String(ITEMS_PER_PAGE),
+      })
       if (speciesCsv) params.set('species', speciesCsv)
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)
         params.set('tz', browserTz)
       }
-      const res = await fetchWithAuth(`/api/entities?${params.toString()}`)
-      return res.json()
+      return fetchJson<EntitiesResponse>(`/api/entities?${params.toString()}`)
     },
     refetchInterval: POLLING_INTERVALS.HISTORY,
+    // Keep the previous page visible while the new one fetches —
+    // eliminates the "blank flash" when filters or page change.
+    placeholderData: (previousData) => previousData,
   })
 
   if (isLoading) {
@@ -221,7 +646,7 @@ export default function EntitiesPage() {
     return (
       <ErrorMessage
         title="Entities"
-        description="Correlated animal detection events"
+        description="Correlated animal and audio events from multiple sensors"
         message="Failed to load entity data"
       />
     )
@@ -235,13 +660,16 @@ export default function EntitiesPage() {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([value, count]) => ({ value, count }))
 
-  // Paginate the table
-  const allEntities = data?.entities || []
-  const { pageItems: pageEntities, totalPages } = paginate(allEntities, page)
+  // Server-side pagination — the API returns just the current page's
+  // entities + total_pages for the count footer. ``count`` is the full
+  // filtered count, not page size.
+  const pageEntities = data?.entities ?? []
+  const totalCount = data?.count ?? 0
+  const totalPages = data?.total_pages ?? 1
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Entities" description="Correlated animal detection events from multiple sensors" />
+      <PageHeader title="Entities" description="Correlated animal and audio events from multiple sensors" />
 
       {/* Date + Time Range Filter */}
       <DateRangeFilter
@@ -250,13 +678,17 @@ export default function EntitiesPage() {
         startTime={startTime}
         endTime={endTime}
         onChange={handleChange}
+        isPlaceholderData={isPlaceholderData}
       />
 
       {/* Species Filter */}
       <SpeciesFilter
         availableItems={availableSpeciesItems}
         selected={selectedSpecies}
-        onChange={(next) => { setSelectedSpecies(next); setPage(1) }}
+        // No setPage(1): useUrlMultiSelect.setValue resets page atomically
+        // inside the same setSearchParams call (avoids react-router-dom v6
+        // stale-closure race that would silently lose the selection).
+        onChange={setSelectedSpecies}
         label="Species"
       />
 
@@ -323,13 +755,16 @@ export default function EntitiesPage() {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium text-white">Entities in Date Range</h2>
-          {allEntities.length > 0 && (
+          {totalCount > 0 && (
             <span className="text-sm text-slate-400">
-              {allEntities.length} total, showing {pageEntities.length} (page {page} of {totalPages})
+              {totalCount.toLocaleString()} total, showing {pageEntities.length} (page {page} of {totalPages})
+              {isPlaceholderData && (
+                <span className="ml-2 text-slate-500 italic">updating…</span>
+              )}
             </span>
           )}
         </div>
-        {allEntities.length > 0 ? (
+        {pageEntities.length > 0 ? (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -352,7 +787,17 @@ export default function EntitiesPage() {
                       <td className="py-3 pr-4 text-slate-300">
                         {formatDateTime(entity.timestamp)}
                       </td>
-                      <td className="py-3 pr-4 text-white">{entity.common_name}</td>
+                      <td className="py-3 pr-4 text-white">
+                        {entity.common_name}
+                        {entity.is_self_generated && (
+                          <span
+                            className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-300"
+                            title="Overlapped our own audio playback (corollary discharge)"
+                          >
+                            echo
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 pr-4">
                         <span className={getConfidenceColor(entity.confidence)}>
                           {(entity.confidence * 100).toFixed(0)}%
@@ -367,7 +812,12 @@ export default function EntitiesPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              isLoading={isFetching && !isLoading}
+            />
           </>
         ) : (
           <p className="text-slate-500 text-center py-8">No entity events yet. Waiting for correlated detections...</p>

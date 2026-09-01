@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithAuth, formatDateTime } from '../lib/utils'
 import { POLLING_INTERVALS } from '../config'
@@ -10,7 +10,7 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
+import { DateRangeFilter, usePaginatedDateRange, useUrlMultiSelect, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
 import { ClipActions } from '../components/ClipActions'
 import { HourlyActivityChart, DistributionPieChart, HourlyStackedBarChart, DailyActivityChart, CrowScatterChart } from '../components/Charts'
 import { LocationBadge, SpatiotemporalContext } from '../components/LocationBadge'
@@ -22,6 +22,9 @@ import { SpeciesFilter } from '../components/SpeciesFilter'
  * Includes optional spatiotemporal context and lineage fields.
  */
 interface CrowDetection {
+  /** Unique event id from the backend Detection model — stable across
+   *  pagination so it's the right thing to use as a React key. */
+  event_id?: string
   timestamp: string
   confidence: number | null
   call_type: string
@@ -203,12 +206,12 @@ function deriveHourlyAges(detections: CrowDetection[]): { hour: number; [key: st
 export default function CrowsPage() {
   const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedDetection, setSelectedDetection] = useState<CrowDetection | null>(null)
-  const [selectedCallTypes, setSelectedCallTypes] = useState<Set<string>>(new Set())
-
-  // Reset call-type selection whenever the date range changes.
-  useEffect(() => {
-    setSelectedCallTypes(new Set())
-  }, [startDate, endDate])
+  // Call-type selection lives in ``?call_type=...`` so the URL captures the
+  // full filter state — bookmark-able, shareable, reload-safe. No
+  // date-change reset effect: the URL is the source of truth and a
+  // bookmark "yellow-eyed warbler on 2026-05-18" should preserve its
+  // selection through any date manipulation.
+  const [selectedCallTypes, setSelectedCallTypes] = useUrlMultiSelect('call_type')
 
   const callTypesCsv = useMemo(() => {
     const arr = Array.from(selectedCallTypes)
@@ -220,7 +223,7 @@ export default function CrowsPage() {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
   }, [])
 
-  const { data, isLoading, error } = useQuery<CrowStatsResponse>({
+  const { data, isLoading, isFetching, error, isPlaceholderData } = useQuery<CrowStatsResponse>({
     queryKey: ['crow-stats', startDate, endDate, startTime, endTime, page, callTypesCsv],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -240,6 +243,7 @@ export default function CrowsPage() {
       return res.json()
     },
     refetchInterval: POLLING_INTERVALS.HISTORY,
+    placeholderData: (previousData) => previousData,
   })
 
   // Find peak hour
@@ -274,13 +278,17 @@ export default function CrowsPage() {
         startTime={startTime}
         endTime={endTime}
         onChange={handleChange}
+        isPlaceholderData={isPlaceholderData}
       />
 
       {/* Call Type Filter */}
       <SpeciesFilter
         availableItems={availableCallTypeItems}
         selected={selectedCallTypes}
-        onChange={(next) => { setSelectedCallTypes(next); setPage(1) }}
+        // No setPage(1): useUrlMultiSelect.setValue resets page atomically
+        // inside the same setSearchParams call (avoids react-router-dom v6
+        // stale-closure race that would silently lose the selection).
+        onChange={setSelectedCallTypes}
         label="Call Types"
       />
 
@@ -417,7 +425,7 @@ export default function CrowsPage() {
                 </thead>
                 <tbody>
                   {pageDetections.map((det, i) => (
-                    <tr key={i} className="border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/30 transition-colors" onClick={() => setSelectedDetection(det)}>
+                    <tr key={det.event_id ?? `${det.timestamp}-${i}`} className="border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/30 transition-colors" onClick={() => setSelectedDetection(det)}>
                       <td className="py-3 pr-4 text-slate-300">
                         {formatDateTime(det.timestamp)}
                       </td>
@@ -451,7 +459,12 @@ export default function CrowsPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              isLoading={isFetching && !isLoading}
+            />
           </>
         ) : (
           <p className="text-slate-500 text-center py-8">No crow detections in selected date range</p>

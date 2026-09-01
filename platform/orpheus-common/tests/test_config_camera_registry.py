@@ -183,6 +183,11 @@ def test_to_dict_returns_runtime_config_with_defaults(monkeypatch: Any) -> None:
         assert "dashboard" in runtime_dict
         assert "logging" in runtime_dict
         assert "hardware" in runtime_dict
+        # correlation + site were silently dropped from the runtime dump (the
+        # to_dict allowlist drifted); they must round-trip like every other
+        # section so the diagnostics config-echo shows the full effective config.
+        assert "correlation" in runtime_dict
+        assert "site" in runtime_dict
 
         # Verify explicit config values are preserved
         assert runtime_dict["mqtt"]["broker_host"] == "mqtt.test.local"
@@ -203,6 +208,40 @@ def test_to_dict_returns_runtime_config_with_defaults(monkeypatch: Any) -> None:
 
         json_str = json.dumps(runtime_dict)
         assert len(json_str) > 0
+
+
+def test_to_dict_auto_covers_every_config_section_and_hides_internal_state() -> None:
+    """to_dict() derives its section list from the config's own dataclass attributes,
+    so a newly-added section can't silently miss serialization (the allowlist drifted
+    4x). Pin: every public dataclass attr is present + circuit_breakers, and NO private
+    internal state (``_raw``, the camera registry) leaks — even once it's populated."""
+    import dataclasses
+
+    with _preserve_singleton():
+        OrpheusConfig._DOTENV_LOADED = True
+        cfg = OrpheusConfig(config=_build_config())
+        # Populate the lazy camera registry so the circular-ref hazard is live.
+        cfg.camera_registry(reload=True)
+
+        d = cfg.to_dict()
+
+        expected = {
+            name
+            for name, value in vars(cfg).items()
+            if not name.startswith("_") and dataclasses.is_dataclass(value)
+        }
+        expected.add("circuit_breakers")
+        expected.add("agents")  # {name: AgentTickConfig} dict — special-cased like circuit_breakers
+        assert set(d.keys()) == expected
+        # A representative spread of sections (incl. the ones that drifted) is covered.
+        for section in ("mqtt", "event_bus", "event_sourcing", "correlation", "site", "public"):
+            assert section in d
+        # No private/internal attribute leaked, and the camera registry stays out.
+        assert not any(k.startswith("_") for k in d)
+        assert "cameras" not in d and "_camera_registry" not in d
+        import json
+
+        assert len(json.dumps(d)) > 0  # still circular-ref-free with the registry built
 
 
 def test_get_debug_safe_values_uses_runtime_config() -> None:

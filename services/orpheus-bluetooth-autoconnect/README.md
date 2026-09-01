@@ -19,10 +19,10 @@ This service ensures that a configured Bluetooth speaker automatically connects 
 
 ```bash
 # Default installation (JBL Flip 4: FC:58:FA:02:AF:28)
-sudo make install
+make install
 
 # Custom Bluetooth device
-BLUETOOTH_SPEAKER_MAC=XX:XX:XX:XX:XX:XX sudo make install
+BLUETOOTH_SPEAKER_MAC=XX:XX:XX:XX:XX:XX make install
 ```
 
 ## Configuration
@@ -64,13 +64,13 @@ make logs
 make logs-follow
 
 # Restart service
-sudo make restart
+make restart
 
 # Stop service
-sudo make stop
+make stop
 
 # Start service
-sudo make start
+make start
 ```
 
 ## Troubleshooting
@@ -167,10 +167,10 @@ make dry-run
 
 ```bash
 # Remove service
-sudo make uninstall
+make uninstall
 
 # Complete cleanup (removes config too)
-sudo make clean
+make clean
 ```
 
 ## MQTT Topics

@@ -11,12 +11,13 @@ from typing import Any, Callable, Optional
 
 import paho.mqtt.client as mqtt
 
+from orpheus_common.event_bus import EventBus
 from orpheus_common.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class MQTTClient:
+class MQTTClient(EventBus):
     """
     Robust MQTT client wrapper with automatic reconnection and JSON support.
 
@@ -228,6 +229,22 @@ class MQTTClient:
             self._client.subscribe(topic_pattern, qos=self.qos)
             logger.info("Subscribed to topic pattern", topic_pattern=topic_pattern, qos=self.qos)
 
+    def unsubscribe(self, topic_pattern: str) -> None:
+        """
+        Drop all callbacks for a topic pattern and unsubscribe at the broker.
+
+        Idempotent — unsubscribing a pattern with no registered callbacks is a
+        no-op. Part of the EventBus contract.
+
+        Args:
+            topic_pattern: The same pattern that was given to ``subscribe``.
+        """
+        had = self._callbacks.pop(topic_pattern, None) is not None
+        if self._connected:
+            self._client.unsubscribe(topic_pattern)
+        if had:
+            logger.info("Unsubscribed from topic pattern", topic_pattern=topic_pattern)
+
     def on_message(self, topic_pattern: str) -> Callable:
         """
         Decorator to register message callback for topic pattern.
@@ -365,3 +382,9 @@ class MQTTClient:
     def is_connected(self) -> bool:
         """Check if client is connected to broker."""
         return self._connected
+
+
+# ``MQTTBus`` is the EventBus-vocabulary name for the MQTT transport. It is the
+# same class as ``MQTTClient`` (kept as the canonical name for back-compat with
+# every existing import); new code can use either. See event_bus.create_event_bus.
+MQTTBus = MQTTClient

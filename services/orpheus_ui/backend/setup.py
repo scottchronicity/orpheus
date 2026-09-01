@@ -4,7 +4,8 @@ from setuptools import find_packages, setup
 
 setup(
     name="orpheus-ui",
-    version="0.1.0",
+    # version omitted on purpose: dynamic, sourced from the VERSION file via
+    # [tool.setuptools.dynamic] in pyproject.toml (the SSoT).
     description="Modern React/FastAPI UI for Orpheus Wildlife Monitoring",
     packages=find_packages(where="src"),
     package_dir={"": "src"},

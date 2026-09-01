@@ -76,6 +76,25 @@ Example:
 /data/orpheus/video/snapshots/2025.01.15/2025-01-15T14-30-45.123Z.front-yard.jpg
 ```
 
+### Retention
+
+**This agent does not delete snapshots.** It used to purge them on an age window
+of its own; that job now belongs to `orpheus-storage-sweep`, which runs from a
+systemd timer every 15 minutes and is the only thing on the station that removes a
+recording.
+
+Snapshots are the `snapshots` category: trimmed oldest-first once they pass
+`storage.retention.categories.snapshots.max_gb` (450 GB by default), and sooner if
+free space falls below `storage.retention.reserve_gb`, with nothing inside
+`floor_days` (90 by default) ever deleted. `make storage-report` shows what the
+next sweep would do.
+
+`video_snapshotter.retention_days` is inert — it still parses, and the agent logs
+at startup that nothing applies it, so an operator who set it learns that from the
+journal rather than from a directory that never shrinks. Configure
+`storage.retention.categories.snapshots` instead. See
+[Data & retention](../../docs/operator-manual/index.md#7-data-retention).
+
 ## Usage
 
 ### Installation

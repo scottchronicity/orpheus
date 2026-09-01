@@ -4,9 +4,10 @@ Modern React/FastAPI UI for Orpheus Wildlife Monitoring System.
 
 ## Overview
 
-Orpheus UI is the new frontend service for the Orpheus wildlife monitoring platform. It provides a modern, responsive web interface with full user authentication and role-based access control.
+Orpheus UI is the frontend service for the Orpheus wildlife monitoring platform. It provides a modern, responsive web interface with full user authentication and role-based access control.
 
-**Important:** This service runs on port **8082** to avoid conflicting with the legacy `orpheus-dashboard` which remains on port 8080 until this service fully replaces it.
+The backend runs on port **8082**; nginx proxies port 8080 → 8082 in
+production so the user-facing URL is on the canonical Orpheus UI port.
 
 ## Directory Structure
 
@@ -154,7 +155,7 @@ make service-logs
 ### Uninstall Service
 
 ```bash
-sudo make uninstall-service
+make uninstall-service
 
 # Optionally remove deployed files (but NOT user database)
 sudo rm -rf /opt/orpheus/ui
@@ -165,7 +166,11 @@ sudo rm -f /data/orpheus/users.db
 
 ## User Database Persistence
 
-The user database is stored at `/data/orpheus/users.db` and **persists across service updates and reinstalls**. This means:
+The accounts database is stored at `users.db` in the top of `$ORPHEUS_DATA_ROOT`
+(`/data/orpheus/users.db` on a station) and **persists across service updates and
+reinstalls**. A file that already exists elsewhere keeps being used rather than
+abandoned, `ORPHEUS_UI_DATABASE_URL` overrides the choice, and the backend logs the
+resolved path at startup. This means:
 
 - User accounts survive `make install-service` updates
 - Login credentials are preserved
@@ -215,7 +220,7 @@ On first startup, two default users are created automatically:
 | `ORPHEUS_UI_ADMIN_PASSWORD` | Default admin password | `changeme` |
 | `ORPHEUS_UI_GUEST_EMAIL` | Default guest email | `guest@orpheus.example.com` |
 | `ORPHEUS_UI_GUEST_PASSWORD` | Default guest password | `guest` |
-| `ORPHEUS_UI_DATABASE_URL` | SQLite database URL | `sqlite+aiosqlite:////data/orpheus/users.db` |
+| `ORPHEUS_UI_DATABASE_URL` | SQLite database URL | `users.db` under `$ORPHEUS_DATA_ROOT` |
 
 ## API Endpoints
 
@@ -247,10 +252,11 @@ On first startup, two default users are created automatically:
 | --------- | ------ | ------- |
 | **Orpheus UI Backend** | 8082 | FastAPI backend |
 | **Orpheus UI Frontend (dev)** | 5173 | Vite dev server, proxies to 8082 |
-| **Legacy Dashboard** | 8080 | `orpheus-dashboard` (unchanged) |
-| **Legacy Dashboard (old)** | 8081 | Previous legacy port |
+| **Orpheus UI (production)** | 8080 | nginx proxies 8080 → 8082 |
 
-**nginx proxy notes:** Once orpheus-ui is ready to fully replace orpheus-dashboard, update nginx to proxy port 80 to port 5173 (or serve built static files directly).
+**nginx proxy notes:** in production, nginx serves the built static
+React bundle and proxies `/api`, `/auth`, `/users` to the FastAPI
+backend on 8082.
 
 ## Troubleshooting
 

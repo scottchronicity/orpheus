@@ -87,7 +87,7 @@ class TestBirdDetectionLogging:
         agent.model = mock_model
 
         # Mock MQTT client
-        agent.mqtt_client = Mock()
+        agent.bus = Mock()
 
         # Mock DetectionDB
         agent.detection_db = Mock()

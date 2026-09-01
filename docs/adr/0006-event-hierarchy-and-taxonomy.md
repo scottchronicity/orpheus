@@ -54,8 +54,13 @@ classDiagram
       +List~Detection~ evidence
   }
   OrpheusBaseEvent <|-- Detection
-  OrpheusBaseEvent <|-- EntityEvent
+  Detection ..> EntityEvent : evidence
 ```
+
+`EntityEvent` deliberately does **not** inherit `OrpheusBaseEvent` — see
+[ADR 0016](0016-entity-type-taxonomy.md) for why (field collision on `event_id`,
+`event_timestamp` and `context`). Its `evidence` is `list[EntityEvidence]`, and
+the persisted sibling `Entity` names its species field `species`.
 
 ### 2. Detection-Type Taxonomy
 
@@ -63,7 +68,8 @@ classDiagram
 | --- | --- | --- |
 | `audio.motion` | orpheus-agent-audio-motion | Raw audio energy trigger |
 | `species.detected` | orpheus-agent-bird-detection | BirdNET species classification |
-| `crow.analyzed` | orpheus-agent-crow-detection | Crow behaviour analysis |
+| `crow.analyzed` | orpheus-agent-crow-detection | Crow behavior analysis |
+| `audio.classified` | orpheus-agent-audio-events | PANNs/AudioSet sound-event classification (ADR 0011) |
 
 New agents **must** register their `detection_type` string in this table via a
 follow-up ADR or PR update.

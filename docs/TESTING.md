@@ -1,16 +1,24 @@
 # Orpheus Testing Strategy
 
-**See [`CODING_AGENT_CONTEXT.md`](../CODING_AGENT_CONTEXT.md) for core development guidelines.**
+How Orpheus is tested: the suites, what each one covers, the conventions to follow when
+you add a test, and the fixtures that keep them from interfering with each other. Read
+[AGENTS.md](agents-index.md) first for the rules that apply to any change — chiefly that
+CI runs `make` targets, so you should too.
 
-This document provides comprehensive testing patterns and strategies for the Orpheus platform.
+To run the whole collective in containers instead of testing a component, see
+[the Simulacrum](operator-manual/index.md#3-deployment-topologies).
 
 ---
 
 ## Testing Framework
 
 - **Framework**: pytest with pytest-asyncio
-- **Async mode**: `asyncio_mode = "auto"` in pytest.ini
-- **Coverage**: 70% minimum (enforced by CI)
+- **Async mode**: components that need it set `asyncio_mode = auto` in their own
+  `pytest.ini` — `orpheus-common` does not have that line. Don't decorate async
+  tests; if your component lacks the setting, add it rather than marking every test
+- **Coverage**: 70% for most components; `orpheus-common` is 78% and
+  `audio-motion` 72%. `codecov.yml` and the `env:` block of `pr-tests.yml` are
+  the sources of truth.
 - **Mocking**: unittest.mock for external dependencies
 
 ---
@@ -65,44 +73,6 @@ def temp_data_dir(tmp_path):
 
 ---
 
-## Test Patterns
-
-### Test Class Organization
-
-```python
-class TestMyFeature:
-    """Tests for MyFeature class."""
-    
-    def test_happy_path(self, mock_config):
-        """Test normal operation."""
-        result = my_function(valid_input)
-        assert result.status == "success"
-    
-    def test_error_handling(self, mock_config):
-        """Test behavior with invalid input."""
-        with pytest.raises(ValueError):
-            my_function(invalid_input)
-    
-    def test_edge_case(self, mock_config):
-        """Test boundary conditions."""
-        result = my_function(edge_case_input)
-        assert result is not None
-```
-
-### Async Test Pattern
-
-```python
-import pytest
-
-@pytest.mark.asyncio
-async def test_async_operation(mock_config):
-    """Test asynchronous operation."""
-    result = await async_function()
-    assert result is not None
-```
-
----
-
 ## What to Test
 
 ### Required Coverage
@@ -153,78 +123,19 @@ async def test_async_operation(mock_config):
 
 ---
 
-## Testing Best Practices
+## Writing tests
 
-### 1. Test One Thing at a Time
-
-```python
-# ✅ Good - focused test
-def test_detection_threshold_filtering(mock_config):
-    """Test that detections below threshold are filtered."""
-    detector = Detector(threshold=-40.0)
-    result = detector.process(audio_level=-45.0)
-    assert result is None  # Below threshold
-
-# ❌ Bad - testing multiple things
-def test_detector(mock_config):
-    """Test detector."""  # Vague
-    detector = Detector(threshold=-40.0)
-    assert detector.process(-45.0) is None
-    assert detector.process(-35.0) is not None
-    assert detector.get_stats() == {...}  # Too much in one test
-```
-
-### 2. Use Descriptive Test Names
-
-```python
-# ✅ Good
-def test_mqtt_reconnects_after_connection_lost():
-    ...
-
-def test_audio_clip_saved_with_correct_format():
-    ...
-
-# ❌ Bad
-def test_mqtt():
-    ...
-
-def test_audio():
-    ...
-```
-
-### 3. Test Error Paths
-
-```python
-def test_handles_missing_audio_file_gracefully(mock_config, tmp_path):
-    """Test that missing file raises appropriate error."""
-    nonexistent = tmp_path / "missing.flac"
-    
-    with pytest.raises(FileNotFoundError):
-        load_audio(nonexistent)
-```
-
-### 4. Use Parametrize for Multiple Cases
-
-```python
-@pytest.mark.parametrize("input_level,expected", [
-    (-50.0, False),  # Below threshold
-    (-40.0, True),   # At threshold
-    (-30.0, True),   # Above threshold
-])
-def test_threshold_detection(input_level, expected, mock_config):
-    """Test detection at various levels."""
-    detector = Detector(threshold=-40.0)
-    result = detector.detect(input_level)
-    assert (result is not None) == expected
-```
-
----
+General pytest technique is pytest's own documentation, linked under References.
+What is specific to Orpheus is in
+[11 — Testing conventions](agent-instructions/11-testing.md), whose examples are
+real files in this repo.
 
 ## Coverage Requirements
 
-### Minimum Coverage: 70%
+### Floors are per-component
 
-Run coverage locally before committing:
+70% for most, 78% for `orpheus-common`, 72% for `audio-motion`. Run coverage
+locally before committing:
 
 ```bash
 cd platform/orpheus-common  # or agents/*, services/*
@@ -234,9 +145,12 @@ make coverage
 ### Coverage Report
 
 ```bash
-# Generate HTML coverage report
-pytest --cov=orpheus_agent_audio_motion --cov-report=html
-open htmlcov/index.html
+# Generate an HTML report. Note this bypasses the make target, so it does not
+# apply the --cov-fail-under the target supplies -- use it to read the report,
+# not to decide whether you pass.
+make coverage-audio-motion
+cd agents/orpheus-agent-audio-motion && venv/bin/python -m pytest tests/ \
+  --cov=orpheus_agent_audio_motion --cov-report=html && open htmlcov/index.html
 ```
 
 ### What Not to Worry About
@@ -246,54 +160,6 @@ Some code is OK to exclude from coverage:
 - Defensive assertions that should never execute
 - Platform-specific code paths (if testing on one platform)
 - `__repr__` and `__str__` methods (unless critical)
-
----
-
-## Testing Anti-Patterns
-
-### ❌ Don't Mock Everything
-
-```python
-# Bad - over-mocking makes tests meaningless
-def test_process_audio():
-    mock_audio = MagicMock()
-    mock_detector = MagicMock()
-    mock_detector.detect.return_value = True
-    result = mock_detector.detect(mock_audio)
-    assert result  # This test proves nothing!
-```
-
-### ❌ Don't Test Implementation Details
-
-```python
-# Bad - testing internal implementation
-def test_detector_uses_list_internally():
-    detector = Detector()
-    assert isinstance(detector._internal_buffer, list)  # Fragile!
-
-# Good - testing behavior
-def test_detector_buffers_audio_samples():
-    detector = Detector(buffer_size=10)
-    detector.add_samples([1, 2, 3])
-    assert len(detector.get_buffered_samples()) == 3
-```
-
-### ❌ Don't Write Flaky Tests
-
-```python
-# Bad - depends on timing
-def test_async_operation():
-    result = None
-    async_function(lambda x: result = x)
-    time.sleep(0.1)  # Race condition!
-    assert result is not None
-
-# Good - use proper async testing
-@pytest.mark.asyncio
-async def test_async_operation():
-    result = await async_function()
-    assert result is not None
-```
 
 ---
 
@@ -317,7 +183,7 @@ Platform library tests should:
 - Test MQTT client reconnection logic
 - Validate storage path resolution
 
-See [`platform/orpheus-common/README.md`](../platform/orpheus-common/README.md) for details.
+See [`platform/orpheus-common/README.md`](https://github.com/scottchronicity/orpheus/blob/main/platform/orpheus-common/README.md) for details.
 
 ### Testing Dashboard
 
@@ -327,7 +193,7 @@ Dashboard tests should:
 - Test WebSocket message handling
 - Validate API response schemas
 
-See [`docs/copilot-workspace-instructions/dashboard.instructions.md`](../docs/copilot-workspace-instructions/dashboard.instructions.md) for patterns.
+See [`copilot-workspace-instructions/orpheus-ui.instructions.md`](copilot-workspace-instructions/orpheus-ui.instructions.md) for patterns.
 
 ---
 
@@ -399,11 +265,74 @@ def test_with_logs(caplog):
 Before committing code:
 - [ ] All new code has tests
 - [ ] Tests pass locally (`make test`)
-- [ ] Coverage is ≥70% (`make coverage`)
+- [ ] Coverage meets the component's floor (`make coverage-<component>`)
 - [ ] No test warnings or deprecation messages
 - [ ] Tests are focused and descriptive
 - [ ] Error paths are tested
 - [ ] External dependencies are mocked
+
+---
+
+## End-to-end BDD scenarios (`tests/bdd/`)
+
+Beyond unit/integration tests, `tests/bdd/` is a [behave](https://behave.readthedocs.io/)
+suite that validates the **whole cognitive loop** — detection → correlation →
+entity_type derivation → corollary-discharge tagging → persistence — as
+human-readable Gherkin.
+
+Run it:
+
+```bash
+make test-bdd            # runs behave over tests/bdd via the event-correlator venv
+```
+
+(`behave` is a dev extra of `orpheus-agent-event-correlator`; `make
+install-event-correlator` installs it. The BDD suite imports `orpheus_common`
++ the correlator, which both live in that venv.)
+
+### Layout
+
+- `tests/bdd/features/*.feature` — Gherkin scenarios (one file per domain).
+- `tests/bdd/steps/*_steps.py` — step definitions (`@given/@when/@then`).
+- `tests/bdd/environment.py` — `before_scenario`/`after_scenario` hooks that wire
+  a **fresh, in-process** event-correlator per scenario: a `Mock` event bus
+  captures publishes, a tmp SQLite DB receives persistence, and the cluster
+  manager is wired exactly like the agent's real `start()`.
+
+### How the drive works (and the one deliberate boundary)
+
+Scenarios call the correlator's **real entry points** (`_on_detection_event`,
+`_on_playback_event`), then force-expire clusters with `flush_all()` and run each
+built entity through the real `_on_entity_ready` (tag + persist + publish) — so
+the assertions run against genuinely-emitted + genuinely-persisted EntityEvents,
+deterministically, with no asyncio timer or network.
+
+**Boundary:** the classifier leg (audio chunk → species) is *not* re-run on
+synthetic audio — a synthetic sine wave can't be deterministically classified as
+a real species, and that leg is already covered by the audio-events tests. So a
+scenario **injects the post-classification detection** (the `species_code` +
+`TaxonomyRef` a classifier would have emitted) and the synthetic signal is a
+generated placeholder. The scenario therefore exercises the correlation/identity
+loop deterministically, not the ML.
+
+### Writing a new scenario
+
+1. Add a `Scenario:` to a `.feature` file using existing step phrasings where you
+   can.
+2. For new phrasings, add `@given/@when/@then` defs in `steps/`. Reuse the
+   `_detection(...)` / `_run_pipeline(...)` helpers — `_detection` produces a
+   detection dict shaped like the MQTT payload (sensor_id rides in `context`,
+   distinct `root_event_id` per sensor).
+3. Assert on `context.published` (the captured EntityEvents) and/or
+   `context.agent.db.get_entities()`.
+
+`make test-bdd` runs in CI inside the `test-orpheus-agent-event-correlator` job,
+followed by `make sim-matrix-ci`.
+
+### Not yet wired
+
+- Cross-modal (audio+video) and non-bird (`Animal.Critter`, etc.) scenarios —
+  blocked on those detectors and derivations existing.
 
 ---
 
@@ -412,5 +341,6 @@ Before committing code:
 - [pytest Documentation](https://docs.pytest.org/)
 - [pytest-asyncio Documentation](https://pytest-asyncio.readthedocs.io/)
 - [unittest.mock Documentation](https://docs.python.org/3/library/unittest.mock.html)
-- [`CODING_AGENT_CONTEXT.md`](../CODING_AGENT_CONTEXT.md) - Core development guidelines
-- [`docs/copilot-workspace-instructions/tests.instructions.md`](../docs/copilot-workspace-instructions/tests.instructions.md) - Quick reference patterns
+- [`AGENTS.md`](agents-index.md) - Core development guidelines
+- [`agent-instructions/11-testing.md`](agent-instructions/11-testing.md) - Test conventions in brief
+- [`copilot-workspace-instructions/tests.instructions.md`](copilot-workspace-instructions/tests.instructions.md) - Quick reference patterns

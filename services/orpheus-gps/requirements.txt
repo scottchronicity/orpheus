@@ -5,11 +5,16 @@
 # Core dependency - installed from local path in production
 -e ../../platform/orpheus-common
 
+# Self-install so deployed venvs (built from requirements.txt alone, without
+# the dev Makefile's extra `pip install -e .`) can import orpheus_gps — the
+# verify-deploy import smoke fails on any deployed host without this.
+-e .
+
 # MQTT client
-paho-mqtt>=2.1.0
+paho-mqtt>=2.1.0,<3.0.0
 
 # YAML configuration
-PyYAML>=6.0,<7.0
+PyYAML>=6.0.2
 
 # GPS serial communication
 pyserial>=3.5,<4.0
@@ -18,7 +23,7 @@ pyserial>=3.5,<4.0
 pynmea2>=1.18.0,<2.0
 
 # Development/Testing dependencies
-ruff>=0.8.0
+ruff==0.15.20
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0

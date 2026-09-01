@@ -36,8 +36,9 @@ echo ""
 # Configuration
 NODE_VERSION="${NODE_VERSION:-20.18.0}"
 TEST_DIR=$(mktemp -d)
-# Validate that TEST_DIR is safe before using it in trap
-if [ -z "${TEST_DIR}" ] || [ "${TEST_DIR}" = "/" ] || [[ ! "${TEST_DIR}" =~ ^/tmp/ ]]; then
+# Validate that TEST_DIR is safe before using it in trap. mktemp -d returns
+# /tmp/... on Linux but /var/folders/... on macOS (TMPDIR) — accept both.
+if [ -z "${TEST_DIR}" ] || [ "${TEST_DIR}" = "/" ] || [[ ! "${TEST_DIR}" =~ ^/(tmp|var/folders|private/var/folders)/ ]]; then
     echo "ERROR: Failed to create safe temporary directory" >&2
     exit 1
 fi
@@ -51,6 +52,12 @@ echo ""
 echo "Test 1: Architecture Detection"
 echo "------------------------------"
 ARCH=$(uname -m)
+# macOS reports arm64 for the silicon Linux calls aarch64. The installer only
+# ever runs on Linux, but this TEST also runs on Mac dev laptops — exercise
+# the aarch64 (Jetson) mapping there instead of bailing out.
+if [ "$(uname -s)" = "Darwin" ] && [ "${ARCH}" = "arm64" ]; then
+    ARCH="aarch64"
+fi
 echo "Detected system architecture: ${ARCH}"
 
 case "${ARCH}" in
@@ -111,6 +118,17 @@ else
     exit 1
 fi
 echo ""
+
+# Tests 4-8 execute the downloaded LINUX node/npm binaries, which cannot run
+# on a macOS host. The cross-platform logic (arch mapping, download URL,
+# download + extract) is covered by tests 1-3; the execution tests run in
+# Linux CI (and on the Jetson itself).
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "SKIP: tests 4-8 execute Linux binaries — not runnable on macOS."
+    echo "=========================================="
+    echo "Node.js installation logic tests passed (macOS subset: tests 1-3)"
+    exit 0
+fi
 
 # Test 4: Verify Node.js binary works
 echo "Test 4: Verify Node.js Binary"

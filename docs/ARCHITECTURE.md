@@ -7,7 +7,7 @@ This document describes the high-level architecture of the Orpheus wildlife moni
 Orpheus is a Python monorepo designed for real-time wildlife monitoring on edge computing hardware (NVIDIA Jetson Orin NX). The platform follows a modular, service-oriented architecture that enables:
 
 - **Real-time audio/video processing** with low-latency ML inference
-- **Distributed agent communication** via MQTT message broker
+- **Distributed agent communication** via a messaging backplane (NATS + JetStream by default; mosquitto/MQTT as the fallback — see [ADR 0017](adr/0017-actor-model-nats-backplane.md))
 - **Edge deployment** on resource-constrained hardware
 - **Cross-platform development** (macOS for development, ARM Linux for production)
 
@@ -25,7 +25,9 @@ graph TB
         VIDEO[Video Motion Agent<br/>orpheus-agent-video-motion]
         BIRD[Bird Detection Agent<br/>orpheus-agent-bird-detection]
         CROW[Crow Detection Agent<br/>orpheus-agent-crow-detection]
+        EVENTS[Audio Events Agent<br/>orpheus-agent-audio-events]
         PLAYBACK[Audio Playback Agent<br/>orpheus-agent-audio-playback]
+        CORR[Event Correlator<br/>orpheus-agent-event-correlator]
     end
 
     subgraph VideoCapture["📹 Video Capture"]
@@ -34,12 +36,12 @@ graph TB
     end
 
     subgraph Services["⚙️ Core Services"]
-        MQTT[MQTT Broker<br/>Mosquitto :1883]
-        DASH[Dashboard<br/>FastAPI :8080]
+        BUS[Messaging Backplane<br/>orpheus-backplane — NATS :4222 default]
+        DASH[UI orpheus_ui<br/>FastAPI :8082]
     end
 
     subgraph Platform["📦 Platform Library"]
-        COMMON[orpheus-common<br/>Config • MQTT • Storage • Logging]
+        COMMON[orpheus-common<br/>Config • Event Bus • Storage • Logging]
     end
 
     subgraph Storage["💾 Storage"]
@@ -49,15 +51,18 @@ graph TB
     MIC --> AUDIO
     CAM --> VIDEO
     CAM --> SNAP
-    SNAP --> TIMELAPSE
-    AUDIO --> MQTT
-    AUDIO --> BIRD
-    AUDIO --> CROW
-    VIDEO --> MQTT
-    BIRD --> MQTT
-    CROW --> MQTT
-    MQTT --> DASH
-    MQTT --> PLAYBACK
+    SNAP -.->|JPEG files on disk| TIMELAPSE
+    AUDIO --> BUS
+    BUS -->|orpheus/detection/audio/events| BIRD
+    BUS -->|orpheus/detection/audio/events| EVENTS
+    BUS -->|orpheus/detection/bird/events| CROW
+    BUS -->|orpheus/detection/audio/events| CROW
+    VIDEO --> BUS
+    BIRD --> BUS
+    CROW --> BUS
+    EVENTS --> BUS
+    BUS --> DASH
+    BUS --> PLAYBACK
     AUDIO --> DATA
     VIDEO --> DATA
     BIRD --> DATA
@@ -69,7 +74,7 @@ graph TB
     COMMON --> BIRD
     COMMON --> CROW
     COMMON --> PLAYBACK
-    COMMON --> DASH
+    COMMON --> UI
 
     style Hardware fill:#e1f5fe
     style Agents fill:#fff3e0
@@ -78,19 +83,23 @@ graph TB
     style Storage fill:#fce4ec
 ```
 
+Solid edges are event-bus subscriptions — no agent calls another directly.
+The dashed edge is a filesystem handoff: the snapshotter writes JPEGs and the
+timelapser reads them, with no bus involvement (ADR 0002).
+
 ## Data Flow
 
 ```mermaid
 sequenceDiagram
     participant M as 🎤 Microphone
     participant A as Audio Agent
-    participant Q as MQTT Broker
+    participant Q as Backplane Broker
     participant D as Dashboard
     participant S as Storage
 
     M->>A: Audio Stream (48kHz)
     
-    loop Every 100ms frame
+    loop Every frame (audio.buffer_duration_ms, 21ms default)
         A->>A: Analyze audio level
         alt Motion Detected
             A->>S: Save audio clip (.flac)
@@ -100,7 +109,7 @@ sequenceDiagram
         end
     end
     
-    A->>Q: Publish health status (every 5s)
+    A->>Q: Publish health status (30s heartbeat default)
     Q->>D: Forward status
 ```
 
@@ -116,8 +125,8 @@ graph LR
         end
         
         subgraph S["services/"]
-            MQTT["orpheus-mqtt<br/>━━━━━━━━━━━<br/>Mosquitto broker"]
-            DASH["orpheus-dashboard<br/>━━━━━━━━━━━━━<br/>FastAPI + JS"]
+            BUS["orpheus-backplane<br/>━━━━━━━━━━━<br/>NATS broker (default)"]
+            UI["orpheus_ui<br/>━━━━━━━━━━━━━<br/>FastAPI + React"]
         end
         
         subgraph A["agents/"]
@@ -127,8 +136,8 @@ graph LR
 
     COMMON --> DASH
     COMMON --> AUDIO
-    AUDIO --> MQTT
-    DASH --> MQTT
+    AUDIO --> BUS
+    UI --> BUS
 
     style P fill:#f3e5f5
     style S fill:#e8f5e9
@@ -142,7 +151,7 @@ graph LR
 | **Target Hardware** | NVIDIA Jetson Orin NX (ARM) |
 | **Python Version** | 3.9.5 (locked for Jetson compatibility) |
 | **Development Platforms** | macOS (Apple Silicon), Ubuntu |
-| **ML Framework** | PyTorch with CUDA/TensorRT |
+| **ML Framework** | PyTorch + CUDA (crow-detection, audio-events); ONNX Runtime on CPU (bird-detection); TFLite for BirdNET's geo-filter |
 
 ## Audio Processing Pipeline
 
@@ -162,7 +171,7 @@ graph LR
 
     subgraph Output["📤 Output"]
         CLIP[Clip Saver<br/>.flac files]
-        PUB[MQTT Publisher<br/>Events & Status]
+        PUB[Event Bus Publisher<br/>Events & Status]
     end
 
     ALSA --> PROC
@@ -180,38 +189,52 @@ graph LR
 
 ## Dashboard Architecture
 
+The dashboard is `services/orpheus_ui`: a React + TypeScript frontend built with
+Vite, served as static files by a FastAPI backend that also exposes the API. The
+backend reads the detection database directly and subscribes to the event bus for
+live health and detection updates.
+
 ```mermaid
 graph TB
-    subgraph Browser["🌐 Browser"]
-        JS[JavaScript UI]
-        WS[WebSocket Client]
+    subgraph Browser["Browser"]
+        UI[React + TypeScript UI]
     end
 
-    subgraph Backend["🖥️ FastAPI Backend"]
-        API[REST API<br/>/api/v1/*]
-        WSS[WebSocket Server<br/>/ws]
-        STATIC[Static Files<br/>/static]
+    subgraph Backend["FastAPI backend (:8082)"]
+        API[REST API<br/>/api/*]
+        AUTH[Auth<br/>JWT sessions]
+        STATIC[Built frontend<br/>static files]
     end
 
-    subgraph Data["📊 Data Sources"]
+    subgraph Data["Data sources"]
+        DB[(DetectionDB<br/>SQLite)]
         CONF[OrpheusConfig]
-        STORE[Storage<br/>Audio files]
-        HW[Hardware Status<br/>Cameras, Audio]
+        STORE[Clips and snapshots<br/>under the data root]
+        BUS[("Event bus<br/>NATS + JetStream")]
     end
 
-    JS <--> API
-    WS <--> WSS
+    UI <--> API
+    UI --> STATIC
+    API --> AUTH
+    API --> DB
     API --> CONF
     API --> STORE
-    API --> HW
-    WSS --> CONF
+    BUS -->|health, detections| API
 
     style Browser fill:#e3f2fd
     style Backend fill:#e8f5e9
     style Data fill:#fff3e0
 ```
 
-## MQTT Topic Structure
+The backend can be pointed at a read-only replica instead of the live database
+(`ui.read_from_replica`), so history browsing reads a snapshot rather than the
+database the agents are writing to.
+
+## BUS Topic Structure
+
+The `orpheus/...` hierarchy below is the wire contract on either backend: NATS
+(default) mirrors it as subjects; the mosquitto fallback uses it as literal BUS
+topics.
 
 ```mermaid
 graph TD
@@ -219,6 +242,7 @@ graph TD
     
     ROOT --> AUDIO[audio/]
     ROOT --> DETECTION[detection/]
+    ROOT --> ENTITIES[entities/]
     ROOT --> SYSTEM[system/]
     ROOT --> VIDEO[video/]
     
@@ -228,9 +252,18 @@ graph TD
     
     DETECTION --> D_BIRD[bird/events<br/>BirdNET detections]
     DETECTION --> D_CROW[crow/events<br/>Crow detections]
+    DETECTION --> D_AUDIO[audio/events<br/>PANNs sound-event detections]
+    
+    ENTITIES --> E_ANIMAL[animal<br/>Correlated entity events]
     
     SYSTEM --> S_HEALTH[*/health<br/>Agent health]
-    SYSTEM --> S_CONFIG[config<br/>Config changes]
+    SYSTEM --> S_CONFIG[config_changed<br/>Config changes]
+    SYSTEM --> S_SAFETY[safety<br/>Circuit-breaker state]
+    DETECTION --> D_REPLAY[replay<br/>Replayed detections]
+    STATE[state/] --> S_LOC[location<br/>GPS fix, retained]
+    ENV[environment/] --> WX[weather<br/>Ecowitt readings — stubbed]
+    ACT[actuation/] --> A_PB[audio/playback<br/>Playback windows]
+    EU[entity-updates/] --> EU_A[animal<br/>Late-arrival enrichment]
     
     VIDEO --> V_EVENTS[motion/events<br/>Motion events]
     VIDEO --> V_STATUS[motion/status<br/>Camera status]
@@ -238,6 +271,7 @@ graph TD
     style ROOT fill:#1565c0,color:#fff
     style AUDIO fill:#2196f3,color:#fff
     style DETECTION fill:#9c27b0,color:#fff
+    style ENTITIES fill:#c2185b,color:#fff
     style SYSTEM fill:#4caf50,color:#fff
     style VIDEO fill:#ff9800,color:#fff
 ```
@@ -286,8 +320,8 @@ flowchart LR
 graph TB
     subgraph Jetson["🖥️ Jetson Orin NX"]
         subgraph Systemd["systemd Services"]
-            S1[orpheus-mqtt.service]
-            S2[orpheus-dashboard.service]
+            S1[orpheus-backplane.service]
+            S2[orpheus-ui.service]
             S3[orpheus-agent-audio-motion.service]
         end
         
@@ -321,7 +355,11 @@ orpheus/
 │   └── orpheus-common/       # Shared platform library
 │       ├── src/orpheus_common/
 │       │   ├── config.py     # Configuration management
-│       │   ├── mqtt.py       # MQTT client wrapper
+│       │   ├── event_bus.py  # EventBus ABC + factory
+│       │   ├── event_bus_nats.py # NATS + JetStream backend
+│       │   ├── mqtt.py       # mosquitto fallback backend
+│       │   ├── actor/         # Actor base every agent subclasses
+│       │   ├── detection/     # Detection, Entity, DetectionDB, taxonomy
 │       │   ├── logging.py    # Structured logging
 │       │   ├── storage/      # File storage utilities
 │       │   ├── hardware/     # Hardware abstraction
@@ -329,14 +367,17 @@ orpheus/
 │       └── tests/
 │
 ├── services/
-│   ├── orpheus-mqtt/         # MQTT message broker (Mosquitto)
+│   ├── orpheus-backplane/    # Messaging backplane (NATS default; mosquitto fallback)
 │   │   ├── config/
 │   │   ├── scripts/
 │   │   └── systemd/
 │   │
-│   └── orpheus-dashboard/    # Web-based diagnostic UI
-│       ├── src/              # FastAPI backend
-│       ├── static/           # Frontend assets
+│   ├── orpheus-gps/          # GPS time + location service
+│   ├── orpheus-bluetooth-autoconnect/  # Audio-out routing
+│   ├── orpheus-dashboard/    # RETIRED — superseded by orpheus_ui; not deployed
+│   └── orpheus_ui/           # Web-based UI
+│       ├── backend/          # FastAPI backend (port 8082)
+│       ├── frontend/         # React + Vite frontend (port 5173 dev)
 │       └── systemd/
 │
 ├── agents/
@@ -368,6 +409,14 @@ orpheus/
 │   │   │   └── classifier.py         # Multi-task classifier
 │   │   └── tests/
 │   │
+│   ├── orpheus-agent-audio-events/    # General AudioSet sound classification
+│   │   ├── src/orpheus_agent_audio_events/
+│   │   │   ├── main.py               # Agent entrypoint
+│   │   │   ├── model.py              # PANNs sound-event detection
+│   │   │   ├── post_processing.py    # Frames → temporal intervals
+│   │   │   └── audioset_ontology.py  # AudioSet 527-class ontology
+│   │   └── tests/
+│   │
 │   ├── orpheus-agent-audio-playback/  # Audio output agent
 │   │   ├── src/orpheus_agent_audio_playback/
 │   │   │   ├── main.py               # Agent entrypoint
@@ -380,12 +429,22 @@ orpheus/
 │   │   │   └── config.py             # Configuration loading
 │   │   └── tests/
 │   │
-│   └── orpheus-agent-video-timelapser/  # Timelapse generation
-│       ├── src/orpheus_agent_video_timelapser/
+│   ├── orpheus-agent-video-timelapser/  # Timelapse generation
+│   │   ├── src/orpheus_agent_video_timelapser/
+│   │   │   ├── main.py               # Agent entrypoint
+│   │   │   └── config.py             # Configuration loading
+│   │   └── tests/
+│   │
+│   └── orpheus-agent-event-correlator/  # Fuses detections into entities
+│       ├── src/orpheus_agent_event_correlator/
 │       │   ├── main.py               # Agent entrypoint
-│       │   └── config.py             # Configuration loading
+│       │   └── cluster_manager.py    # Same-source grouping
 │       └── tests/
 │
+├── config/                   # orpheus.example.yaml — every knob, with comments
+├── deploy/                   # host-level drop-ins (journald log bounds)
+├── docker/                   # Dockerfiles + the Simulacrum's sim-source
+├── scripts/                  # dev-stack and other developer scripts
 ├── hardware/                 # Hardware-specific configurations
 ├── artifacts/                # ML models, recordings (Git LFS)
 ├── tools/                    # Development utilities
@@ -412,13 +471,19 @@ audio:
         algorithm: adaptive_threshold
         threshold_db: -40.0
 
+event_bus:
+  backend: "nats"          # nats (default) | mqtt
+  nats_url: "nats://127.0.0.1:4222"
+
+audio:
+  channels:
+    - id: 1
+      enabled: true
+
 storage:
   base_path: /data/orpheus
-  retain_days: 30
-
-mqtt:
-  broker_host: localhost
-  broker_port: 1883
+  retention:
+    sweep_enabled: true
 ```
 
 ## Agents
@@ -477,7 +542,12 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
 - **Models:**
   - AVES embedder (aves-base-bio.pt): 16kHz audio → 768-dim embeddings
   - Multi-task classifier (mt_70.pt): species, call type, quality prediction
-- **Input:** Audio motion events from `orpheus/audio/motion/events`
+- **Input:** corvid signals from *either* upstream classifier —
+  `orpheus/detection/bird/events` (BirdNET naming a corvid) and
+  `orpheus/detection/audio/events` (an AudioSet "Crow"/"Caw" tag). It does **not**
+  subscribe to raw audio motion: the expensive AVES pass runs only on clips another
+  model already flagged, deduped by clip path within a 30-second window so a second
+  flag on the same clip does not start a second pass.
 - **Processing:** Resample 48kHz → 16kHz, extract embeddings, classify
 - **Output:** Crow detections via `orpheus/detection/crow/events`
 - **Data Format:**
@@ -498,6 +568,44 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
   ```
 
 - **Storage:** Detections stored in DetectionDB (SQLite) at `/data/orpheus/detections/`
+
+#### Audio Events (`orpheus-agent-audio-events`)
+
+- **Purpose:** Tag everything else in the clip — dog barks, vehicles, voices, rain —
+  and say *when* in the clip each sound occurred
+- **Model:** PANNs `Cnn14_DecisionLevelMax` over the AudioSet 527-class ontology,
+  with native frame-level (10 ms) outputs
+- **Input:** Audio motion events from `orpheus/audio/motion/events`
+- **Processing:** Resample to 32 kHz mono, run sound-event detection, post-process
+  frames into intervals, emit one `Detection` per surviving label
+- **Output:** Sound-event detections via `orpheus/detection/audio/events`
+- **Data Format:** one `Detection(detection_type="audio.classified")` per label,
+  carrying an `audioset` taxonomy reference (`/m/...` machine ID) per
+  [ADR 0011](adr/0011-temporal-localisation-and-taxonomy-references.md), a
+  `species_code` of `audioset_<machine_id>`, and `intervals` of
+  `TemporalInterval(start_seconds, end_seconds, confidence)`
+
+This is the third model in the audio chain: bird-detection and crow-detection answer
+"which bird, and what was it doing"; audio-events answers "what else was there". The
+correlator reconciles all three into one entity.
+
+### Layer 2.5: Fusion
+
+#### Event Correlator (`orpheus-agent-event-correlator`)
+
+The agent that turns three independent detection streams into one row per
+animal. Nothing else produces entities.
+
+- **Purpose:** group observations that came from the same source — overlapping
+  in-clip intervals, labels that denote the same thing — into a single entity
+  carrying every classifier's evidence.
+- **Input:** the detection subjects named in `correlation.input_topics`;
+  it processes `species.detected`, `crow.analyzed` and `audio.classified`.
+- **Output:** `orpheus/entities/animal`, plus `orpheus/entity-updates/animal`
+  for late-arriving evidence. With `publish_entity_type_topics` on, entities also
+  route by type (`orpheus/entities/animal/bird/crow`).
+- **See:** [ADR 0013](adr/0013-source-identity-entities.md) for what merge keys
+  on, and [ADR 0016](adr/0016-entity-type-taxonomy.md) for the type taxonomy.
 
 ### Layer 3: Output
 
@@ -574,7 +682,9 @@ graph LR
 ## Testing Strategy
 
 - **Unit Tests**: Per-component with pytest
-- **Coverage Target**: 70% minimum (most components); orpheus-common 78%, dashboard 80%, audio-motion 72%
+- **Coverage Target**: 70% for most components, with `orpheus-common` at 78% and
+  `audio-motion` at 72%. `codecov.yml` is the source of truth; the CI thresholds
+  live in the `env:` block of `.github/workflows/pr-tests.yml`.
 - **CI/CD**: GitHub Actions on push/PR
 - **Platform Tests**: Separate workflows for ARM validation
 
@@ -586,13 +696,13 @@ graph TB
         AUDIO_NOW[Audio Detection]
         BIRDNET[BirdNET Integration<br/>Species ID]
         DASH_NOW[Dashboard]
-        MQTT_NOW[MQTT Broker]
+        MQTT_NOW[Messaging Backplane<br/>NATS + JetStream]
     end
 
     subgraph Planned["🔮 Planned"]
         YOLO[YOLOv8 Video<br/>Object Detection]
         ACTIVE[Active Inference<br/>Playback Response]
-        MULTI[Multi-Station<br/>Distributed Sensors]
+        MULTI[Multi-Station<br/>groundwork shipped behind flags — ADR 0018;<br/>install profiles pending]
         SPATIAL[Spatial Web<br/>GIS Integration]
     end
 
@@ -616,4 +726,4 @@ When contributing, ensure:
 4. Code is linted with `ruff`
 5. Documentation is updated
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+See [CONTRIBUTING.md](contributing.md) for detailed guidelines.

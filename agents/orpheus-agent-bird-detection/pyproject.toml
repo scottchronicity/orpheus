@@ -1,26 +1,33 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [project]
 name = "orpheus-agent-bird-detection"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "Bird species detection agent using BirdNET ONNX model"
 authors = [{name = "Orpheus Project"}]
 requires-python = ">=3.9, <3.10"
 dependencies = [
-    "orpheus-common",
+    "orpheus-common>=0.2.0",
     "onnxruntime>=1.19.0",
     "huggingface-hub>=0.20.0",
     "librosa>=0.10.0",
     "soundfile>=0.12.0",
     "numpy>=1.24.0,<2.0.0",
+    # main.py imports scipy.signal.resample_poly directly — declare it rather
+    # than riding librosa's transitive dependency. <2.0 mirrors the numpy pin.
+    "scipy>=1.8,<2.0",
     "tensorflow>=2.14.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",

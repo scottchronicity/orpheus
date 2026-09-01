@@ -115,9 +115,17 @@ test-frontend:
 	@echo "Running frontend tests..."
 	@$(MAKE) -C frontend test
 
-test-e2e:
-	@echo "Running Playwright e2e tests..."
-	@cd e2e && npx playwright test
+# The backend that Playwright spawns needs a writable data root:
+# config/orpheus.test.yaml ships a placeholder base_path, and endpoints
+# that open the equivalence store 500 on it (blank pages in e2e).
+ORPHEUS_E2E_DATA_ROOT ?= $(or $(ORPHEUS_DATA_ROOT),/tmp/orpheus-e2e-data)
+
+# Depends on build-frontend: the suite drives the BUILT bundle, so without it a
+# stale dist/ silently tests the previous version of the UI.
+test-e2e: build-frontend
+	@echo "Running Playwright e2e tests (data root: $(ORPHEUS_E2E_DATA_ROOT))..."
+	@mkdir -p $(ORPHEUS_E2E_DATA_ROOT)
+	@cd e2e && ORPHEUS_DATA_ROOT=$(ORPHEUS_E2E_DATA_ROOT) npx playwright test
 
 coverage:
 	@echo "Running backend tests with coverage..."

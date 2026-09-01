@@ -3,12 +3,16 @@
 # The pyproject.toml enables proper package discovery for VS Code and other tools.
 
 [build-system]
-requires = ["setuptools>=40.8.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [project]
 name = "orpheus-gps"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "GPS service for Orpheus spatiotemporal context"
 readme = "README.md"
 requires-python = ">=3.9, <3.10"
@@ -26,7 +30,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "orpheus-common",
+    "orpheus-common>=0.2.0",
     "paho-mqtt>=2.1.0",
     "PyYAML>=6.0,<7.0",
     "pyserial>=3.5,<4.0",
@@ -35,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
     "pytest-cov>=5.0.0",

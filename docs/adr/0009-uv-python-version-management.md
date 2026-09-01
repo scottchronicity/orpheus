@@ -24,7 +24,7 @@ Meanwhile, [uv](https://docs.astral.sh/uv/) (by Astral, the ruff authors) gained
 
 ### Research
 
-A spike confirmed that uv's python-build-standalone distribution of CPython 3.9.5 works correctly on Apple Silicon macOS with all Orpheus dependencies (numpy, scipy, sounddevice, onnxruntime, torch). See `research-uv-migration.md` at the repo root for the full assessment.
+A spike confirmed that uv's python-build-standalone CPython 3.9.5 works on Apple Silicon macOS with the full Orpheus dependency set — numpy, scipy, sounddevice, onnxruntime and torch all install and import. The write-up it referenced is no longer in the repo.
 
 ### Constraints
 

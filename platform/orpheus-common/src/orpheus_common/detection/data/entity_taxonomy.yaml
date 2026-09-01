@@ -1,0 +1,55 @@
+# Entity-type state-space taxonomy ([ARCH] Generalize the EntityEvent State
+# Space Taxonomy, Epic 1). The canonical entity_type is a dotted path
+# ("Animal.Bird.Crow") validated against this tree. entity_type is ADDITIVE and
+# DERIVED from the existing cross-classifier identity (TaxonomyRef + the
+# species.py predicates + taxonomy_bridge._CLADE_BRIDGES) — it is NOT a second
+# identity system, and it is never authoritative over the per-evidence taxonomy.
+#
+# Extending the taxonomy is (mostly) a data edit here:
+#  - a new TYPE node                -> add it under `types`
+#  - a new species_code mapping     -> add to `legacy_species_codes`
+#  - a new clade backed by an IOC   -> add the predicate to species.py (one
+#    function in the is_corvidae shape) + one line under `predicate_leaves`
+#    (AudioSet mids stay single-sourced in taxonomy_bridge._CLADE_BRIDGES).
+version: 1
+
+# The state-space tree. Internal nodes are valid entity_types too: a detection
+# may resolve only to the family level (e.g. "Animal.Bird" = a bird whose clade
+# we couldn't resolve). A leaf is just a node with no children.
+types:
+  Animal:
+    Bird:
+      Crow:
+      Owl:
+      Duck:
+    Critter:
+  Human:
+    Known:
+    Unknown:
+  Plant:
+
+bindings:
+  # predicate name -> entity_type leaf. The predicate name resolves against a
+  # FIXED in-code dispatch table in entity_taxonomy.py (no eval / import-by-
+  # string); an unknown name fails fast at load. The IOC path runs the predicate
+  # on the scientific name; the AudioSet path maps a mid -> its predicate via
+  # taxonomy_bridge._CLADE_BRIDGES (the single source of the mid list) and then
+  # that predicate -> this leaf.
+  predicate_leaves:
+    is_corvidae: Animal.Bird.Crow
+
+  # Specific legacy species_code / common slug -> entity_type. For rows with no
+  # usable taxonomy (mirrors species.CROW_UI_CODES). Checked before the coarse
+  # detection_type defaults so a known crow code never coarsens to Animal.Bird.
+  legacy_species_codes:
+    corvus: Animal.Bird.Crow
+    crow: Animal.Bird.Crow
+
+  # Coarse last-resort default by detection_type, applied only when nothing more
+  # specific matched. BirdNET (species.detected) emits birds; the crow agent
+  # emits corvids. `null` = too ambiguous to default (don't claim a type).
+  detection_type_defaults:
+    species.detected: Animal.Bird
+    crow.analyzed: Animal.Bird.Crow
+    audio.classified: null
+    audio.motion: null

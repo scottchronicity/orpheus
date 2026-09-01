@@ -4,38 +4,43 @@ Thank you for your interest in contributing to Orpheus. This document covers eve
 
 ---
 
-> [!CAUTION]
-> ## Python 3.9 Is Not Optional
->
-> This project targets **Python 3.9.5** exclusively. This is a hard constraint imposed by NVIDIA JetPack, the firmware stack on the Jetson Orin NX hardware where Orpheus is deployed. JetPack ships a specific Python version and we cannot deviate from it.
->
-> **Pull requests containing Python 3.10+ syntax will be rejected without review.** This includes, but is not limited to:
->
-> - `match`/`case` statements (structural pattern matching)
-> - `X | None` union syntax in type hints — use `Optional[X]` from `typing`
-> - `X | Y` union types in `isinstance()` calls
-> - Parenthesized context managers (`with (A() as a, B() as b):`)
-> - `ExceptionGroup` and `except*`
->
-> ```python
-> # CORRECT — Python 3.9 compatible
-> from typing import Optional, Union
->
-> def find_species(code: str) -> Optional[str]:
->     ...
->
-> def process(value: Union[str, int]) -> None:
->     ...
->
-> # WRONG — Python 3.10+ only, PR will be rejected
-> def find_species(code: str) -> str | None:
->     ...
->
-> def process(value: str | int) -> None:
->     ...
-> ```
->
-> If you are unsure whether a syntax feature is 3.9-compatible, check [docs.python.org/3.9](https://docs.python.org/3.9/whatsnew/3.9.html) or run `python3.9 -c "import ast; ast.parse(open('yourfile.py').read())"`.
+## Python 3.9 Is Not Optional
+
+**This constraint is not negotiable — read it before you write any code.**
+
+This project targets **Python 3.9.5** exclusively. This is a hard constraint imposed by NVIDIA JetPack, the firmware stack on the Jetson Orin NX hardware where Orpheus is deployed. JetPack ships a specific Python version and we cannot deviate from it.
+
+**Pull requests containing Python 3.10+ syntax will be rejected without review.**
+
+In **annotations**, `X | None` and `list[X]` are fine: every module starts with
+`from __future__ import annotations`, so annotations are strings at runtime and
+never evaluated. The codebase uses both forms throughout.
+
+They are **not** fine anywhere the expression is evaluated at runtime —
+`isinstance()`, `cast()`, a Pydantic `TypeAdapter`, or a bare union alias at
+module scope. And `match`/`case`, `except*` and parenthesized context managers
+are banned outright: those are syntax, not annotations, and 3.9 cannot parse
+them.
+
+```python
+# CORRECT — Python 3.9 compatible
+from typing import Optional, Union
+
+def find_species(code: str) -> Optional[str]:
+    ...
+
+def process(value: Union[str, int]) -> None:
+    ...
+
+# WRONG — Python 3.10+ only, PR will be rejected
+def find_species(code: str) -> str | None:
+    ...
+
+def process(value: str | int) -> None:
+    ...
+```
+
+If you are unsure whether a syntax feature is 3.9-compatible, check [docs.python.org/3.9](https://docs.python.org/3.9/whatsnew/3.9.html) or run `python3.9 -c "import ast; ast.parse(open('yourfile.py').read())"`.
 
 ---
 
@@ -45,15 +50,27 @@ This project follows a standard code of conduct. Please be respectful and constr
 
 ---
 
+## How We Work Together
+
+**Protect the live field station.**
+
+Driving into the freezing woods to reboot a locked-up Jetson is nobody's idea of a good time. Wild experimentation is welcome; the core runtime has to stay bulletproof. In exchange for respecting the hardware, maintainers get deep autonomy over their domains.
+
+- **Earn your domain.** Step up to reliably maintain a module and it's yours — you set the direction and own the decisions. Trust here is proportional to what you carry.
+- **Don't break the tank.** The station is a real, physical thing sitting in a Michigan wetland. A change that destabilizes the production deployment gets reverted first and discussed second. Nothing personal; the animals don't wait for hotfixes.
+- **Strong opinions, loosely held.** Every architectural choice in this repo has a reason, and none of them are sacred. Bring a better idea and we'll listen — that's what the [ADRs](docs/adr/) are for.
+
+---
+
 ## Finding Work
 
-We use a **Backlog-as-Code** system. Our roadmap lives in [`docs/backlog.json`](docs/backlog.json), which generates GitHub Epics, labels, and sub-issues automatically. Here's how to navigate it:
+We use a **Backlog-as-Code** system. Our roadmap lives in [`docs/backlog.json`](https://github.com/scottchronicity/orpheus/blob/main/docs/backlog.json), which seeds the labels, milestones, and issues on GitHub automatically. Here's how to navigate it:
 
 ### Start Here
 
-1. **Want the big picture?** Go to [GitHub Issues](https://github.com/scottchronicity/orpheus/issues) and filter by `type: epic`. You'll see 9 Epics — from building the Cognitive Holarchy to surviving Michigan winters in a sealed enclosure. Each Epic is a tracking issue that links to its sub-tasks.
-2. **Want to dive right in?** Filter by `good first issue`. These are scoped, approachable, and immediately useful. No prior context required.
-3. **Want the philosophy?** Read [`docs/OPEN_SOURCE_ROADMAP_v1.md`](docs/OPEN_SOURCE_ROADMAP_v1.md) — it explains *why* we build what we build, and the tenets we won't compromise on.
+1. **Want the big picture?** Work is grouped into eight themes, each a milestone on [GitHub Issues](https://github.com/scottchronicity/orpheus/issues) — from recognising what is out there to surviving Michigan winters in a sealed enclosure. Filter by a milestone to see a theme's open work. There is one stream and no epics: every item is a story someone can pick up.
+2. **Want to dive right in?** Filter by `good first issue`. These are deliberately small and self-contained: a shared helper to extract, a caching bug with a known reproduction, a table column, a docs page to keep honest. No prior context required.
+3. **Want the reasoning behind a design?** The [ADRs](docs/adr/) record why each architectural choice was made, and the [design docs](docs/designs/) cover the features they describe.
 
 ### Understanding C4 Architecture Labels
 
@@ -65,11 +82,11 @@ Every issue is tagged with a **C4 architecture label** that tells you exactly wh
 | `C4: Container` | Deployable services and agents | An MQTT agent, the React dashboard, the database |
 | `C4: Component` | Internal libraries and modules | Classifiers, config managers, event bus abstractions |
 
-This isn't just bureaucracy — it's a navigation system. If you see `C4: Container` on a ticket, you're building or modifying a standalone service in `agents/` or `services/`. If you see `C4: Component`, you're working inside `platform/orpheus-common/` or a module's internals. The label tells you your blast radius before you write a line of code.
+If you see `C4: Container` on a ticket, you're building or modifying a standalone service in `agents/` or `services/`. If you see `C4: Component`, you're working inside `platform/orpheus-common/` or a module's internals. The label tells you your blast radius before you write a line of code.
 
-### The Standard of Quality: Gherkin Acceptance Criteria
+### The Standard of Quality: a stated Definition of Done
 
-Feature tickets in this repo contain **Gherkin acceptance criteria** — structured `Given / When / Then` scenarios that define exactly what "done" looks like:
+Every ticket says what "done" means before you start. Most use a short **Definition of Done** — a few sentences of observable outcome. The largest and most behavioral ones go further and use **Gherkin acceptance criteria**, structured `Given / When / Then` scenarios:
 
 ```gherkin
 Given the audio-motion agent detects a sound event
@@ -78,7 +95,7 @@ Then a FLAC clip is saved with 2s pre-roll buffer
 And an MQTT message is published to orpheus/audio/motion/events
 ```
 
-This isn't optional decoration. These scenarios are the behavioral contract for the feature. When you pick up a ticket, your job is to make every `Then` clause true. Think of it as fulfilling a strict behavioral state machine — the Gherkin *is* the spec.
+Where a ticket has them, they are the behavioral contract: your job is to make every `Then` clause true, and the Gherkin *is* the spec. Where a ticket has a prose Definition of Done instead, that is the bar. Either way, if the acceptance criteria are vague or you disagree with them, say so on the ticket before writing code — sharpening them is a contribution in itself.
 
 ### Spikes & ADRs
 
@@ -112,11 +129,11 @@ Spikes exist because we'd rather have a well-reasoned decision document than a s
 ```bash
 git clone https://github.com/scottchronicity/orpheus.git
 cd orpheus
-git lfs install && git lfs pull   # Fetch ML models (~500MB)
+git lfs install && git lfs pull   # Fetch ML models (~1.5 GB)
 
 make install        # Install all components
 make test           # Run all tests
-make coverage-all   # Check coverage (≥70% required per component)
+make coverage-all   # Check coverage against each component's floor
 ```
 
 ---
@@ -159,7 +176,7 @@ git checkout -b fix/issue-description
 
 ### 2. Make Changes
 
-- Read [`CODING_AGENT_CONTEXT.md`](CODING_AGENT_CONTEXT.md) before making changes — it is the single source of truth for development patterns
+- Read [`AGENTS.md`](AGENTS.md) before making changes — it carries the non-negotiable rules and routes to the themed guides in [`docs/agent-instructions/`](docs/agent-instructions/) (tooling, testing, git, CI, architecture, recipes, gotchas)
 - Follow existing code style (Ruff formatter, 100-char line length, Google-style docstrings)
 - Add tests for new functionality
 - Update documentation as needed
@@ -172,14 +189,24 @@ git checkout -b fix/issue-description
 cd path/to/your/component   # e.g., agents/orpheus-agent-audio-motion
 make lint                    # Must pass with zero errors
 make test                    # Must pass
-make coverage                # Must be ≥70%
+make coverage                # Must meet this component's floor
+
+cd -                         # back to the repo root
+make guardrails              # Must pass — CI blocks the merge on it
 ```
+
+`make guardrails` is the one gate people miss. It checks the mechanical rules a
+change can break silently: that a new agent is wired into every place it has to be,
+that the manifest catalog covers it, that a new design doc or ADR is reachable from
+the docs site, and that the non-negotiables stay coherent. It runs on every pull
+request and it blocks the merge, so run it before you push.
 
 ### 4. Commit and Push
 
 ```bash
-git add path/to/changed/files
-git commit -m "Brief description of changes"
+git status                    # once — check nothing unexpected is staged or ignored
+git add -A
+git commit -m "feat(<scope>): <imperative summary>"
 git push origin your-branch-name
 ```
 
@@ -237,9 +264,13 @@ def process_audio(data: bytes, sample_rate: int = 48000) -> List[float]:
 ### Testing
 
 - Write tests using pytest
-- Use `@pytest.mark.asyncio` for async tests
+- Don't mark async tests — components that need it set `asyncio_mode = auto` in their `pytest.ini`
 - Mock external dependencies (MQTT broker, file I/O)
-- Target ≥70% coverage (CI enforces this)
+- Coverage floors are per-component: 70% for most, 78% for `orpheus-common`,
+  72% for `audio-motion`. `codecov.yml` and the `env:` block of
+  `.github/workflows/pr-tests.yml` hold the real numbers. Note the local make
+  targets are stricter than CI for two components, so a local pass is a safe
+  bet but not an identical check.
 
 ```python
 import pytest
@@ -271,6 +302,7 @@ async def test_audio_source_starts():
 - [ ] Tests pass (`make test`)
 - [ ] Linting passes (`make lint`) with zero errors
 - [ ] Coverage maintained or improved (`make coverage`)
+- [ ] Guardrails pass (`make guardrails`)
 - [ ] Documentation updated if behavior changed
 - [ ] No hardcoded hardware assumptions in `agents/` or `services/`
 - [ ] If porting to new hardware, changes are in a new `platform/` subdirectory
@@ -288,7 +320,7 @@ async def test_audio_source_starts():
 
 - **Issues**: Open a GitHub Issue for bugs or concrete feature requests
 - **Discussions**: Use [GitHub Discussions](https://github.com/scottchronicity/orpheus/discussions) for questions, ideas, and the Active Inference interaction policy work
-- **Documentation**: [`docs/`](docs/) directory, [`CODING_AGENT_CONTEXT.md`](CODING_AGENT_CONTEXT.md)
+- **Documentation**: the [documentation site](https://scottchronicity.github.io/orpheus/docs/) or the [`docs/`](docs/) directory in a checkout; [`AGENTS.md`](AGENTS.md) for the rules a change has to hold
 
 ---
 

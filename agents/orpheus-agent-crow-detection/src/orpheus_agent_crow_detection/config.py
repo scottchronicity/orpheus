@@ -18,6 +18,7 @@ class CrowDetectionConfig:
     embedder_model_path: str
     classifier_model_path: str
     embedder_sample_rate: int
+    device: str
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> CrowDetectionConfig:
@@ -35,6 +36,10 @@ class CrowDetectionConfig:
             embedder_model_path=crow_config.get("embedder_model_path", default_embedder_path),
             classifier_model_path=crow_config.get("classifier_model_path", default_classifier_path),
             embedder_sample_rate=crow_config.get("embedder_sample_rate", 16000),
+            # Torch device for the AVES embedder + classifier on the shared Jetson GPU
+            # ("auto"/"cpu"/"cuda"); parity with audio-events. Default "auto" preserves
+            # today's behavior. select_torch_device resolves it at model load.
+            device=str(crow_config.get("device", "auto")),
         )
 
 

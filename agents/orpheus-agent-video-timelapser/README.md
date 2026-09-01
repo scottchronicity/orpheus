@@ -32,7 +32,7 @@ cameras:
       - start_time: "06:00"        # Morning timelapse at 6 AM
         lookback_window: "24h"     # Sample from last 24 hours
         sampling_interval: "15m"   # Sample every 15 minutes
-        retention_days: 90         # Keep timelapses for 90 days
+        retention_days: 90         # Parsed and logged, but not applied — see Retention below
         clip_duration: 2.0         # Each image shown for 2 seconds
       - start_time: "18:00"        # Evening timelapse at 6 PM
         lookback_window: "48h"     # Sample from last 48 hours
@@ -59,8 +59,24 @@ cameras:
 - **start_time**: `HH:MM` format (24-hour), when to generate timelapse
 - **lookback_window**: Time window to sample from (e.g., "24h", "48h", "7d")
 - **sampling_interval**: Interval between sampled snapshots (e.g., "15m", "30m", "1h")
-- **retention_days**: Number of days to retain timelapse videos
+- **retention_days**: Accepted and validated, and echoed in the startup schedule
+  log, but nothing applies it — see [Retention](#retention) below
 - **clip_duration**: How long each image is shown (seconds, can be fractional)
+
+### Retention
+
+**This agent does not delete timelapses, and neither does its `retention_days`
+setting.** For a long time nothing deleted them at all, which is how timelapses
+came to be one of the largest things on a station's disk. They are now the
+`timelapses` category of `orpheus-storage-sweep`, the one component that removes
+recordings, running from a systemd timer every 15 minutes.
+
+The category is trimmed oldest-first once it passes
+`storage.retention.categories.timelapses.max_gb` (450 GB by default), and sooner if
+free space falls below `storage.retention.reserve_gb`; nothing inside `floor_days`
+(90 by default) is ever deleted. `make storage-report` shows what the next sweep
+would do. See
+[Data & retention](../../docs/operator-manual/index.md#7-data-retention).
 
 ### Frame Rate Calculation
 

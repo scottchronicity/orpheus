@@ -1,3 +1,0 @@
-"""
-Orpheus Dashboard Source Package
-"""

@@ -20,6 +20,7 @@ pyyaml>=6.0.2
 # Networking & API
 requests>=2.32.0
 httpx>=0.28.0
+nats-py>=2.6,<3
 paho-mqtt>=2.1.0,<3.0.0
 
 # Web Framework (dashboard)
@@ -37,7 +38,13 @@ soundfile>=0.12.0
 sounddevice>=0.5.0
 
 # Development & Testing (all projects)
-ruff>=0.8.0
+# ruff is pinned EXACTLY, not floored: new ruff releases stabilize new lint
+# rules, so a floating version makes CI lint fail on unchanged code the day a
+# release lands (ruff 0.16.4 / PLR0917, 2026-08). Upgrade deliberately: bump
+# the pin here + every component's pyproject dev extras + the UI backend
+# requirements.txt together, run `make lint`, and fix what the new version
+# flags in the same change.
+ruff==0.15.20
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0

@@ -103,13 +103,34 @@ def main():
     repo_root = Path(__file__).parent.parent.parent
     constraints_path = repo_root / "requirements-constraints.txt"
     
-    # Find all requirements.txt files
+    # Find all requirements.txt files. Every package the constraints
+    # file pins must be consistent across every project that depends
+    # on it — the dashboard-removal PR taught us that "swap path A for
+    # path B" in this list without running ``make check-deps`` lets
+    # asymmetries through (pytest-asyncio>=0.23 vs >=0.24).
     requirements_files = [
         repo_root / "platform" / "orpheus-common" / "requirements.txt",
         repo_root / "agents" / "orpheus-agent-audio-motion" / "requirements.txt",
-        repo_root / "services" / "orpheus-dashboard" / "requirements.txt",
-        repo_root / "services" / "orpheus-mqtt" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-audio-playback" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-audio-events" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-bird-detection" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-crow-detection" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-event-correlator" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-video-motion" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-video-snapshotter" / "requirements.txt",
+        repo_root / "agents" / "orpheus-agent-video-timelapser" / "requirements.txt",
+        repo_root / "services" / "orpheus_ui" / "backend" / "requirements.txt",
+        repo_root / "services" / "orpheus-backplane" / "requirements.txt",
+        repo_root / "services" / "orpheus-gps" / "requirements.txt",
+        repo_root / "services" / "orpheus-bluetooth-autoconnect" / "requirements.txt",
     ]
+    # Skip any files that don't exist (services that may not have a
+    # requirements.txt yet) so the check still runs end-to-end — but say so,
+    # so a renamed/moved file can't silently drop out of coverage (this
+    # happened with the orpheus-mqtt → orpheus-backplane rename).
+    for missing in (p for p in requirements_files if not p.exists()):
+        print(f"  (skipping {missing.relative_to(repo_root)} — not present)")
+    requirements_files = [p for p in requirements_files if p.exists()]
     
     print(f"{BOLD}Checking dependency consistency across monorepo...{RESET}")
     print(f"Constraints file: {constraints_path}")

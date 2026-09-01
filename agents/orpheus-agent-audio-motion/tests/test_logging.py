@@ -35,7 +35,7 @@ class TestAudioMotionLogging:
     @pytest.mark.asyncio
     @patch("orpheus_agent_audio_motion.main.logger")
     @patch("orpheus_agent_audio_motion.main.load_app_config")
-    @patch("orpheus_agent_audio_motion.main.MQTTClient")
+    @patch("orpheus_agent_audio_motion.main.create_event_bus")
     async def test_logs_mqtt_initialization(self, mock_mqtt_class, mock_load_config, mock_logger):
         """Test that MQTT initialization logs correctly."""
         # Setup mock config
@@ -69,9 +69,10 @@ class TestAudioMotionLogging:
 
         with patch("orpheus_agent_audio_motion.main.create_audio_source", return_value=mock_source):
             with patch("orpheus_agent_audio_motion.main.ClipSaver"):
-                with patch("orpheus_common.config.OrpheusConfig") as mock_orpheus_cfg:
-                    mock_orpheus_cfg.get_instance.return_value = Mock(audio=Mock(channels=[]))
-                    await agent._initialize_dependencies()
+                with patch("orpheus_agent_audio_motion.main.DetectionDB"):
+                    with patch("orpheus_common.config.OrpheusConfig") as mock_orpheus_cfg:
+                        mock_orpheus_cfg.get_instance.return_value = Mock(audio=Mock(channels=[]))
+                        await agent._initialize_dependencies()
 
         # Verify MQTT initialization was logged
         info_calls = [str(call) for call in mock_logger.info.call_args_list]

@@ -31,6 +31,51 @@ LOG_DIR="${REPO_ROOT}/logs"
 PID_DIR="${REPO_ROOT}/.dev-stack/pids"
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
+# Per-service log files are unbounded: a chatty agent in a long session grows
+# logs/<service>.log until the checkout fills the disk. Services append with
+# >>, which holds an open fd — renaming the file would leave the writer
+# appending to the renamed inode, so the cap has to truncate IN PLACE. O_APPEND
+# means the next write lands at offset 0, which is why this works without
+# restarting anything.
+LOG_MAX_BYTES="${ORPHEUS_DEV_LOG_MAX_BYTES:-52428800}"   # 50 MB per service
+LOG_KEEP_LINES="${ORPHEUS_DEV_LOG_KEEP_LINES:-2000}"     # tail kept across a trim
+REAPER_PID_FILE="${PID_DIR}/.log-reaper.pid"
+
+trim_oversized_logs() {
+    local f size keep
+    for f in "$LOG_DIR"/*.log; do
+        [ -f "$f" ] || continue
+        size="$(wc -c < "$f" 2>/dev/null | tr -d ' ')"
+        [ -n "$size" ] || continue
+        [ "$size" -gt "$LOG_MAX_BYTES" ] || continue
+        keep="${f}.trim"
+        tail -n "$LOG_KEEP_LINES" "$f" > "$keep" 2>/dev/null || : > "$keep"
+        : > "$f"
+        cat "$keep" >> "$f" 2>/dev/null || true
+        rm -f "$keep"
+        echo "[dev-stack] log passed ${LOG_MAX_BYTES} bytes and was trimmed to the last ${LOG_KEEP_LINES} lines" >> "$f"
+    done
+}
+
+start_log_reaper() {
+    stop_log_reaper
+    (
+        while true; do
+            sleep 60
+            trim_oversized_logs
+        done
+    ) >/dev/null 2>&1 &
+    echo "$!" > "$REAPER_PID_FILE"
+}
+
+stop_log_reaper() {
+    local pid
+    [ -f "$REAPER_PID_FILE" ] || return 0
+    pid="$(cat "$REAPER_PID_FILE" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    rm -f "$REAPER_PID_FILE"
+}
+
 # ---------------------------------------------------------------------------
 # Colors and helpers
 # ---------------------------------------------------------------------------
@@ -55,8 +100,9 @@ skip() { echo -e "  ${DIM}–${NC} $*"; }
 # Format: name|directory|command
 # Order matters — services start top-to-bottom.
 SERVICES=(
-    "mosquitto|_mosquitto_|_mosquitto_"
+    "backplane|_backplane_|_backplane_"
     "audio-motion|agents/orpheus-agent-audio-motion|make run"
+    "audio-events|agents/orpheus-agent-audio-events|make run"
     "audio-playback|agents/orpheus-agent-audio-playback|make run"
     "bird-detection|agents/orpheus-agent-bird-detection|make run"
     "crow-detection|agents/orpheus-agent-crow-detection|make run"
@@ -216,18 +262,20 @@ preflight() {
     fi
     ok "Python $(${PYTHON_BIN} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
 
-    # Mosquitto
-    if ! command -v mosquitto >/dev/null 2>&1; then
-        err "Mosquitto not found. Install via: brew install mosquitto"
+    # Messaging backplane broker (NATS + JetStream is the default transport)
+    if ! command -v nats-server >/dev/null 2>&1; then
+        err "nats-server not found. Install via: brew install nats-server"
+        err "  (or: make -C services/orpheus-backplane install)"
         exit 1
     fi
-    ok "Mosquitto installed"
+    ok "nats-server installed"
 
     # Venvs
     local missing=()
     for dir in \
         agents/orpheus-agent-audio-motion \
         agents/orpheus-agent-audio-playback \
+        agents/orpheus-agent-audio-events \
         agents/orpheus-agent-bird-detection \
         agents/orpheus-agent-crow-detection \
         agents/orpheus-agent-video-motion \
@@ -276,33 +324,26 @@ start_one() {
 
     local dir cmd logfile
 
-    # --- Mosquitto is special ---
-    if [ "$name" = "mosquitto" ]; then
-        if pgrep -x mosquitto >/dev/null 2>&1; then
+    # --- Messaging backplane (NATS + JetStream) is special ---
+    if [ "$name" = "backplane" ]; then
+        if pgrep -x nats-server >/dev/null 2>&1; then
             local existing_pid
-            existing_pid="$(pgrep -x mosquitto)"
-            write_pid "mosquitto" "$existing_pid"
-            ok "mosquitto already running (pid ${existing_pid}, external)"
+            existing_pid="$(pgrep -x nats-server)"
+            write_pid "backplane" "$existing_pid"
+            ok "backplane (nats-server) already running (pid ${existing_pid}, external)"
             return 0
         fi
-        logfile="${LOG_DIR}/mosquitto.log"
-        local conf=""
-        if [ -f /opt/homebrew/etc/mosquitto/mosquitto.conf ]; then
-            conf="/opt/homebrew/etc/mosquitto/mosquitto.conf"
-        elif [ -f /usr/local/etc/mosquitto/mosquitto.conf ]; then
-            conf="/usr/local/etc/mosquitto/mosquitto.conf"
-        fi
-        if [ -n "$conf" ]; then
-            mosquitto -c "$conf" -d > "$logfile" 2>&1
-        else
-            mosquitto -d > "$logfile" 2>&1
-        fi
+        logfile="${LOG_DIR}/backplane.log"
+        local store="${ORPHEUS_DATA_ROOT:-/tmp/orpheus}/backplane/jetstream"
+        mkdir -p "$store"
+        ORPHEUS_BACKPLANE_STORE="$store" nats-server \
+            -c services/orpheus-backplane/config/nats.conf > "$logfile" 2>&1 &
+        write_pid "backplane" "$!"
         sleep 1
-        if pgrep -x mosquitto >/dev/null 2>&1; then
-            write_pid "mosquitto" "$(pgrep -x mosquitto)"
-            ok "mosquitto started (pid $(read_pid mosquitto))"
+        if kill -0 "$(read_pid backplane)" 2>/dev/null; then
+            ok "backplane (NATS+JetStream) started (pid $(read_pid backplane))"
         else
-            fail "mosquitto failed to start — check ${logfile}"
+            fail "backplane failed to start — check ${logfile}"
             return 1
         fi
         return 0
@@ -371,6 +412,22 @@ start_one() {
 # ---------------------------------------------------------------------------
 # Stop a single service
 # ---------------------------------------------------------------------------
+# The recorded pid is the launch wrapper (`exec make run` → make), and the
+# real service process is its CHILD — make does not forward signals, so
+# killing only the recorded pid would orphan the actual python/node process
+# with its ports still bound. Collect the descendant tree BEFORE signalling
+# (children reparent to launchd the moment their parent dies and become
+# unfindable), then signal deepest-first.
+# Only pids reached from OUR recorded pid are ever touched.
+collect_tree() {
+    local pid="$1"
+    local child
+    for child in $(pgrep -P "$pid" 2>/dev/null); do
+        collect_tree "$child"
+    done
+    echo "$pid"
+}
+
 stop_one() {
     local name="$1"
     local pid
@@ -388,25 +445,36 @@ stop_one() {
         return 0
     fi
 
-    # Mosquitto started externally? Don't kill it.
-    if [ "$name" = "mosquitto" ] && pgrep -x mosquitto >/dev/null 2>&1; then
-        # Kill the daemon we started (or leave external ones alone)
-        kill "$pid" 2>/dev/null || true
-    else
-        kill "$pid" 2>/dev/null || true
-    fi
+    # Kill the recorded pid and every live descendant (external brokers
+    # adopted by pid match have no wrapper, so this degrades to the old
+    # single-pid kill for them).
+    local victims v
+    victims="$(collect_tree "$pid")"
+    for v in $victims; do
+        kill "$v" 2>/dev/null || true
+    done
 
-    # Wait up to 5 seconds for graceful exit
-    local waited=0
-    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 5 ]; do
+    # Wait up to 5 seconds for the whole tree to exit gracefully
+    local waited=0 alive=1
+    while [ $waited -lt 5 ]; do
+        alive=0
+        for v in $victims; do
+            if kill -0 "$v" 2>/dev/null; then
+                alive=1
+                break
+            fi
+        done
+        [ "$alive" = "0" ] && break
         sleep 1
         waited=$((waited + 1))
     done
 
-    # Force kill if still alive
-    if kill -0 "$pid" 2>/dev/null; then
-        kill -9 "$pid" 2>/dev/null || true
-    fi
+    # Force kill any stragglers
+    for v in $victims; do
+        if kill -0 "$v" 2>/dev/null; then
+            kill -9 "$v" 2>/dev/null || true
+        fi
+    done
 
     remove_pid "$name"
     ok "${name} stopped (was pid ${pid})"
@@ -435,6 +503,9 @@ cmd_start() {
     services=($(resolve_services "$@"))
     local started=0 failed=0 skipped_count=0
 
+    trim_oversized_logs
+    start_log_reaper
+
     log "Starting Orpheus dev stack..."
     echo ""
 
@@ -453,7 +524,7 @@ cmd_start() {
     echo ""
     echo -e "  UI backend:  ${CYAN}http://localhost:8082${NC}  (API)"
     echo -e "  UI frontend: ${CYAN}http://localhost:5173${NC}  (dev server)"
-    echo -e "  MQTT broker: ${CYAN}localhost:1883${NC}"
+    echo -e "  Backplane (NATS+JetStream): ${CYAN}localhost:4222${NC}"
     echo ""
     echo -e "  ${DIM}Logs:   logs/<service>.log${NC}"
     echo -e "  ${DIM}PIDs:   .dev-stack/pids/<service>.pid${NC}"
@@ -474,6 +545,8 @@ cmd_start() {
 cmd_stop() {
     local services
     services=($(resolve_services "$@"))
+
+    stop_log_reaper
 
     log "Stopping services..."
     echo ""

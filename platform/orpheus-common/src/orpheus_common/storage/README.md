@@ -1,245 +1,145 @@
-# Storage Cleanup System
+# `orpheus_common.storage`
 
-Automatic retention management for Orpheus platform storage.
+Everything that knows where Orpheus writes files, how much of the disk they are
+using, and what gets deleted when the disk fills.
 
-## Overview
+| Module | What it owns |
+|---|---|
+| `paths.py` | Path construction under `$ORPHEUS_DATA_ROOT` — `get_data_root`, `get_audio_path`, `get_video_path`, `get_detections_path`, `ensure_directory`. |
+| `usage.py` | Measurement without judgement: `DATA_ROOT_CATEGORIES` names the recording categories, `survey_data_root` answers how big each one is. |
+| `sweep.py` | **The one component that deletes recordings.** Ceilings, pressure relief, floors, the published report, and the `orpheus-storage-sweep` command. |
+| `cleanup.py` | The lower-level per-directory helper — `CleanupPolicy`, `StorageCleanup`, `cleanup_old_files_by_age`. Nothing runs it on a timer. |
+| `management.py` | Two small standalone helpers predating the above — `cleanup_old_files` and `get_disk_usage`. |
+| `timelapse.py` | Timelapse filename and tier conventions. |
 
-The storage cleanup system provides configurable, automatic cleanup of old files based on retention policies. It supports multiple cleanup strategies and includes safety mechanisms to prevent data loss.
+## Retention lives in one place
 
-## Features
+Every agent used to trim its own directory, which gave four independent answers
+to a question the disk only asks once — and left the directories no agent owned,
+timelapses above all, growing without limit. Retention is now owned by
+`orpheus-storage-sweep`, a `Type=oneshot` unit driven by
+`orpheus-storage-sweep.timer` every 15 minutes, which sees every category and
+the shared filesystem underneath them.
 
-- **Multiple Cleanup Strategies**: Oldest-first, largest-first, or random selection
-- **Configurable Triggers**: Cleanup based on storage usage percentage
-- **Safety Mechanisms**: Minimum file age, deletion manifests, dry-run mode
-- **Flexible Policies**: Configure size limits, age limits, and cleanup amounts
-- **Integration Ready**: Easy integration with async agents and services
+**No agent deletes anything.** If you are adding an agent that writes under
+`$ORPHEUS_DATA_ROOT`, give its directory a category in
+`storage.retention.categories` rather than a cleanup task of its own.
 
-## Quick Start
+The sweep enforces three things in order: per-category **ceilings** (`max_gb`,
+applied regardless of free space), **pressure** relief when free space falls
+below `storage.retention.reserve_gb` (every category above its floor
+contributes in proportion to what it has to give), and **floors** (`floor_days`
+plus `min_file_age_hours`) that are never breached — if holding a floor means
+missing a ceiling or failing to reach the reserve, the sweep logs at CRITICAL
+and stops.
 
-### Simple Age-Based Cleanup
+Details and the operator commands are in
+[`docs/STORAGE_CLEANUP.md`](../../../docs/STORAGE_CLEANUP.md); the design
+argument is in `docs/designs/storage-retention.md` at the repository root; the
+module docstring in `sweep.py` is the short version.
+
+### Reading what the sweep decided
+
+The sweep publishes its last run to `$ORPHEUS_DATA_ROOT/.storage-sweep-state.json`
+and nothing else needs to walk the data root to find out what is there:
+
+```python
+from orpheus_common.storage import get_data_root, read_state
+
+report = read_state(get_data_root())
+if report is None:
+    print("The sweep has not run yet on this station")
+else:
+    for key, category in report["categories"].items():
+        print(key, category["bytes"], "of", category["limit_bytes"])
+```
+
+`StorageSweep` itself takes `disk_space`, `now`, `scan`, and `remove` as
+injectable callables, so a nearly-full disk, a floor that blocks eviction, and a
+category over its ceiling can each be exercised in a test without filling a real
+filesystem or deleting a real recording.
+
+## The per-directory helper
+
+`CleanupPolicy` and `StorageCleanup` still exist and still work. They apply a
+size or age policy to a **single directory** and know nothing about the disk
+that directory shares, which is precisely why the agents stopped using them:
+four directories inside their budgets can still fill one filesystem, and a
+per-directory policy has no floor to refuse to breach.
+
+Use them for a one-off cleanup you are driving yourself, or for a directory
+outside `$ORPHEUS_DATA_ROOT`. Use the sweep for anything a station does on its
+own.
 
 ```python
 from pathlib import Path
-from orpheus_common.storage import cleanup_old_files_by_age
 
-# Remove files older than 90 days
-deleted = cleanup_old_files_by_age(
-    path=Path("/data/orpheus/audio/clips"),
-    max_age_days=90,
-    dry_run=False
-)
-```
-
-### Policy-Based Cleanup
-
-```python
-from pathlib import Path
-from orpheus_common.storage import CleanupPolicy, StorageCleanup
-
-# Create cleanup policy
-policy = CleanupPolicy(
-    max_size_gb=50.0,                   # Storage limit
-    cleanup_trigger_percent=90.0,        # Trigger at 90% full
-    cleanup_amount_percent=25.0,         # Remove 25% when triggered
-    cleanup_strategy="oldest",           # Remove oldest files first
-    min_file_age_hours=1.0,              # Never delete files < 1 hour old
-)
-
-# Execute cleanup
-cleanup = StorageCleanup(policy)
-result = cleanup.cleanup(
-    path=Path("/data/orpheus/audio/clips"),
-    dry_run=False
-)
-
-print(f"Removed {result.files_removed} files")
-print(f"Freed {result.bytes_freed / (1024**2):.2f} MB")
-```
-
-## Configuration
-
-Add to `orpheus.yaml`:
-
-```yaml
-storage:
-  retention:
-    raw_audio_days: 30
-    raw_video_days: 30
-    detections_days: 365
-    # Cleanup settings
-    max_size_gb: 50.0
-    cleanup_trigger_percent: 90.0
-    cleanup_amount_percent: 25.0
-    cleanup_strategy: "oldest"
-    check_interval_hours: 6.0
-    min_file_age_hours: 1.0
-```
-
-## Cleanup Strategies
-
-### Oldest (Default)
-Removes files by modification time, oldest first. Best for time-series data.
-
-```python
-CleanupPolicy(cleanup_strategy="oldest")
-```
-
-### Largest
-Removes largest files first. Maximizes space freed per deletion.
-
-```python
-CleanupPolicy(cleanup_strategy="largest")
-```
-
-### Random
-Random selection. Useful for creating unbiased reduced datasets.
-
-```python
-CleanupPolicy(cleanup_strategy="random")
-```
-
-## Integration Examples
-
-### Periodic Cleanup Task
-
-```python
-import asyncio
-from orpheus_common.storage import CleanupPolicy, StorageCleanup
-
-class MyAgent:
-    async def _periodic_cleanup(self):
-        """Run cleanup every N hours."""
-        interval = self.config.storage.retention.check_interval_hours * 3600
-        
-        while True:
-            await asyncio.sleep(interval)
-            
-            policy = CleanupPolicy(
-                max_size_gb=self.config.storage.retention.max_size_gb,
-                cleanup_strategy=self.config.storage.retention.cleanup_strategy,
-                # ... other settings from config
-            )
-            
-            cleanup = StorageCleanup(policy)
-            result = cleanup.cleanup(self.storage_path, dry_run=False)
-            
-            if result.files_removed > 0:
-                logger.info(f"Cleanup freed {result.bytes_freed / (1024**2):.2f} MB")
-```
-
-### Manual Cleanup
-
-```python
 from orpheus_common.storage import CleanupPolicy, StorageCleanup
 
 policy = CleanupPolicy(
     max_size_gb=50.0,
-    cleanup_trigger_percent=90.0,
-    cleanup_amount_percent=25.0,
+    cleanup_trigger_percent=90.0,   # act once the directory passes 90% of the limit
+    cleanup_amount_percent=25.0,    # then remove 25% of it
+    cleanup_strategy="oldest",      # "oldest" for time-series data; "largest" or "random" exist
+    min_file_age_hours=1.0,
 )
 
 cleanup = StorageCleanup(policy)
-result = cleanup.cleanup(path, dry_run=True)  # Preview first
-
-if result.files_removed > 0:
-    print(f"Would delete {result.files_removed} files")
-    # Review manifest, then run with dry_run=False
+result = cleanup.cleanup(Path("/data/orpheus/audio/motion"), dry_run=True)
+print(f"Would remove {result.files_removed} files, {result.bytes_freed / 1024**2:.1f} MB")
 ```
 
-## API Reference
+Age alone, with no policy object:
 
-### CleanupPolicy
+```python
+from pathlib import Path
 
-Configuration for cleanup behavior:
+from orpheus_common.storage import cleanup_old_files_by_age
 
-- `max_size_gb`: Storage limit before cleanup triggers
-- `max_age_days`: Maximum file age (informational)
-- `cleanup_strategy`: `"oldest"`, `"largest"`, or `"random"`
-- `cleanup_trigger_percent`: Trigger cleanup at this % of max_size_gb
-- `cleanup_amount_percent`: Remove this % of files when triggered
-- `min_file_age_hours`: Never delete files younger than this
-- `file_pattern`: Glob pattern for files to consider (e.g., `"*.flac"`)
-
-### StorageCleanup
-
-Main cleanup manager:
-
-- `scan_directory(path)`: Scan and collect file information
-- `calculate_usage(path)`: Calculate current usage vs limit
-- `needs_cleanup(path)`: Check if cleanup should run
-- `select_files_to_delete(files)`: Select files based on strategy
-- `cleanup(path, dry_run, manifest_dir)`: Execute cleanup operation
-
-### CleanupResult
-
-Result of cleanup operation:
-
-- `files_removed`: Number of files deleted
-- `bytes_freed`: Bytes freed by deletion
-- `manifest_path`: Path to CSV manifest of deleted files
-- `duration_seconds`: Time taken for operation
-- `errors`: List of any errors encountered
-
-## Safety Features
-
-1. **Minimum File Age**: Files younger than `min_file_age_hours` are never selected
-2. **Deletion Manifests**: CSV log created before any files are deleted
-3. **Dry Run Mode**: Preview operations without making changes
-4. **Error Resilience**: Continues on individual file errors, logs everything
-5. **Validation**: Policy validation ensures sensible configuration
-
-## Testing
-
-Comprehensive test suite in `tests/test_storage_cleanup.py`:
-
-```bash
-pytest tests/test_storage_cleanup.py -v
+deleted = cleanup_old_files_by_age(
+    path=Path("/data/orpheus/audio/motion"),
+    max_age_days=90,
+    dry_run=True,
+)
 ```
 
-## Examples
+### API reference
 
-See `examples/cleanup_demo.py` for a complete demonstration:
+`CleanupPolicy` — `max_size_gb`, `max_age_days` (informational),
+`cleanup_strategy`, `cleanup_trigger_percent`, `cleanup_amount_percent`,
+`min_file_age_hours`, `file_pattern`.
+
+`StorageCleanup` — `scan_directory(path)`, `calculate_usage(path)`,
+`needs_cleanup(path)`, `select_files_to_delete(files)`,
+`cleanup(path, dry_run, manifest_dir)`.
+
+`CleanupResult` — `files_removed`, `bytes_freed`, `manifest_path`,
+`duration_seconds`, `errors`.
+
+Both paths refuse to delete a file younger than `min_file_age_hours`, write a
+CSV deletion manifest, offer `dry_run=True`, and continue past individual file
+errors rather than abandoning the run.
+
+## Configuration
+
+`storage.retention` in `config/orpheus.example.yaml` is the annotated canonical
+shape. `max_size_gb`, `cleanup_trigger_percent`, `cleanup_amount_percent` and
+`check_interval_hours` are read only by `cleanup.py` and are therefore accepted
+and unapplied on a running station; so are the age windows `raw_audio_days` and
+`raw_video_days`. They stay parseable so an existing configuration file keeps
+working — do not write new code against them.
+
+## Tests and examples
 
 ```bash
-# Check storage usage
+make -C platform/orpheus-common test
+```
+
+`tests/storage/test_sweep.py` covers the sweep, `tests/test_storage_cleanup.py`
+the per-directory helper, and `tests/test_storage_usage.py` the survey.
+`examples/cleanup_demo.py` drives the helper interactively:
+
+```bash
 python examples/cleanup_demo.py /data/orpheus/audio --mode check
-
-# Demo policy-based cleanup (dry-run)
 python examples/cleanup_demo.py /data/orpheus/audio --mode policy --dry-run
-
-# Demo age-based cleanup
-python examples/cleanup_demo.py /data/orpheus/audio --mode age --max-age-days 90 --dry-run
 ```
-
-## Documentation
-
-- [Integration Guide](docs/STORAGE_CLEANUP.md) - Detailed integration instructions
-- [API Documentation](src/orpheus_common/storage/cleanup.py) - Full API reference with docstrings
-
-## Files
-
-```
-src/orpheus_common/storage/
-├── __init__.py          # Exports cleanup classes
-├── cleanup.py           # Main implementation
-└── paths.py             # Storage path utilities
-
-tests/
-└── test_storage_cleanup.py  # Comprehensive tests
-
-docs/
-└── STORAGE_CLEANUP.md   # Integration guide
-
-examples/
-└── cleanup_demo.py      # Interactive demo script
-```
-
-## Requirements
-
-- Python 3.9+
-- Part of `orpheus-common` platform package
-- No external dependencies beyond stdlib
-
-## License
-
-Part of the Orpheus platform. See LICENSE in repository root.

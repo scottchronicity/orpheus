@@ -227,3 +227,24 @@ def timestamp_in_window(
     if start_minutes <= end_minutes:
         return start_minutes <= local_minutes <= end_minutes
     return local_minutes >= start_minutes or local_minutes <= end_minutes
+
+
+def interruptible_sleep(
+    total_seconds: float,
+    sleep,
+    should_stop,
+    slice_seconds: float = 1.0,
+) -> None:
+    """Sleep ``total_seconds`` in short slices, polling ``should_stop`` between
+    them. A single ``time.sleep(interval)`` is auto-resumed after a signal
+    handler returns (PEP 475), so a flag-setting SIGINT/SIGTERM handler cannot
+    interrupt it — Ctrl-C/systemd stop would appear dead for up to the full
+    interval (and a unit stop would hit TimeoutStopSec -> SIGKILL). Slicing
+    keeps the injectable ``sleep`` seam and bounds stop latency to
+    ~``slice_seconds``.
+    """
+    remaining = float(total_seconds)
+    while remaining > 0 and not should_stop():
+        chunk = min(slice_seconds, remaining)
+        sleep(chunk)
+        remaining -= chunk

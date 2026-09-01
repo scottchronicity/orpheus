@@ -11,6 +11,55 @@ site:
   lon: -85.660179
   elevation: 0.0
 
+# Which broker the messaging backplane uses ([REFACTOR] Event Bus Evolution).
+# Default "nats" = NATS + JetStream (installed/run by services/orpheus-backplane).
+# Set backend: "mqtt" to fall back to mosquitto. nats_url points at the broker.
+# The nats backend is a full drop-in: pub/sub, request-reply, durable streams + KV,
+# MQTT retained-message parity (KV last-value), and KV-TTL presence (LWT replacement).
+# Only qos has no NATS analogue (at-least-once comes via JetStream consumers).
+event_bus:
+  backend: "nats"            # nats | mqtt
+  nats_url: "nats://127.0.0.1:4222"
+  # Whether a cold broker at connect() is fatal. Unset/false (the default):
+  # never fatal — the agent comes up "disconnected" and a background retry
+  # attaches when the broker appears (self-healing across single-host upgrade
+  # restarts). Set true to hard-fail instead, when you want systemd to surface
+  # a missing broker loudly. verify-deploy's broker probe catches a genuinely
+  # absent broker at deploy time.
+  # connect_required: true
+  # Emit KV-TTL presence from every agent's heartbeat (nats only; the LWT
+  # replacement — a kill -9'd agent ages out within ~3x the heartbeat). Default
+  # off: it's new broad behavior. No effect on the mqtt backend (native LWT).
+  presence_enabled: false
+  # Operational-health migration off the domain bus (observability design §11).
+  # health_kv_enabled: producers ALSO write health to the orpheus_health KV plane
+  # (additive shadow, nats only). health_on_bus: producers keep publishing health
+  # on the bus — leave true until the UI is confirmed reading KV + soaked;
+  # flipping it off is the LAST migration step. Both no-op on mqtt.
+  health_kv_enabled: false
+  health_on_bus: true
+
+# Distributed config over the backplane KV (ADR 0018). When enabled, this host
+# reads shared config off the KV (seeded by `orpheus-config push` on the authority
+# host) merged OVER local YAML — so hosts don't copy identical YAML. env still wins.
+# Bootstrap-local: keep `enabled` + `event_bus.nats_url` in LOCAL yaml (they're read
+# before the KV layer and are never distributed). Default off -> local YAML only.
+config_service:
+  enabled: false
+  kv_bucket: "orpheus_config"
+
+# Domain event-sourcing shadow (nats only; default off → byte-identical to today).
+# When enabled, agents that own a domain stream ALSO publish detections to a bounded
+# durable JetStream stream (in addition to the SQLite save) — the durable log's first
+# writer + the reconciliation evidence a future "stream is truth" flip needs. SQLite
+# stays the source of truth; the stream is capped well under the account store and
+# discards oldest, so it reverts by ageing out. See the determinism contract.
+event_sourcing:
+  shadow_publish_enabled: false
+  stream_name: "orpheus_domain"
+  max_age_seconds: 604800      # 7 days
+  max_bytes: 500000000         # ~500 MB (well under the 2GB account store)
+
 mqtt:
   broker_host: "localhost"  # Override: ORPHEUS_MQTT__BROKER_HOST
   broker_port: 1883
@@ -120,15 +169,15 @@ dashboard:
   port: 8080
   poll_interval: 5000
   services:
-    - "orpheus-dashboard"
-    - "orpheus-mqtt"
+    - "orpheus-backplane"
+    - "orpheus-ui"
     - "orpheus-agent-audio-motion"
     - "orpheus-agent-audio-playback"
+    - "orpheus-agent-audio-events"
     - "orpheus-agent-video-motion"
     - "orpheus-agent-bird-detection"
     - "orpheus-agent-crow-detection"
     - "orpheus-bluetooth-autoconnect"
-    - "orpheus-ui"
     - "orpheus-agent-video-snapshotter"
     - "orpheus-agent-video-timelapser"
     - "orpheus-agent-event-correlator"
@@ -362,9 +411,83 @@ storage:
     video: "mp4"
     detections: "sqlite"
   retention:
-    raw_audio_days: 30
-    raw_video_days: 30
-    detections_days: 365
+    # Everything under this key is enforced by ONE component,
+    # orpheus-storage-sweep, run from a systemd timer. No agent deletes
+    # recordings. See docs/designs/storage-retention.md.
+    #
+    # Every *_gb key here is GiB — 1024³ bytes, the same unit `df -h`, the
+    # dashboard and `make storage-report` display. The keys keep the `_gb`
+    # spelling because renaming them would silently reset the ceilings on
+    # stations that already have them set.
+
+    # The master switch. false stops every deletion on the station at once;
+    # the sweep keeps measuring, so the dashboard still shows what is growing.
+    sweep_enabled: true
+
+    # Free space the sweep works to keep available, in GiB. Below this, every
+    # category above its floor gives up data in proportion to what it has to
+    # give. Expressed in bytes rather than a percentage because what an
+    # operator needs is runway: 100 GiB is about eight days at 12 GiB/day.
+    #
+    # Reconciled with min_free_space_percent below — the STRICTER of the two
+    # wins. On a disk bigger than about 1 TB the percentage is the stricter
+    # one, so it, not this number, is what the sweep actually holds free.
+    # `make storage-report` prints the effective reserve; read it there rather
+    # than assuming this value applies.
+    reserve_gb: 100
+
+    # How often the timer fires. Change alongside OnUnitActiveSec in
+    # platform/orpheus-common/systemd/orpheus-storage-sweep.timer.
+    sweep_interval_minutes: 15
+
+    # After a fresh install the sweep reports what it would delete and deletes
+    # nothing, so the first sweep is reviewable before it happens. Review it
+    # with `make storage-report`. 0 enforces from the first run.
+    first_run_grace_hours: 24
+
+    # Per-category ceiling and floor. They pull in opposite directions on
+    # purpose: max_gb is the most this category may hold, floor_days is the
+    # stretch of recent recording that is never deleted for any reason. When
+    # they conflict the FLOOR wins — the sweep logs CRITICAL and leaves the
+    # ceiling breached rather than delete recent recordings.
+    categories:
+      audio_motion:
+        max_gb: 600
+        floor_days: 30
+      video_motion:
+        max_gb: 60
+        floor_days: 90
+      snapshots:
+        max_gb: 450
+        floor_days: 90
+      timelapses:
+        max_gb: 450
+        floor_days: 90
+
+    # Never delete a file younger than this, whatever the ceilings say. Guards
+    # a clip that is still being written.
+    min_file_age_hours: 1
+
+    # Read as a percentage of the whole disk and reconciled with reserve_gb —
+    # the stricter of the two wins. Kept for stations configured before
+    # reserve_gb existed. 0 leaves reserve_gb as the only threshold.
+    min_free_space_percent: 10
+
+    # Accepted and validated, but NOTHING APPLIES IT — detection rows are
+    # kept forever today. The `database` category is measured and shown on the
+    # dashboard so its growth is visible, and it is deliberately not swept:
+    # deleting detections is a scientific decision, not a disk-space one.
+    # Left here because a value is already set on existing stations; do not
+    # read it as a retention policy.
+    detections_days: 3650
+
+    # NOTE: raw_audio_days, raw_video_days, max_size_gb,
+    # cleanup_trigger_percent, cleanup_amount_percent and check_interval_hours
+    # were the per-agent arrangement's keys. They are still accepted so an
+    # older config parses, but NOTHING APPLIES THEM — floor_days protects
+    # recent recordings and max_gb bounds them. They are left out of this
+    # example on purpose: setting them has no effect and reads as though the
+    # station were configured when it is not.
 
 detection:
   min_confidence: 0.8
@@ -377,11 +500,177 @@ bird_detection:
   confidence_threshold: 0.1
   location_lat: 42.970151
   location_lon: -85.660179
+  # Geographic-filter tuning. Defaults shown; usually no need to override.
+  # See agents/orpheus-agent-bird-detection/src/orpheus_agent_bird_detection/birdnet.py
+  # for the full admit rule. Briefly:
+  #   - geo_filter_min_prob: meta-model probability above which a species is
+  #     always admitted (matches upstream BirdNET-Analyzer's 0.03 default).
+  #   - Soft-admit rule: species with meta-model probability between
+  #     geo_filter_weak_admit_prob and geo_filter_min_prob are admitted only
+  #     if their acoustic confidence is ≥ geo_filter_weak_admit_conf. This
+  #     unlocks locally-confirmed-but-globally-patchy species (e.g. Eastern
+  #     Whip-poor-will) without re-admitting wildly implausible species.
+  geo_filter_min_prob: 0.03
+  geo_filter_weak_admit_prob: 0.0005
+  geo_filter_weak_admit_conf: 0.85
+  # Optional operator-curated list of scientific names (or full BirdNET labels)
+  # for species personally confirmed at this site. These bypass the geographic
+  # filter entirely. Entries that don't match a BirdNET label are logged as
+  # warnings at startup. Usually unneeded — the soft rule above should catch
+  # patchy species at high acoustic confidence on its own.
+  site_species_whitelist: []
+    # - "Antrostomus vociferus"   # Eastern Whip-poor-will (example)
+
+# Per-agent runtime tick knobs. Each Actor-based agent's heartbeat cadence (and
+# the KV TTLs derived from it — presence + operational health, both 3x) can be
+# tuned independently — slow a quiet agent down, speed a hot one up, or crank
+# everything for simulation. Unlisted agents keep the 30s default.
+# agents:
+#   crow-detection:
+#     heartbeat_seconds: 10.0
+#   event-correlator:
+#     heartbeat_seconds: 60.0
 
 correlation:
   input_topics:
     - "orpheus/detection/bird/events"
     - "orpheus/detection/crow/events"
+    - "orpheus/detection/audio/events"
+  # Time-window for event-based clustering (Layer 2 of cross-classifier
+  # identity, see docs/designs/cross-classifier-identity.md §4).
+  # Observations within window_seconds of each other cluster into one
+  # Entity regardless of species.
+  window_seconds: 3.0
+  # Safety cap: force-close a cluster after this many seconds even if new
+  # observations keep arriving, so continuous noise (wind/traffic/dawn chorus)
+  # can't reschedule the window timer forever and keep a cluster open
+  # unbounded. Raise it on a quiet site, lower it on a very noisy one.
+  max_cluster_duration_seconds: 30.0
+  # Off-by-default: also publish each EntityEvent on its entity_type-routed topic
+  # (e.g. orpheus/entities/animal/bird/crow) IN ADDITION to the always-on legacy
+  # orpheus/entities/animal topic. Additive — flip on once a consumer wants the
+  # routed topics ([ARCH] Generalize the EntityEvent State Space Taxonomy).
+  publish_entity_type_topics: false
+  # Off-by-default: record each finalised EntityEvent's (entity_type, hour-of-day)
+  # into the persisted state-space memory ($ORPHEUS_DATA_ROOT/state_space.db) so
+  # the system learns temporal patterns ("coyotes at 02:00"). Pure enrichment —
+  # a write to a separate DB; correlation behaviour is unchanged when off.
+  # ([CORE] State Space Likelihood & Latent Memory.)
+  state_space_memory_enabled: false
+  # Late-arrival enrichment (off by default): when a slow classifier's
+  # detection (e.g. crow.analyzed, or BirdNET behind a queue) arrives AFTER
+  # its acoustic moment's cluster already closed, fold it into the
+  # recently-emitted Entity instead of spawning a duplicate. Updates publish
+  # on orpheus/entity-updates/animal (never the create topics); the UI reads
+  # the updated entities row. See docs/designs/cross-classifier-identity.md §1.
+  late_enrichment:
+    enabled: false
+    ttl_seconds: 300.0        # how long an emitted entity stays enrichable
+    max_tracked_roots: 2000   # hard cap on the in-memory recent-entities map
+  # Layer 3 — auto-discovery of cross-classifier equivalences.
+  # See docs/designs/cross-classifier-identity.md §5.
+  auto_discovery:
+    enabled: true
+    interval_seconds: 21600     # 6h between scans — not latency-sensitive
+    lookback_days: 7
+    # Jaccard ≥ this auto-records as accepted (live immediately).
+    accept_threshold: 0.9
+    # Jaccard in [propose_threshold, accept_threshold) lands as
+    # pending_review (queued for human approval at /equivalences).
+    propose_threshold: 0.6
+    # Require ≥ this many joint observations before considering a pair —
+    # filters chance one-offs.
+    min_cooccurrences: 5
+    # Safety guard (recommended: true). When true, only CROSS-namespace pairs
+    # (e.g. ioc ↔ audioset — two classifiers naming the same source) may
+    # auto-accept; a same-namespace pair (two ioc species that merely co-occur,
+    # like a dawn-chorus crow + robin) is capped at pending_review for human
+    # approval instead of being auto-merged into one Entity. Default false keeps
+    # the historical behaviour; set true to stop auto-discovery learning false
+    # same-species "soup" equivalences. Not retroactive — flipping it on only
+    # prevents NEW false accepts; reject any pre-existing same-namespace rows
+    # manually at /equivalences.
+    cross_namespace_accept_only: false
+
+# Corollary discharge ("echo problem"): when Orpheus plays a sound through the
+# speaker, its own mic hears it and triggers a detection. The event-correlator
+# subscribes to playback events and TAGS (does not drop) entities that overlap a
+# playback window with is_self_generated=true, so the system doesn't mistake
+# hearing itself for wildlife. buffer_seconds pads each window's tail to catch
+# reverb / slightly-late triggers.
+corollary_discharge:
+  # Off by default: tagging is new behavior, so the flag is the rollback.
+  enabled: false
+  buffer_seconds: 2.0
+
+# Weather-station ingestion ([FEATURE] Ecowitt Weather Station Integration).
+# Polls a local weather station and stores readings in the detections DB (so
+# they join wildlife events on time) + publishes them on orpheus/environment/weather.
+# `enabled` is the gate for a long-running ingestor service (none ships yet — wire
+# any future systemd unit to honour it); the `orpheus-weather` CLI runs on demand
+# regardless. `url` is the station's FULL local-API endpoint (no default — it's
+# firmware-specific, so it must be supplied). Off by default. NOTE: the Ecowitt
+# field/unit mapping (EcowittProvider._parse) is an ungrounded seam — capture one
+# real gateway response and fill it in before enabling (it raises until then).
+weather:
+  enabled: false
+  url: ""                       # e.g. "http://192.168.1.50/get_livedata_info"
+  poll_interval_seconds: 300    # 5 min; weather isn't latency-sensitive
+
+# OpenTelemetry tracing ([REFACTOR] OTel Migration — foundation). Off by default
+# with no hard dependency: real tracing needs the optional extra installed
+# (`pip install orpheus-common[telemetry]`) AND enabled here; otherwise get_tracer
+# /setup_tracing no-op. `backend` "console" prints spans; "otlp"/"jaeger"/"tempo"
+# export to `endpoint` (an OTLP/HTTP URL). `sample_rate` caps CPU overhead.
+telemetry:
+  enabled: false
+  backend: "console"            # console | otlp | jaeger | tempo
+  sample_rate: 0.1              # 10% of traces
+  endpoint: ""                 # e.g. "http://localhost:4318/v1/traces" for OTLP
+
+# ── Read-only portal chain (docs/runbooks/distributed-portal.md) ─────────────
+# mirror -> ui.read_from_replica -> public projection. All off by default.
+
+# Read-only data mirror: the orpheus-mirror service snapshots the detections DB
+# atomically (VACUUM INTO staging) and pushes it to a read host, so every
+# read-only consumer (portal UI, MCP, citizen-science export) stays off the live
+# Jetson DB. `enabled` gates the long-running service; `orpheus-mirror --once`
+# runs on demand regardless.
+mirror:
+  enabled: false
+  transport: "local"            # local (copy into a directory) | ssh (rsync push)
+  dest: ""                      # local: a directory; ssh: "user@host:/path"
+  interval_seconds: 900         # 15 min between pushes
+  # source_db: ""               # "" -> <data_root>/detections/orpheus.db
+  # staging_path: ""            # "" -> <data_root>/mirror/orpheus.db (local snapshot)
+  # ssh_options: ""             # extra ssh options for the rsync -e transport
+  # push_timeout_seconds: 300   # bound a hung rsync/ssh push
+
+# Dashboard/UI runtime knobs. Defaults = today's behavior: reads the live DB,
+# health from the bus, no rate limit, no query budget.
+ui:
+  read_from_replica: false      # read the mirror replica instead of the live DB
+  health_source: "bus"          # bus | kv | both (§11 migration; kv needs nats)
+  # One-click "Sign in as Guest" (read-only). While on, anyone who can reach the
+  # port can view the dashboard without a password — set false for an instance
+  # strangers can reach, which hides the button and refuses the endpoint.
+  guest_quick_login: true
+  # Portal hardening (read-only-portal N2), both inert until enabled/positive:
+  rate_limit_enabled: false     # per-client API rate limiting (429 when tripped)
+  rate_limit_requests: 300      # ... this many requests ...
+  rate_limit_window_seconds: 60 # ... per sliding window
+  query_timeout_seconds: 0.0    # per-query SQLite budget; 0 = no budget
+
+# Public read-only site projection — the privacy chokepoint for the
+# citizen-science export (docs/designs/read-only-portal.md §2). Disabled +
+# fail-closed by default: time is bucketed to the day and location renders a
+# placeholder label, never a real coordinate.
+public:
+  enabled: false
+  time_granularity: "day"       # day | hour
+  location_mode: "site_label"   # v1 ships site_label only (no coordinate/grid mode)
+  site_label: ""                # "" -> fail-closed placeholder label
+  # confidence_bands: {}        # unset -> the band is omitted, never guessed
 
 video_snapshotter:
   retention_days: 547  # ~1.5 years; old snapshots are purged automatically
@@ -392,3 +681,24 @@ hardware:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Hardware circuit breakers — hard per-action rate limits enforced at the
+# actuation boundary (orpheus_common.safety.CircuitBreaker), so a looping agent
+# can't play crow calls all night or burn out a relay. A "fuse box" for the
+# physical world that higher-level agents cannot override.
+#
+# Empty/omitted = no fuses; an action is only throttled once you add it here.
+# State is SQLite-backed (sliding window) so limits persist across restarts.
+# NOTE: enforcement wires in once the MCP actuation layer exists; the examples
+# below are commented out until those actions can actually fire.
+#
+# circuit_breakers:
+#   audio_playback:
+#     limit: 3            # max 3 playbacks ...
+#     window_seconds: 3600  # ... per hour
+#   feeder_drop:
+#     limit: 1
+#     window_seconds: 86400  # max 1 per day
+#   relay_toggle:
+#     limit: 10
+#     window_seconds: 3600

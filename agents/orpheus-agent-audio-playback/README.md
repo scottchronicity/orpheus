@@ -230,7 +230,7 @@ make coverage
 Install as systemd service:
 
 ```bash
-sudo make install-service
+make install-service
 ```
 
 Start the service:
@@ -253,23 +253,23 @@ sudo journalctl -u orpheus-agent-audio-playback -f
 
 ## Example Usage
 
-### Using mosquitto_pub
+### Using the nats CLI
 
 ```bash
 # Legacy: Play a named sound once
-mosquitto_pub -t "orpheus/audio/playback/request" -m '{"sound_name": "test_tone_1"}'
+nats pub 'orpheus.audio.playback.request' '{"sound_name": "test_tone_1"}'
 
 # Legacy: Play with repeats
-mosquitto_pub -t "orpheus/audio/playback/request" -m '{"sound_name": "test_beep", "repeat_count": 3, "pause_between": 1.0}'
+nats pub 'orpheus.audio.playback.request' '{"sound_name": "test_beep", "repeat_count": 3, "pause_between": 1.0}'
 
 # New: Play by file path with segment extraction
-mosquitto_pub -t "orpheus/audio/playback/request" -m '{"file_path": "/data/orpheus/audio/recording.wav", "start_time": 5.0, "duration": 10.0, "volume": 75}'
+nats pub 'orpheus.audio.playback.request' '{"file_path": "/data/orpheus/audio/recording.wav", "start_time": 5.0, "duration": 10.0, "volume": 75}'
 
 # New: Play by detection ID
-mosquitto_pub -t "orpheus/audio/playback/request" -m '{"detection_id": "evt-audio-motion-20241205-123456", "volume": 50}'
+nats pub 'orpheus.audio.playback.request' '{"detection_id": "evt-audio-motion-20241205-123456", "volume": 50}'
 
 # New: Play relative path with volume control
-mosquitto_pub -t "orpheus/audio/playback/request" -m '{"file_path": "audio/alerts/crow_detected.wav", "repeat_count": 2, "volume": 80}'
+nats pub 'orpheus.audio.playback.request' '{"file_path": "audio/alerts/crow_detected.wav", "repeat_count": 2, "volume": 80}'
 ```
 
 ### Using Python MQTT client
@@ -404,7 +404,7 @@ orpheus_play_audio --detection-id evt-audio-motion-20241205-123456 --volume 50
 
 ```bash
 ┌─────────────────────────────────────────┐
-│  MQTT Broker (mosquitto)                │
+│  Event bus (orpheus-backplane: NATS)    │
 └─────────────┬───────────────────────────┘
               │
               │ orpheus/audio/playback/request
@@ -494,18 +494,18 @@ orpheus_play_audio --detection-id evt-audio-motion-20241205-123456 --volume 50
 
 3. Verify sound files exist in configured directory
 
-### Agent not receiving MQTT messages
+### Agent not receiving playback requests
 
-1. Check MQTT broker is running:
+1. Check the backplane broker is running:
 
    ```bash
-   systemctl status orpheus-mqtt
+   systemctl status orpheus-backplane
    ```
 
-2. Test MQTT subscription:
+2. Watch the request subject:
 
    ```bash
-   mosquitto_sub -t "orpheus/audio/playback/#" -v
+   nats sub 'orpheus.audio.playback.>'
    ```
 
 3. Check agent logs:

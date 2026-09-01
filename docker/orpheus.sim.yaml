@@ -1,0 +1,26 @@
+# Orpheus Simulacrum config — minimal; defaults fill the rest.
+# Points the messaging backplane at the compose service (not localhost).
+site:
+  name: "Orpheus Simulacrum"
+  lat: 47.6
+  lon: -122.3
+
+event_bus:
+  backend: "nats"
+  nats_url: "nats://orpheus-backplane:4222"
+
+correlation:
+  # The three defaults + the audio-motion chain-root topic, so the correlator's
+  # "Received detection event" log proves transport delivery of SIM_MODE=replay's
+  # audio.motion events even in the demo profile (no classifiers running).
+  # audio.motion stays in the correlator's IGNORED_DETECTION_TYPES — it is
+  # received and logged, never clustered, so entity behavior is unchanged.
+  input_topics:
+    - "orpheus/detection/bird/events"
+    - "orpheus/detection/crow/events"
+    - "orpheus/detection/audio/events"
+    - "orpheus/audio/motion/events"
+
+mqtt:
+  broker_host: "orpheus-backplane"
+  broker_port: 1883

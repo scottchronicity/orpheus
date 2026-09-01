@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -185,22 +186,6 @@ async def test_main_async_with_args():
 
 
 @pytest.mark.asyncio
-async def test_video_motion_detector_stop_with_cleanup_task():
-    """Test stop with active cleanup task."""
-    detector = VideoMotionDetector()
-
-    # Create a real async task
-    async def dummy_task():
-        await asyncio.sleep(10)
-
-    task = asyncio.create_task(dummy_task())
-    detector._cleanup_task = task
-
-    await detector.stop()
-    assert task.cancelled()
-
-
-@pytest.mark.asyncio
 async def test_video_motion_detector_stop_with_stream_tasks():
     """Test stop with active stream tasks."""
     detector = VideoMotionDetector()
@@ -225,7 +210,7 @@ async def test_video_motion_detector_initialize_dependencies_no_cameras():
     """Test initialization fails when no enabled cameras with RTSP URLs."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
     ):
         # Create mock config with no cameras
         mock_config = Mock(spec=AppConfig)
@@ -247,11 +232,42 @@ async def test_video_motion_detector_initialize_dependencies_no_cameras():
 
 
 @pytest.mark.asyncio
+async def test_event_bus_built_from_shared_orpheus_config():
+    """create_event_bus must receive the OrpheusConfig SINGLETON (which carries the
+    operator's event_bus.* section), NOT the agent-local AppConfig — the AppConfig
+    has no event_bus attribute, so handing it to the factory silently killed every
+    event_bus knob (backend, nats_url, connect_required, …)."""
+    with (
+        patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_bus_factory,
+        patch("orpheus_common.config.OrpheusConfig.get_instance") as mock_get_instance,
+    ):
+        mock_config = Mock(spec=AppConfig)
+        mock_config.cameras = []
+        mock_config.mqtt = Mock(broker_host="localhost", broker_port=1883, qos=1, keepalive=60)
+        mock_config.storage = Mock(category="video_motion", write_format="mp4")
+        mock_config.runtime = Mock(fps=20, width=640, height=480)
+        mock_load.return_value = mock_config
+
+        shared_config = Mock()
+        mock_get_instance.return_value = shared_config
+
+        detector = VideoMotionDetector()
+
+        # No enabled cameras raises AFTER the bus is built — expected here.
+        with pytest.raises(RuntimeError, match="No enabled cameras with RTSP URLs"):
+            await detector._initialize_dependencies()
+
+        assert mock_bus_factory.call_args[0][0] is shared_config
+        assert mock_bus_factory.call_args[0][0] is not detector._config
+
+
+@pytest.mark.asyncio
 async def test_video_motion_detector_initialize_dependencies_disabled_camera():
     """Test initialization raises when all cameras are disabled."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
     ):
         # Mock config with disabled camera
         mock_camera = Mock()
@@ -358,66 +374,50 @@ async def test_video_motion_detector_consume_frames_cancellation():
 
 
 @pytest.mark.asyncio
-async def test_video_motion_detector_periodic_cleanup_no_files():
-    """Test periodic cleanup when no files need removal."""
-    with patch("orpheus_agent_video_motion.main.load_app_config") as mock_load:
-        # Create mock config
-        mock_storage = Mock()
-        mock_storage.retain_days = 7
-        mock_storage.check_interval_hours = 0.001
+async def test_agent_does_not_delete_recordings(tmp_path):
+    """The agent records; orpheus-storage-sweep is the only component that deletes
+    under the data root. The clip here predates every retention window and
+    retain_days is 0, so any trim the agent still ran would take it."""
+    clip_dir = tmp_path / "video_motion"
+    clip_dir.mkdir()
+    expired_clip = clip_dir / "2020-01-01T00-00-00Z.mp4"
+    expired_clip.write_bytes(b"clip")
+    os.utime(expired_clip, (0, 0))
 
+    # Captured before the patch below, which lands on the real asyncio module:
+    # collapsing the agent's timers means a reinstated cleanup pass reaches its
+    # first sweep within the loop turns this test drives, instead of sleeping
+    # past the assertion.
+    yield_once = asyncio.sleep
+
+    async def no_wait(_delay):
+        await yield_once(0)
+
+    with (
+        patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
+        patch("orpheus_agent_video_motion.main.setup_logging"),
+        patch("orpheus_agent_video_motion.main.get_video_path", return_value=clip_dir),
+        patch("orpheus_agent_video_motion.main.get_video_health_monitor") as mock_health_monitor,
+        patch("orpheus_agent_video_motion.main.build_operational_health", return_value=None),
+        patch("orpheus_common.config.OrpheusConfig.get_instance"),
+        patch("orpheus_agent_video_motion.main.asyncio.sleep", no_wait),
+    ):
         mock_config = Mock(spec=AppConfig)
-        mock_config.storage = mock_storage
+        mock_config.logging = Mock(level="INFO", use_json=False)
+        mock_config.storage = Mock(retain_days=0)
         mock_config.cameras = []
         mock_load.return_value = mock_config
+        mock_health_monitor.return_value.get_status.return_value = {"running": True}
 
         detector = VideoMotionDetector()
+        with patch.object(detector, "_initialize_dependencies", new_callable=AsyncMock):
+            start_task = asyncio.create_task(detector.start())
+            for _ in range(20):
+                await yield_once(0)
+            detector._stop_event.set()
+            await start_task
 
-    # Create a task and cancel it after short time
-    cleanup_task = asyncio.create_task(detector._periodic_cleanup())
-
-    # Let it run briefly
-    await asyncio.sleep(0.01)
-
-    # Cancel the task - it will catch CancelledError and break cleanly
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass  # Expected to be caught by the method itself
-
-
-@pytest.mark.asyncio
-async def test_video_motion_detector_periodic_cleanup_with_exception():
-    """Test periodic cleanup handles exceptions gracefully."""
-    with patch("orpheus_agent_video_motion.main.load_app_config") as mock_load:
-        # Create mock config
-        mock_storage = Mock()
-        mock_storage.retain_days = 7
-        mock_storage.check_interval_hours = 0.001
-
-        mock_config = Mock(spec=AppConfig)
-        mock_config.storage = mock_storage
-        mock_config.cameras = []
-        mock_load.return_value = mock_config
-
-        detector = VideoMotionDetector()
-
-    with patch("orpheus_agent_video_motion.main.StorageCleanup") as mock_cleanup_class:
-        mock_cleanup = Mock()
-        mock_cleanup.cleanup.side_effect = Exception("Test error")
-        mock_cleanup_class.return_value = mock_cleanup
-
-        # Create task and let it run
-        cleanup_task = asyncio.create_task(detector._periodic_cleanup())
-        await asyncio.sleep(0.01)
-
-        # Cancel the task - it will catch CancelledError and break cleanly
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass  # Expected to be caught by the method itself
+    assert expired_clip.exists()
 
 
 @pytest.mark.asyncio
@@ -453,7 +453,7 @@ async def test_video_motion_detector_initialize_with_enabled_camera():
     """Test initialization succeeds with enabled camera."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
         patch("orpheus_agent_video_motion.main.ClipSaver"),
         patch("orpheus_agent_video_motion.main.RTSPVideoSource") as mock_video_source_class,
         patch("orpheus_agent_video_motion.main.create_detector") as mock_create_detector,
@@ -555,58 +555,11 @@ async def test_video_motion_detector_consume_frames_with_processor():
 
 
 @pytest.mark.asyncio
-async def test_video_motion_detector_periodic_cleanup_with_files_removed():
-    """Test periodic cleanup when files are removed."""
-    with (
-        patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.get_video_path") as mock_get_path,
-        patch("orpheus_agent_video_motion.main.StorageCleanup") as mock_cleanup_class,
-    ):
-        # Create mock config
-        mock_storage = Mock()
-        mock_storage.retain_days = 7
-        mock_storage.check_interval_hours = 0.001
-        mock_storage.max_size_gb = 50
-        mock_storage.cleanup_strategy = "oldest"
-
-        mock_config = Mock(spec=AppConfig)
-        mock_config.storage = mock_storage
-        mock_config.cameras = []
-        mock_load.return_value = mock_config
-
-        detector = VideoMotionDetector()
-
-        # Mock cleanup result
-        mock_result = Mock()
-        mock_result.files_removed = 5
-        mock_result.bytes_freed = 1024 * 1024 * 100  # 100 MB
-        mock_result.manifest_path = Path("/tmp/manifest.json")
-        mock_result.errors = []
-
-        mock_cleanup = Mock()
-        mock_cleanup.cleanup.return_value = mock_result
-        mock_cleanup_class.return_value = mock_cleanup
-
-        mock_get_path.return_value = Path("/tmp/video_motion")
-
-        # Create task and let it run
-        cleanup_task = asyncio.create_task(detector._periodic_cleanup())
-        await asyncio.sleep(0.02)
-
-        # Cancel the task
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass
-
-
-@pytest.mark.asyncio
 async def test_video_motion_detector_initialize_camera_exception():
     """Test initialization continues when camera initialization fails."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
         patch("orpheus_agent_video_motion.main.ClipSaver"),
         patch("orpheus_agent_video_motion.main.RTSPVideoSource") as mock_video_source_class,
         patch("orpheus_common.config.OrpheusConfig") as mock_orpheus_config,
@@ -707,53 +660,11 @@ async def test_video_motion_detector_start_initialization_failure():
 
 
 @pytest.mark.asyncio
-async def test_video_motion_detector_cleanup_with_errors():
-    """Test periodic cleanup when errors occur."""
-    with (
-        patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.get_video_path") as mock_get_path,
-        patch("orpheus_agent_video_motion.main.StorageCleanup") as mock_cleanup_class,
-    ):
-        mock_storage = Mock()
-        mock_storage.retain_days = 7
-        mock_storage.check_interval_hours = 0.001
-
-        mock_config = Mock(spec=AppConfig)
-        mock_config.storage = mock_storage
-        mock_config.cameras = []
-        mock_load.return_value = mock_config
-
-        detector = VideoMotionDetector()
-
-        # Mock cleanup result with errors
-        mock_result = Mock()
-        mock_result.files_removed = 2
-        mock_result.bytes_freed = 1024 * 1024
-        mock_result.manifest_path = None
-        mock_result.errors = ["Error 1", "Error 2", "Error 3"]
-
-        mock_cleanup = Mock()
-        mock_cleanup.cleanup.return_value = mock_result
-        mock_cleanup_class.return_value = mock_cleanup
-
-        mock_get_path.return_value = Path("/tmp/video_motion")
-
-        cleanup_task = asyncio.create_task(detector._periodic_cleanup())
-        await asyncio.sleep(0.02)
-
-        cleanup_task.cancel()
-        try:
-            await cleanup_task
-        except asyncio.CancelledError:
-            pass
-
-
-@pytest.mark.asyncio
 async def test_video_motion_detector_start_complete_flow():
     """Test complete start flow including initialization and tasks."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
         patch("orpheus_agent_video_motion.main.RTSPVideoSource") as mock_video_source_class,
         patch("orpheus_agent_video_motion.main.create_detector") as mock_create_detector,
         patch("orpheus_agent_video_motion.main.ClipSaver") as mock_clip_saver_class,
@@ -768,14 +679,7 @@ async def test_video_motion_detector_start_complete_flow():
         mock_config = Mock(spec=AppConfig)
         mock_config.cameras = [mock_camera]
         mock_config.mqtt = Mock(broker_host="localhost", broker_port=1883, qos=1, keepalive=60)
-        mock_config.storage = Mock(
-            category="video_motion",
-            write_format="mp4",
-            retain_days=7,
-            max_size_gb=50,
-            cleanup_strategy="oldest",
-            check_interval_hours=6,
-        )
+        mock_config.storage = Mock(category="video_motion", write_format="mp4", retain_days=7)
         mock_config.runtime = Mock(fps=20, width=640, height=480)
         mock_config.logging = Mock(level="INFO", use_json=False)
         mock_load.return_value = mock_config
@@ -826,7 +730,6 @@ async def test_video_motion_detector_stop_all_components():
 
     # Setup components
     detector._health_task = asyncio.create_task(asyncio.sleep(10))
-    detector._cleanup_task = asyncio.create_task(asyncio.sleep(10))
 
     mock_reconnect_task = asyncio.create_task(asyncio.sleep(10))
     detector._reconnect_tasks = [mock_reconnect_task]
@@ -847,7 +750,6 @@ async def test_video_motion_detector_stop_all_components():
 
     # Verify all components stopped
     assert detector._health_task.cancelled()
-    assert detector._cleanup_task.cancelled()
     assert mock_reconnect_task.cancelled()
     assert mock_stream_task.cancelled()
     mock_source.stop.assert_called_once()
@@ -930,7 +832,7 @@ async def test_video_motion_detector_initialize_camera_failure():
     """Test initialization handles camera setup failure gracefully."""
     with (
         patch("orpheus_agent_video_motion.main.load_app_config") as mock_load,
-        patch("orpheus_agent_video_motion.main.MQTTClient") as mock_mqtt_class,
+        patch("orpheus_agent_video_motion.main.create_event_bus") as mock_mqtt_class,
         patch("orpheus_agent_video_motion.main.RTSPVideoSource") as mock_video_source_class,
         patch("orpheus_agent_video_motion.main.ClipSaver") as mock_clip_saver_class,
         patch("orpheus_common.config.OrpheusConfig") as mock_orpheus_config,

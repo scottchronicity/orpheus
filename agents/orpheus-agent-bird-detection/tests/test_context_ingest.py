@@ -56,7 +56,7 @@ class TestContextIngest:
 
         agent = BirdDetectionAgent()
         agent.model = Mock()
-        agent.mqtt_client = Mock()
+        agent.bus = Mock()
         agent.detection_db = Mock()
 
         # Mock detections
@@ -99,8 +99,8 @@ class TestContextIngest:
         agent._on_audio_motion_event("orpheus/audio/motion/events", v2_payload)
 
         # Verify MQTT publish was called
-        agent.mqtt_client.publish.assert_called_once()
-        published_topic, published_event = agent.mqtt_client.publish.call_args[0]
+        agent.bus.publish.assert_called_once()
+        published_topic, published_event = agent.bus.publish.call_args[0]
 
         assert published_topic == "orpheus/detection/bird/events"
 
@@ -138,7 +138,7 @@ class TestContextIngest:
 
         agent = BirdDetectionAgent()
         agent.model = Mock()
-        agent.mqtt_client = Mock()
+        agent.bus = Mock()
         agent.detection_db = Mock()
 
         detections = [
@@ -190,7 +190,7 @@ class TestContextIngest:
         mock_load_config: Mock,
         mock_config: Mock,
     ) -> None:
-        """Old-style payloads without context should still work."""
+        """V1 payloads without context must still parse (compat contract)."""
         mock_load_config.return_value = mock_config
         mock_orpheus_config_class.get_instance.return_value = Mock(
             mqtt=Mock(broker_host="localhost", broker_port=1883)
@@ -201,7 +201,7 @@ class TestContextIngest:
 
         agent = BirdDetectionAgent()
         agent.model = Mock()
-        agent.mqtt_client = Mock()
+        agent.bus = Mock()
         agent.detection_db = Mock()
 
         detections = [
@@ -216,7 +216,7 @@ class TestContextIngest:
         ]
         agent.model.predict.return_value = detections
 
-        # Old-style V1 payload (no context, no Detection schema)
+        # V1 payload (no context, no Detection schema)
         old_payload: dict[str, Any] = {
             "event_id": "audio_motion_old_001",
             "channel_id": "1",
@@ -229,9 +229,9 @@ class TestContextIngest:
 
         # Should still process and publish
         agent.model.predict.assert_called_once()
-        agent.mqtt_client.publish.assert_called_once()
+        agent.bus.publish.assert_called_once()
 
-        published_topic, published_event = agent.mqtt_client.publish.call_args[0]
+        published_topic, published_event = agent.bus.publish.call_args[0]
         assert published_topic == "orpheus/detection/bird/events"
         assert published_event["detection_type"] == "species.detected"
         # Context should be None since old payload had none

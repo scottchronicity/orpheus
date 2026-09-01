@@ -20,8 +20,8 @@ class CameraRegistry:
     Centralized camera registry for loading and managing camera instances.
 
     Supports loading cameras from:
-    - Environment variables (legacy dashboard pattern)
-    - YAML configuration (new recommended pattern)
+    - Environment variables (compatibility path)
+    - YAML configuration (preferred)
     """
 
     def __init__(self, cameras: list[Camera]):

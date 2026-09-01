@@ -29,9 +29,22 @@ export function removeToken(): void {
  * Authorization headers. The backend accepts ?token= on media endpoints.
  */
 export function getTokenUrl(path: string): string {
+  // Resolve against the page origin before anything else. The result of this
+  // function becomes the ``src`` of an <audio> element and the ``href`` of a
+  // download link, so a path that carried its own scheme -- ``javascript:``,
+  // ``data:`` -- would execute on click. Resolving first means a scheme in the
+  // input produces a foreign origin, which the check below rejects, and a
+  // ``//host/x`` input cannot silently become cross-origin either.
+  const url = new URL(path, window.location.origin)
+  if (url.origin !== window.location.origin) {
+    throw new Error('Refusing to build a media URL outside this origin')
+  }
   const token = getToken()
-  const sep = path.includes('?') ? '&' : '?'
-  return token ? `${API_BASE}${path}${sep}token=${token}` : `${API_BASE}${path}`
+  if (token) {
+    url.searchParams.set('token', token)
+  }
+  // Relative, because API_BASE is empty and callers expect a same-origin path.
+  return `${API_BASE}${url.pathname}${url.search}`
 }
 
 // Fetch with auth
@@ -57,7 +70,21 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
   if (response.status === 401) {
     removeToken()
-    window.location.href = '/login'
+    // Hard navigation drops React Router's in-memory ``location.state``,
+    // so the ProtectedLayout's ``state={{ from }}`` channel is lost when
+    // a token expires mid-session. Pass the current URL via a
+    // ``?next=`` query param instead — Login.tsx falls back to it when
+    // ``state.from`` is absent, so the user lands back where they were
+    // after re-authentication.
+    const current =
+      window.location.pathname + window.location.search + window.location.hash
+    const isAlreadyAtLogin =
+      window.location.pathname === '/login' ||
+      window.location.pathname === '/'
+    const target = isAlreadyAtLogin
+      ? '/login'
+      : `/login?next=${encodeURIComponent(current)}`
+    window.location.href = target
     throw new Error('Unauthorized')
   }
 
@@ -114,4 +141,34 @@ export function formatDateTime(isoString: string): string {
     console.error('Error formatting date:', error)
     return isoString // Fallback to original string
   }
+}
+
+/**
+ * Human-readable byte size in binary units, labelled as binary units.
+ *
+ * It divides by 1024 and used to print "GB", so a storage panel reading 277.1
+ * disagreed with every decimal-GB figure it was checked against — the same
+ * 297.5e9 bytes. The maths is unchanged; only the suffix is now honest, and
+ * it matches what `df -h` and orpheus-storage-sweep print.
+ *
+ * formatBytes(0) -> "0 B"; formatBytes(null) -> "—".
+ */
+export function formatBytes(bytes: number | null | undefined, decimals = 1): string {
+  if (bytes === null || bytes === undefined || isNaN(bytes)) return '—'
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+  const i = Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(k)), units.length - 1)
+  return `${(bytes / Math.pow(k, i)).toFixed(decimals)} ${units[i]}`
+}
+
+/**
+ * Format a "days until full" projection as a friendly string.
+ * null -> "—" (not enough history, or free space flat/growing).
+ */
+export function formatDaysUntilFull(days: number | null | undefined): string {
+  if (days === null || days === undefined || isNaN(days)) return '—'
+  if (days >= 365) return `${(days / 365).toFixed(1)} yr`
+  if (days >= 1) return `${Math.round(days)} days`
+  return '< 1 day'
 }

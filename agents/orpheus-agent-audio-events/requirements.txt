@@ -1,0 +1,5 @@
+# monorepo path dependency — cannot be expressed in pyproject.toml
+-e ../../platform/orpheus-common
+
+# agent + dev extras (torch, panns-inference, etc. declared in pyproject.toml)
+-e .[dev]

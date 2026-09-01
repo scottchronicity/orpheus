@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "orpheus-ui"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "Modern React/FastAPI UI for Orpheus Wildlife Monitoring"
 readme = "README.md"
 requires-python = ">=3.9, <3.10"
@@ -12,6 +13,9 @@ dependencies = [
     # Dependencies are managed in requirements.txt
     # This is intentionally minimal to avoid duplication
 ]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 packages = ["orpheus_ui"]

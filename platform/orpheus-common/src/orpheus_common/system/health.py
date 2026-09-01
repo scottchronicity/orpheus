@@ -167,8 +167,8 @@ class SystemHealth:
 
         Example:
             >>> health = SystemHealth()
-            >>> status = health.check_service("orpheus-dashboard")
-            >>> print(f"Dashboard: {status['status']}")
+            >>> status = health.check_service("orpheus-ui")
+            >>> print(f"UI: {status['status']}")
         """
         # Find systemctl executable
         systemctl_path = shutil.which("systemctl")
@@ -223,8 +223,8 @@ class SystemHealth:
         Example:
             >>> health = SystemHealth()
             >>> services = health.check_services([
-            ...     "orpheus-dashboard",
-            ...     "orpheus-mqtt",
+            ...     "orpheus-ui",
+            ...     "orpheus-backplane",
             ...     "orpheus-agent-audio-motion"
             ... ])
             >>> for svc in services:

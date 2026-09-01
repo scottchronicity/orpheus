@@ -14,7 +14,8 @@
  *     zone is shown next to the inputs so the user knows what they picked.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Calendar, Clock } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Calendar, Clock, RefreshCw } from 'lucide-react'
 import { Card } from './ui'
 
 export interface DateTimeRange {
@@ -32,6 +33,17 @@ interface DateRangeFilterProps {
   startTime: string
   endTime: string
   onChange: (value: DateTimeRange) => void
+  /**
+   * react-query ``isPlaceholderData`` for the page's primary query. True
+   * exactly when the displayed table is the PREVIOUS query's data held as a
+   * placeholder while a NEW key (filter/page change) refetches — which is
+   * the only thing this indicator should signal. It is false on the initial
+   * mount (the full LoadingSpinner owns that) AND false on the 30s
+   * background poll of an unchanged key (same data, no placeholder), so the
+   * spinner doesn't flash every poll. Optional; pages that don't wire it up
+   * are unaffected. (Matches the precedent already in Entities.tsx.)
+   */
+  isPlaceholderData?: boolean
 }
 
 function formatDate(date: Date): string {
@@ -79,6 +91,7 @@ export function DateRangeFilter({
   startTime,
   endTime,
   onChange,
+  isPlaceholderData = false,
 }: DateRangeFilterProps) {
   const [localStart, setLocalStart] = useState(startDate)
   const [localEnd, setLocalEnd] = useState(endDate)
@@ -146,6 +159,15 @@ export function DateRangeFilter({
           <Calendar className="w-5 h-5 text-slate-400" />
           <span className="text-sm text-slate-400">Date:</span>
           <span className="text-sm text-blue-400 font-medium">({rangeLabel})</span>
+          {/* Refetch indicator: a filter/page change is in flight while the
+              old data stays on screen (placeholderData). Driven by
+              isPlaceholderData so it fires only on key changes — not on the
+              initial mount (LoadingSpinner owns that) or the 30s poll. */}
+          {isPlaceholderData && (
+            <span role="status" aria-label="Updating" title="Updating…">
+              <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" aria-hidden="true" />
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -213,29 +235,178 @@ export function DateRangeFilter({
 }
 
 /**
- * Hook that combines date + time-of-day range state with a page counter.
- * Resets to page 1 whenever the range changes.
+ * Hook that combines date + time-of-day range state with a page counter,
+ * backed by URL query params so filter state survives page reload and is
+ * bookmark/shareable. Resets to page 1 whenever the range changes.
+ *
+ * URL param schema (per ``services/orpheus_ui/frontend/src/lib/urlState.ts``
+ * convention — see ``useUrlMultiSelect`` below for the matching selection
+ * params):
+ *   ``?start=YYYY-MM-DD&end=YYYY-MM-DD`` — always present once the user
+ *     interacts. Dates are written verbatim so a bookmark loaded next
+ *     week still points at the same snapshot.
+ *   ``?start_time=HH:MM&end_time=HH:MM`` — omitted when at full-day default.
+ *   ``?page=N`` — omitted when 1.
  *
  * Usage:
  *   const { startDate, endDate, startTime, endTime, handleChange, page, setPage }
  *     = usePaginatedDateRange(1)
  */
 export function usePaginatedDateRange(defaultDays: number = 1) {
-  const [startDate, setStartDate] = useState(() => getDaysAgo(defaultDays))
-  const [endDate, setEndDate] = useState(() => getToday())
-  const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
-  const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const handleChange = useCallback((value: DateTimeRange) => {
-    setStartDate(value.startDate)
-    setEndDate(value.endDate)
-    setStartTime(value.startTime)
-    setEndTime(value.endTime)
-    setPage(1)
-  }, [])
+  // Defaults are computed once per render. Today/getDaysAgo are dynamic
+  // but only matter when the URL doesn't pin a value — the user-visible
+  // URL is the source of truth otherwise.
+  const defaultStart = useMemo(() => getDaysAgo(defaultDays), [defaultDays])
+  const defaultEnd = useMemo(() => getToday(), [])
+
+  const startDate = searchParams.get('start') ?? defaultStart
+  const endDate = searchParams.get('end') ?? defaultEnd
+  const startTime = searchParams.get('start_time') ?? DEFAULT_START_TIME
+  const endTime = searchParams.get('end_time') ?? DEFAULT_END_TIME
+  const pageParam = parseInt(searchParams.get('page') ?? '1', 10)
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1
+
+  const updateParams = useCallback(
+    (updates: {
+      startDate?: string
+      endDate?: string
+      startTime?: string
+      endTime?: string
+      page?: number
+    }) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          // Dates: always written. A user who bookmarks a date range
+          // expects the same range when they come back next week.
+          if (updates.startDate !== undefined) params.set('start', updates.startDate)
+          if (updates.endDate !== undefined) params.set('end', updates.endDate)
+          // Time-of-day + page: elided at default to keep URLs short.
+          const elideOrSet = (key: string, value: string | undefined, dflt: string) => {
+            if (value === undefined) return
+            if (value === dflt) params.delete(key)
+            else params.set(key, value)
+          }
+          elideOrSet('start_time', updates.startTime, DEFAULT_START_TIME)
+          elideOrSet('end_time', updates.endTime, DEFAULT_END_TIME)
+          if (updates.page !== undefined) {
+            if (updates.page === 1) params.delete('page')
+            else params.set('page', String(updates.page))
+          }
+          return params
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const handleChange = useCallback(
+    (value: DateTimeRange) => {
+      // Applying a new filter resets to page 1 (the existing detection
+      // pages do this manually for their own selection setters — keep
+      // that behaviour for the date/time path here).
+      updateParams({
+        startDate: value.startDate,
+        endDate: value.endDate,
+        startTime: value.startTime,
+        endTime: value.endTime,
+        page: 1,
+      })
+    },
+    [updateParams],
+  )
+
+  const setPage = useCallback(
+    (next: number | ((current: number) => number)) => {
+      const newPage = typeof next === 'function' ? next(page) : next
+      updateParams({ page: newPage })
+    },
+    [page, updateParams],
+  )
 
   return { startDate, endDate, startTime, endTime, handleChange, page, setPage }
+}
+
+/**
+ * URL-backed multi-select state for filter chips (selectedSpecies,
+ * selectedLabels, selectedCallTypes, etc.). Reads/writes a single
+ * separator-joined query param so URLs stay compact and bookmark-able.
+ *
+ * The returned ``Set`` identity is memoised against the raw URL value
+ * so it's safe to feed into a react-query ``queryKey`` — identical
+ * selection across renders produces an identical Set reference and
+ * won't trigger spurious refetches.
+ *
+ * Empty selection deletes the param entirely so default views have
+ * clean URLs. The encoded value is always sorted so ``{a,b}`` and
+ * ``{b,a}`` produce identical URLs.
+ *
+ * ``separator`` defaults to ``","`` (matches the existing backend CSV
+ * convention for ``species`` / ``call_type`` / ``exclude_species``
+ * params where values are slugs / 6-char codes that never contain
+ * commas). For AudioEvents ``labels``, pass ``"|"`` — AudioSet display
+ * names routinely contain literal commas (e.g. ``"Heart sounds,
+ * heartbeat"``) and would silently split into the wrong filter
+ * otherwise. The backend ``labels=`` parser must split on the same
+ * separator.
+ *
+ * ``resetPageKey`` (default ``"page"``) — the URL param to delete in
+ * the SAME ``setSearchParams`` call. Pass ``null`` to disable.
+ *
+ * The atomic-reset behavior fixes a subtle stale-closure race: react-
+ * router-dom v6 ``setSearchParams`` is ``useCallback`` with
+ * ``[navigate, searchParams]`` deps and passes the closure-captured
+ * ``searchParams`` to its functional updater. Two sequential
+ * ``setSearchParams`` calls in the same event handler (e.g.
+ * ``setSelectedSpecies(next); setPage(1)``) BOTH see the same stale
+ * pre-update snapshot, and the second ``navigate(..., {replace:
+ * true})`` clobbers the first. Doing chip-change + page-reset in one
+ * functional update is the only safe pattern.
+ */
+export function useUrlMultiSelect(
+  key: string,
+  options: { separator?: string; resetPageKey?: string | null } = {},
+): [Set<string>, (next: Set<string>) => void] {
+  const separator = options.separator ?? ','
+  // ``undefined`` (default) → reset "page". Explicit ``null`` → no reset.
+  const resetPageKey =
+    options.resetPageKey === undefined ? 'page' : options.resetPageKey
+  const [searchParams, setSearchParams] = useSearchParams()
+  const raw = searchParams.get(key) ?? ''
+
+  const value = useMemo(() => {
+    return new Set(raw.split(separator).filter((s) => s.length > 0))
+  }, [raw, separator])
+
+  const setValue = useCallback(
+    (next: Set<string>) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          if (next.size === 0) {
+            params.delete(key)
+          } else {
+            params.set(key, Array.from(next).sort().join(separator))
+          }
+          // Atomic: reset page in the SAME setSearchParams call. See
+          // the docstring above — splitting this into two calls is
+          // the stale-closure-race bug that loses either the
+          // selection or the page reset.
+          if (resetPageKey) {
+            params.delete(resetPageKey)
+          }
+          return params
+        },
+        { replace: true },
+      )
+    },
+    [key, separator, resetPageKey, setSearchParams],
+  )
+
+  return [value, setValue]
 }
 
 /** Items shown per page across all paginated tables. */

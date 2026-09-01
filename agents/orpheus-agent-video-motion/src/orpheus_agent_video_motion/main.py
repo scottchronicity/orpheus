@@ -10,11 +10,15 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from orpheus_common import EventBus, create_event_bus
+from orpheus_common.actor import (
+    build_operational_health,
+    health_on_bus_active,
+    kv_publish_best_effort,
+)
 from orpheus_common.diagnostics.video_health import get_video_health_monitor
 from orpheus_common.logging import get_logger, setup_logging
-from orpheus_common.mqtt import MQTTClient
 from orpheus_common.storage import get_video_path
-from orpheus_common.storage.cleanup import CleanupPolicy, StorageCleanup
 from orpheus_common.video.source import RTSPVideoSource, VideoSource
 
 from .camera_processor import CameraProcessor
@@ -39,7 +43,7 @@ class VideoMotionDetector:
     ) -> None:
         self._config = load_app_config(config_path)
         self._log_level_override = log_level_override
-        self._mqtt_client: Optional[MQTTClient] = None
+        self._mqtt_client: Optional[EventBus] = None
         self._video_sources: dict[str, VideoSource] = {}
         self._processors: dict[str, CameraProcessor] = {}
         self._clip_saver: Optional[ClipSaver] = None
@@ -47,7 +51,6 @@ class VideoMotionDetector:
         self._stream_tasks: list[asyncio.Task] = []
         self._reconnect_tasks: list[asyncio.Task] = []
         self._reconnecting: set[str] = set()  # cameras with active reconnect task
-        self._cleanup_task: Optional[asyncio.Task] = None
         self._health_task: Optional[asyncio.Task] = None
         # Per-camera config lookup for reconnection
         self._camera_configs: dict[str, object] = {}
@@ -77,20 +80,18 @@ class VideoMotionDetector:
             await self._initialize_dependencies()
             logger.info("Dependencies initialized successfully")
 
-            # Log retention policy on startup
+            # This agent records; it does not delete. orpheus-storage-sweep
+            # owns every deletion under the data root, so that one component
+            # can weigh categories against each other and against the shared
+            # disk — neither of which an agent trimming its own directory can
+            # see. See docs/designs/storage-retention.md.
             logger.info(
-                "Storage retention policy: max_age=%d days, max_size=%d GB, "
-                "strategy=%s, check_every=%d hours",
-                self._config.storage.retain_days,
-                getattr(self._config.storage, "max_size_gb", 50),
-                getattr(self._config.storage, "cleanup_strategy", "oldest"),
-                getattr(self._config.storage, "check_interval_hours", 6),
+                "Storage retention is enforced by orpheus-storage-sweep "
+                "(storage.retain_days is no longer applied here; set "
+                "storage.retention.categories.video_motion instead)",
+                clip_directory=str(get_video_path(category="video_motion")),
+                retain_days=self._config.storage.retain_days,
             )
-
-            # Start cleanup task
-            logger.info("Starting cleanup task...")
-            self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
-            logger.debug("Cleanup task created", task=self._cleanup_task)
 
             # Start health status publishing task
             logger.info("Starting health status publishing task...")
@@ -127,15 +128,6 @@ class VideoMotionDetector:
                 # Suppress expected exceptions when cancelling the health task during shutdown
                 pass
 
-        if self._cleanup_task:
-            logger.debug("Stopping cleanup task")
-            self._cleanup_task.cancel()
-            try:
-                await asyncio.wait_for(self._cleanup_task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                # Suppress expected exceptions when cancelling the cleanup task during shutdown
-                pass
-
         # Cancel reconnect tasks
         logger.debug("Stopping reconnect tasks", task_count=len(self._reconnect_tasks))
         for task in self._reconnect_tasks:
@@ -167,17 +159,23 @@ class VideoMotionDetector:
     async def _initialize_dependencies(self) -> None:
         """Construct shared dependencies and ensure connectivity."""
 
+        # The OrpheusConfig singleton carries the operator's event_bus.* section
+        # (backend, nats_url, connect_required, …). The agent-local AppConfig has
+        # NO event_bus attribute, so handing it to the factory silently fell back
+        # to the nats defaults — every event_bus knob in orpheus.yaml was dead.
+        from orpheus_common.config import OrpheusConfig  # noqa: PLC0415
+
+        orpheus_cfg = OrpheusConfig.get_instance()
+
         logger.info(
             "Creating MQTT client for broker %s:%d",
             self._config.mqtt.broker_host,
             self._config.mqtt.broker_port,
         )
-        self._mqtt_client = MQTTClient(
-            broker_host=self._config.mqtt.broker_host,
-            broker_port=self._config.mqtt.broker_port,
-            qos=self._config.mqtt.qos,
-            keepalive=self._config.mqtt.keepalive,
+        self._mqtt_client = create_event_bus(
+            orpheus_cfg,
             client_id="orpheus-agent-video-motion",
+            qos=self._config.mqtt.qos,
         )
         logger.debug(
             "Connecting to MQTT at %s:%d",
@@ -199,10 +197,7 @@ class VideoMotionDetector:
 
         assert self._clip_saver is not None
 
-        # Get detection settings from OrpheusConfig
-        from orpheus_common.config import OrpheusConfig
-
-        orpheus_cfg = OrpheusConfig.get_instance()
+        # Get detection settings from OrpheusConfig (loaded above)
         video_detection = (
             orpheus_cfg.video.motion_detection.detection
             if orpheus_cfg.video.motion_detection
@@ -351,12 +346,12 @@ class VideoMotionDetector:
         try:
             while not self._stop_event.is_set():
                 logger.info(
-                    "Reconnecting in %.0fs", delay, camera_id=camera_id,
+                    "Reconnecting in %.0fs",
+                    delay,
+                    camera_id=camera_id,
                 )
                 try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(), timeout=delay
-                    )
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
                     # stop_event was set — agent is shutting down
                     return
                 except asyncio.TimeoutError:
@@ -374,7 +369,9 @@ class VideoMotionDetector:
                 except Exception as e:
                     next_delay = min(delay * 2, self._RECONNECT_MAX_DELAY)
                     logger.warning(
-                        "Reconnect failed", camera_id=camera_id, error=str(e),
+                        "Reconnect failed",
+                        camera_id=camera_id,
+                        error=str(e),
                         next_retry_seconds=next_delay,
                     )
                     delay = next_delay
@@ -383,7 +380,8 @@ class VideoMotionDetector:
                         delay = self._RECONNECT_INITIAL_DELAY
                         logger.info(
                             "Backoff reached max (1h), resetting to %.0fs",
-                            delay, camera_id=camera_id,
+                            delay,
+                            camera_id=camera_id,
                         )
         finally:
             self._reconnecting.discard(camera_id)
@@ -427,6 +425,17 @@ class VideoMotionDetector:
     async def _publish_health_status(self) -> None:
         """Periodically publish video health status to MQTT."""
         publish_interval = 5.0  # Publish every 5 seconds
+        # §11 Phase 1b: dual-write health to the operational KV plane (key "video")
+        # IN ADDITION to the bus publish, when health_kv_enabled + KV backend. None ⇒
+        # no-op (default; the bus publish is unchanged). Built once. The gate reads
+        # event_bus from the OrpheusConfig singleton (self._config is the narrower
+        # video AppConfig, which has no event_bus section).
+        from orpheus_common.config import OrpheusConfig  # noqa: PLC0415
+
+        orpheus_config = OrpheusConfig.get_instance()
+        op_health = build_operational_health(self._mqtt_client, orpheus_config)
+        # §11 Phase 5a: the ONE shared gate (anti-skew warning included).
+        publish_health_to_bus = health_on_bus_active(orpheus_config, op_health, agent="video")
 
         logger.info("Health status publishing started", interval=publish_interval)
 
@@ -438,85 +447,21 @@ class VideoMotionDetector:
                 health_monitor = get_video_health_monitor()
                 status = health_monitor.get_status()
 
-                # Publish to MQTT
-                if self._mqtt_client:
+                if self._mqtt_client and publish_health_to_bus:
                     self._mqtt_client.publish(
                         "orpheus/system/video/health",
                         status,
                         qos=0,  # Use QoS 0 for frequent status updates
                     )
-                    logger.debug(
-                        "Published health status: running=%s, cameras=%d",
-                        status.get("running"),
-                        len(status.get("cameras", [])),
-                    )
-                else:
-                    logger.warning("MQTT client not available, skipping health publish")
+                # §11 Phase 1b: dual-write to the operational KV plane (independent of
+                # the bus gate above), best-effort.
+                kv_publish_best_effort(op_health, "video", status)
 
             except asyncio.CancelledError:
                 logger.info("Health publishing cancelled, shutting down")
                 break
             except Exception as e:
                 logger.exception("Failed to publish health status", error=str(e))
-
-    async def _periodic_cleanup(self) -> None:
-        """Periodically check and cleanup old video files."""
-        check_interval_hours = getattr(self._config.storage, "check_interval_hours", 6)
-        check_interval_seconds = check_interval_hours * 3600
-
-        logger.info(
-            "Cleanup task started: checking every %d hour(s), will delete files older than %d days",
-            check_interval_hours,
-            self._config.storage.retain_days,
-        )
-
-        while not self._stop_event.is_set():
-            try:
-                await asyncio.sleep(check_interval_seconds)
-
-                logger.info("Running storage cleanup check...")
-
-                policy = CleanupPolicy(
-                    max_size_gb=getattr(self._config.storage, "max_size_gb", 50.0),
-                    max_age_days=self._config.storage.retain_days,
-                    cleanup_strategy=getattr(self._config.storage, "cleanup_strategy", "oldest"),
-                    cleanup_trigger_percent=getattr(
-                        self._config.storage, "cleanup_trigger_percent", 90.0
-                    ),
-                    cleanup_amount_percent=getattr(
-                        self._config.storage, "cleanup_amount_percent", 25.0
-                    ),
-                    min_file_age_hours=getattr(self._config.storage, "min_file_age_hours", 1.0),
-                    file_pattern="*.mp4",
-                )
-
-                storage_path = get_video_path(category="video_motion")
-                cleanup = StorageCleanup(policy)
-                result = cleanup.cleanup(storage_path, dry_run=False)
-
-                if result.files_removed > 0:
-                    logger.info(
-                        "Cleanup completed: removed %d files, freed %.2f MB (%.2f GB)",
-                        result.files_removed,
-                        result.bytes_freed / (1024**2),
-                        result.bytes_freed / (1024**3),
-                    )
-                    if result.manifest_path:
-                        logger.info("Deletion manifest saved", manifest_path=result.manifest_path)
-                else:
-                    logger.info("Cleanup check complete: no action needed (usage below threshold)")
-
-                if result.errors:
-                    logger.warning(
-                        "Cleanup encountered %d errors: %s", len(result.errors), result.errors[:3]
-                    )
-
-            except asyncio.CancelledError:
-                logger.info("Cleanup task cancelled, shutting down")
-                break
-            except Exception as e:
-                logger.exception("Storage cleanup failed", error=str(e))
-                logger.info("Will retry cleanup", retry_hours=check_interval_hours)
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:

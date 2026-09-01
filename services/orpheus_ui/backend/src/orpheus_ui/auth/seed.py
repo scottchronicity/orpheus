@@ -12,15 +12,80 @@ from sqlalchemy import select
 from orpheus_ui.auth.db import async_session_maker
 from orpheus_ui.auth.models import User, UserRole
 
-# Default admin credentials - should be changed after first login
+# The credentials the PROJECT ships with — literals, never environment reads.
+# These are what a stolen copy of the repo already knows, so they are what
+# ``seeded_defaults_in_use`` has to verify against the stored hashes.
 # Note: Using example.com as it's a valid reserved domain for examples (RFC 2606)
 # The .local TLD causes Pydantic email validation to fail
-DEFAULT_ADMIN_EMAIL = os.environ.get("ORPHEUS_UI_ADMIN_EMAIL", "admin@orpheus.example.com")
-DEFAULT_ADMIN_PASSWORD = os.environ.get("ORPHEUS_UI_ADMIN_PASSWORD", "changeme")
+SHIPPED_ADMIN_EMAIL = "admin@orpheus.example.com"
+SHIPPED_ADMIN_PASSWORD = "changeme"
+SHIPPED_GUEST_EMAIL = "guest@orpheus.example.com"
+SHIPPED_GUEST_PASSWORD = "guest"
+
+# What SEEDING uses: the environment when an operator set it before the very
+# first start, else the shipped literal. These must not drive the rotation
+# check — seeding is guarded on an empty user table, so setting the vars later
+# rotates nothing, and comparing the new value against the old hash would clear
+# the warning on precisely the install that still answers to "changeme".
+DEFAULT_ADMIN_EMAIL = os.environ.get("ORPHEUS_UI_ADMIN_EMAIL", SHIPPED_ADMIN_EMAIL)
+DEFAULT_ADMIN_PASSWORD = os.environ.get("ORPHEUS_UI_ADMIN_PASSWORD", SHIPPED_ADMIN_PASSWORD)
 
 # Default guest viewer credentials - read-only access
-DEFAULT_GUEST_EMAIL = os.environ.get("ORPHEUS_UI_GUEST_EMAIL", "guest@orpheus.example.com")
-DEFAULT_GUEST_PASSWORD = os.environ.get("ORPHEUS_UI_GUEST_PASSWORD", "guest")
+DEFAULT_GUEST_EMAIL = os.environ.get("ORPHEUS_UI_GUEST_EMAIL", SHIPPED_GUEST_EMAIL)
+DEFAULT_GUEST_PASSWORD = os.environ.get("ORPHEUS_UI_GUEST_PASSWORD", SHIPPED_GUEST_PASSWORD)
+
+
+def _accounts_to_check() -> list[tuple[str, str]]:
+    """(email, shipped password) pairs the rotation check verifies.
+
+    Both the configured and the shipped address for each account: an operator
+    who set ``ORPHEUS_UI_ADMIN_EMAIL`` after the first start is still living
+    with the seeded ``admin@orpheus.example.com``. Ordered and de-duplicated,
+    so the common case (no email override) is exactly two lookups.
+    """
+    pairs = [
+        (DEFAULT_ADMIN_EMAIL, SHIPPED_ADMIN_PASSWORD),
+        (SHIPPED_ADMIN_EMAIL, SHIPPED_ADMIN_PASSWORD),
+        (DEFAULT_GUEST_EMAIL, SHIPPED_GUEST_PASSWORD),
+        (SHIPPED_GUEST_EMAIL, SHIPPED_GUEST_PASSWORD),
+    ]
+    return list(dict.fromkeys(pairs))
+
+
+async def seeded_defaults_in_use() -> bool:
+    """True when a seeded account still accepts a password this project ships.
+
+    Verifies the shipped literals against the stored hashes, never the
+    environment: the environment says what an operator *intended*, the hash
+    says what actually logs in. The login page uses this to prompt for a
+    rotation; it never reveals which account or what the password is.
+
+    Errors resolve to False: a broken check must not paint a permanent scare
+    banner on a correctly-configured install.
+    """
+    from fastapi_users.password import PasswordHelper
+    from orpheus_common.logging import get_logger
+
+    logger = get_logger(__name__)
+    password_helper = PasswordHelper()
+
+    try:
+        async with async_session_maker() as session:
+            for email, shipped_password in _accounts_to_check():
+                result = await session.execute(select(User).where(User.email == email))
+                user = result.scalar_one_or_none()
+                if user is None:
+                    continue
+                verified, _ = password_helper.verify_and_update(
+                    shipped_password, user.hashed_password
+                )
+                if verified:
+                    return True
+    except Exception as exc:  # noqa: BLE001 - advisory check, never fatal
+        logger.warning("Could not check seeded credentials", error=str(exc))
+        return False
+
+    return False
 
 
 async def migrate_local_emails() -> int:

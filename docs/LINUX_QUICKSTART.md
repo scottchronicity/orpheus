@@ -8,7 +8,7 @@
 
 Get the Orpheus Observe stack running on desktop/laptop Linux in ~15 minutes. This guide targets **development and demo** use — production/systemd deployment is only documented for Jetson today (see [Jetson Quick Start](JETSON_QUICKSTART.md)).
 
-For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows (WSL2), see [Windows Quick Start](WINDOWS_QUICKSTART.md). For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows (WSL2), see [Windows Quick Start](WINDOWS_QUICKSTART.md). For full development guidelines, see [CONTRIBUTING.md](contributing.md).
 
 ---
 
@@ -21,10 +21,18 @@ Instructions below assume **Ubuntu 22.04 / Debian 12** (apt). Fedora (`dnf`), Ar
 | **make** | Build automation | `sudo apt install make` |
 | **libportaudio2** | Audio I/O (sounddevice) | `sudo apt install libportaudio2` |
 | **libsndfile1** | Audio file reading/writing | `sudo apt install libsndfile1` |
-| **mosquitto** | MQTT broker | `sudo apt install mosquitto mosquitto-clients` |
+| **nats-server** | Event-bus broker (NATS + JetStream) | **not** a prerequisite — see the note under this table |
 | **Git LFS** | ML model storage | `sudo apt install git-lfs && git lfs install` |
+| **Node.js 20+** | Building the dashboard frontend — see [Node.js: what needs it, and when](ORPHEUS_UI.md#nodejs-what-needs-it-and-when) | `curl -fsSL https://deb.nodesource.com/setup_20.x \| sudo -E bash - && sudo apt install nodejs` |
 | **ffmpeg** | Timelapse video generation | `sudo apt install ffmpeg` |
 | **build-essential** | Compile native Python extensions | `sudo apt install build-essential` |
+
+> **The broker is installed after you clone, not before.** `make install-backbone`
+> is a target in this repository, so it cannot run until the Clone and Install
+> section below, and its first action builds a Python venv — which needs the 3.9.5
+> you are about to install. Run it once both of those are done, or drop the pinned
+> `nats-server` binary (2.10.22) on your `PATH` yourself and let `make dev-stack`
+> start it.
 
 ### Python 3.9.5 via uv
 
@@ -46,7 +54,7 @@ The repo's `.python-version` file tells uv (and the Makefiles) which version to 
 ```bash
 git clone https://github.com/scottchronicity/orpheus.git
 cd orpheus
-git lfs pull          # Fetch ML models (~500MB)
+git lfs pull          # Fetch ML models (~1.5 GB)
 make install          # Create venvs, install all dependencies
 ```
 
@@ -69,6 +77,19 @@ cp config/.env.orpheus.example config/.env.orpheus
 $EDITOR config/.env.orpheus
 ```
 
+**Set the dashboard passwords now, in this file.** The accounts are seeded the
+first time the UI starts, and seeding is guarded on an empty user table — so
+once `make dev-stack` has run, adding these rotates nothing and you have to
+delete the accounts database to change them. Add to `config/.env.orpheus`:
+
+```bash
+ORPHEUS_UI_ADMIN_PASSWORD=<a long random password>
+ORPHEUS_UI_GUEST_PASSWORD=<another one>
+```
+
+Full detail, including the email variables and how to recover if the UI has
+already started: [Signing in to the dashboard](INSTALLATION.md#signing-in-to-the-dashboard).
+
 ### Likely overrides
 
 | Setting | Jetson Default | Linux Override | Reason |
@@ -77,7 +98,7 @@ $EDITOR config/.env.orpheus
 | Storage path | `/data/orpheus` | `~/data/orpheus` | Avoid needing root for a dev setup |
 | Sample rate | 48000 Hz | (optional) 44100 Hz | Match your input device |
 
-Everything else — cameras, MQTT, retention, dashboard, bird detection — is identical across environments.
+Everything else — cameras, the event bus, retention, dashboard, bird detection — is identical across environments.
 
 ### Camera credentials
 
@@ -103,18 +124,19 @@ Starts all Observe components as **background processes**:
 
 | # | Service | What it does |
 | --- | --- | --- |
-| 1 | **mosquitto** | MQTT broker (checks if already running) |
+| 1 | **backplane** | NATS + JetStream broker (adopts an already-running `nats-server`) |
 | 2 | **audio-motion** | Captures from mic, detects sound events |
-| 3 | **audio-playback** | Plays deterrent/test audio |
-| 4 | **bird-detection** | BirdNET ONNX inference on audio clips |
-| 5 | **crow-detection** | AVES classifier (skipped if model missing) |
-| 6 | **video-motion** | RTSP video motion detection |
-| 7 | **video-snapshotter** | Periodic RTSP snapshots |
-| 8 | **video-timelapser** | Timelapse generation from snapshots |
-| 9 | **event-correlator** | Fuses detections into entity-level events |
-| 10 | **gps** | GPS/location service |
-| 11 | **orpheus-ui-backend** | FastAPI API at [http://localhost:8082](http://localhost:8082) |
-| 12 | **orpheus-ui-frontend** | Vite/React dev server at [http://localhost:5173](http://localhost:5173) |
+| 3 | **audio-events** | PANNs sound-event classifier (AudioSet ontology) |
+| 4 | **audio-playback** | Plays deterrent/test audio (`ffplay` by default) |
+| 5 | **bird-detection** | BirdNET ONNX inference on audio clips |
+| 6 | **crow-detection** | AVES classifier (skipped if model missing) |
+| 7 | **video-motion** | RTSP video motion detection |
+| 8 | **video-snapshotter** | Periodic RTSP snapshots |
+| 9 | **video-timelapser** | Timelapse generation from snapshots |
+| 10 | **event-correlator** | Fuses detections into entity-level events |
+| 11 | **gps** | GPS/location service |
+| 12 | **orpheus-ui-backend** | FastAPI API at [http://localhost:8082](http://localhost:8082) |
+| 13 | **orpheus-ui-frontend** | Vite/React dev server at [http://localhost:5173](http://localhost:5173) |
 
 Models are stored in `~/data/orpheus/models/`. On first run, `dev-stack` symlinks them from `artifacts/models/` (fetched by `git lfs pull`).
 
@@ -136,10 +158,21 @@ make dev-restart SVC=bird-detection   # Restart one service
 ## See It Work
 
 1. Open [http://localhost:5173](http://localhost:5173).
+
+   When the dashboard opens it asks you to sign in. The seeded accounts and the
+   environment variables that set their passwords are documented in
+   [Signing in to the dashboard](INSTALLATION.md#signing-in-to-the-dashboard) — set
+   those before you expose this to anyone else.
+
 2. Play a YouTube video of bird calls near your mic.
 3. Within 10–20 seconds you should see audio motion events and BirdNET identifications in the UI.
 
-> **Note:** CPU inference on a typical laptop/desktop is 2–10x slower than the Jetson Orin NX. Expect BirdNET results in 2–10 seconds per clip. If you have an NVIDIA GPU, the ONNX runtime can use it — GPU acceleration on non-Jetson Linux isn't documented here; contributions welcome.
+> **Note:** Expect BirdNET results in a few seconds per clip. BirdNET runs on
+> the CPU on every platform — it ships as ONNX against the CPU-only runtime, so
+> an NVIDIA card does not change it. Putting it on a GPU would need the
+> `onnxruntime-gpu` package and a code change to request the provider;
+> contributions welcome. The two torch models do use a GPU where one is
+> available.
 
 ---
 
@@ -147,8 +180,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 
 | Limitation | Impact | Workaround |
 | --- | --- | --- |
-| No GPU acceleration path documented | CPU inference is slow | See [Jetson Quick Start](JETSON_QUICKSTART.md) for CUDA/cuDNN setup; adapt for your hardware |
-| `audio-playback` uses `afplay` on Mac | Won't work on Linux out of the box | Likely needs a Linux audio player (`paplay`, `aplay`, `mpv`) — unverified, probably needs an agent patch |
+| No GPU path for BirdNET | BirdNET is CPU-only on every platform, so it is the slowest step | Nothing to configure; the two torch models use a GPU if one is present |
 | systemd production path is Jetson-tuned | Services' `install.sh` scripts may not work cleanly on non-Jetson Linux | Use `make dev-stack` for development; adapt `systemd/install.sh` per-service if you need production |
 | Bluetooth auto-connect is Jetson-focused | `orpheus-bluetooth-autoconnect` may not work on your distro | Disable or skip the service if Bluetooth isn't needed |
 | Package names vary by distro | `libportaudio2` / `libsndfile1` are Debian/Ubuntu names | Fedora: `portaudio-devel`, `libsndfile`. Arch: `portaudio`, `libsndfile`. |
@@ -159,8 +191,9 @@ make dev-restart SVC=bird-detection   # Restart one service
 
 ### Python version mismatch
 
-```bash
-ERROR: Python 3.9.5+ required, found 3.12.x
+```
+❌ Python interpreter 'python3.9' not found.
+   Run: uv python install 3.9.5
 ```
 
 If you installed Python via uv, the Makefiles should find it automatically. If not:
@@ -183,18 +216,21 @@ make clean && make install
 
 On Fedora: `sudo dnf install portaudio libsndfile`. On Arch: `sudo pacman -S portaudio libsndfile`.
 
-### MQTT connection refused
+### Event-bus connection refused
 
 ```bash
-Connection refused: localhost:1883
+nats: no servers available for connection    # or: Connection refused: 127.0.0.1:4222
 ```
 
-Mosquitto isn't running:
+The NATS backplane isn't running. `make dev-stack` starts it automatically
+(or adopts an already-running `nats-server`); to run just the broker:
 
 ```bash
-sudo systemctl start mosquitto
-# or foreground:
-mosquitto -v
+make -C services/orpheus-backplane run   # the genuinely minimal path.
+# `make dev-stack SVC=backplane` runs the full preflight first, so it still
+# needs nats-server on PATH and every component venv present.
+# then check its log:
+cat logs/backplane.log
 ```
 
 ### No audio input device
@@ -227,7 +263,7 @@ git lfs pull
 
 ### UI shows no events
 
-1. Verify MQTT is seeing traffic: `mosquitto_sub -t '#' -v`
+1. Verify the backplane is up: `make dev-status`; `cat logs/backplane.log` shows "Server is ready"
 2. Check audio-motion logs: `cat logs/audio-motion.log`
 3. Confirm your mic is picking up sound: `arecord -d 5 -f cd test.wav && aplay test.wav`
 
@@ -254,7 +290,7 @@ make clean              # Remove all venvs (full reinstall)
 
 # Individual agents
 make dev-restart SVC=bird-detection
-make dev-logs SVC=dashboard
+make dev-logs SVC=orpheus-ui-backend
 cd agents/orpheus-agent-audio-motion
 make run                # Run single agent (foreground)
 make test               # Test single agent
@@ -262,4 +298,4 @@ make test               # Test single agent
 
 ---
 
-*For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md). For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md). For Jetson/production deployment, see [INSTALLATION.md](INSTALLATION.md) and [Jetson Quick Start](JETSON_QUICKSTART.md).*
+*For full development guidelines, see [CONTRIBUTING.md](contributing.md). For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md). For Jetson/production deployment, see [INSTALLATION.md](INSTALLATION.md) and [Jetson Quick Start](JETSON_QUICKSTART.md).*

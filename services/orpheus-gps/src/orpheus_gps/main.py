@@ -20,9 +20,9 @@ from typing import Optional
 
 import pynmea2
 import serial
+from orpheus_common import EventBus, create_event_bus
 from orpheus_common.config import OrpheusConfig
 from orpheus_common.logging import get_logger, setup_logging
-from orpheus_common.mqtt import MQTTClient
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ class GPSService:
         self,
         device: str = "/dev/ttyACM0",
         baud_rate: int = 9600,
-        mqtt_client: Optional[MQTTClient] = None,
+        mqtt_client: Optional[EventBus] = None,
         static_lat: Optional[float] = None,
         static_lon: Optional[float] = None,
         static_elevation: Optional[float] = None,
@@ -62,11 +62,7 @@ class GPSService:
             self._owns_mqtt = False
         else:
             config = OrpheusConfig.get_instance()
-            self.mqtt = MQTTClient(
-                broker_host=config.mqtt.broker_host,
-                broker_port=config.mqtt.broker_port,
-                client_id="orpheus-gps",
-            )
+            self.mqtt = create_event_bus(config, client_id="orpheus-gps")
             self._owns_mqtt = True
 
         # State tracking

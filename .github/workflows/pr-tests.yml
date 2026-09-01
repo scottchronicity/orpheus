@@ -15,11 +15,11 @@ env:
   PYTHON_VERSION: '3.9'
   COV_REPORTS: "--cov-report=term-missing --cov-report=xml"
   COVERAGE_THRESHOLD_COMMON: '78'
-  COVERAGE_THRESHOLD_DASHBOARD: '80'
   COVERAGE_THRESHOLD_UI: '70'
   COVERAGE_THRESHOLD_GPS: '70'
   COVERAGE_THRESHOLD_AUDIO_MOTION: '72'
   COVERAGE_THRESHOLD_AUDIO_PLAYBACK: '70'
+  COVERAGE_THRESHOLD_AUDIO_EVENTS: '70'
   COVERAGE_THRESHOLD_VIDEO_MOTION: '70'
   COVERAGE_THRESHOLD_VIDEO_SNAPSHOTTER: '70'
   COVERAGE_THRESHOLD_VIDEO_TIMELAPSER: '70'
@@ -28,17 +28,43 @@ env:
   COVERAGE_THRESHOLD_EVENT_CORRELATOR: '70'
 
 jobs:
+  # Static drift guardrails (agent wiring #5, docs-site nav #12, non-negotiable
+  # count #11). Stdlib-only + fast, and deliberately NOT gated on changed paths: a
+  # pure-docs PR that drops a design doc from the nav must still be caught here.
+  # This job is in ci-complete's needs, so a red guardrail actually blocks merge.
+  guardrails:
+    name: Contributor Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Check contributor guardrails
+        run: make guardrails
+      # Lives here (always-on, dependency-free) rather than a path-filtered job:
+      # the drift it guards (COMPONENT_DIRS/INSTALLABLE vs services-install) is
+      # defined solely in the root Makefile, whose changes no component filter sees.
+      - name: Check per-host install set consistency
+        run: make check-installable
+      # A syntax-broken compose file/overlay must not merge green. `config -q`
+      # renders both files with every profile — cheap, no images pulled.
+      - name: Validate docker compose files render
+        run: docker compose -f docker-compose.dev.yml -f docker-compose.distributed.yml --profile demo --profile fleet config -q
+
   # Detect which components have changed to optimize test execution
   changes:
     name: Detect Changed Paths
     runs-on: ubuntu-latest
     outputs:
       common: ${{ steps.filter.outputs.common }}
-      dashboard: ${{ steps.filter.outputs.dashboard }}
       ui: ${{ steps.filter.outputs.ui }}
       gps: ${{ steps.filter.outputs.gps }}
       audio-motion: ${{ steps.filter.outputs.audio-motion }}
       audio-playback: ${{ steps.filter.outputs.audio-playback }}
+      audio-events: ${{ steps.filter.outputs.audio-events }}
       video-motion: ${{ steps.filter.outputs.video-motion }}
       video-snapshotter: ${{ steps.filter.outputs.video-snapshotter }}
       video-timelapser: ${{ steps.filter.outputs.video-timelapser }}
@@ -46,8 +72,10 @@ jobs:
       crow-detection: ${{ steps.filter.outputs.crow-detection }}
       event-correlator: ${{ steps.filter.outputs.event-correlator }}
       makefile-includes: ${{ steps.filter.outputs.makefile-includes }}
+      shell-scripts: ${{ steps.filter.outputs.shell-scripts }}
       workflow: ${{ steps.filter.outputs.workflow }}
       root-config: ${{ steps.filter.outputs.root-config }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -59,8 +87,6 @@ jobs:
           filters: |
             common:
               - 'platform/orpheus-common/**'
-            dashboard:
-              - 'services/orpheus-dashboard/**'
             ui:
               - 'services/orpheus_ui/**'
             gps:
@@ -69,6 +95,8 @@ jobs:
               - 'agents/orpheus-agent-audio-motion/**'
             audio-playback:
               - 'agents/orpheus-agent-audio-playback/**'
+            audio-events:
+              - 'agents/orpheus-agent-audio-events/**'
             video-motion:
               - 'agents/orpheus-agent-video-motion/**'
             video-snapshotter:
@@ -81,14 +109,30 @@ jobs:
               - 'agents/orpheus-agent-crow-detection/**'
             event-correlator:
               - 'agents/orpheus-agent-event-correlator/**'
+              # The repo-level BDD suites + generated failure matrix run from the
+              # correlator's venv inside its CI job, so they gate on its filter.
+              - 'tests/bdd/**'
             makefile-includes:
               - 'make/**'
               - 'tests/make/**'
+            shell-scripts:
+              - 'scripts/**'
+              - 'tests/bats/**'
+              - 'Makefile'
             workflow:
               - '.github/workflows/**'
             root-config:
               - 'pyproject.toml'
               - 'requirements*.txt'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - 'AGENTS.md'
+              - 'README.md'
+              - 'CONTRIBUTING.md'
+              - 'CODE_OF_CONDUCT.md'
+              - 'SECURITY.md'
+              - 'CODING_AGENT_CONTEXT.md'
 
   check-dependencies:
     name: Check Dependency Consistency
@@ -97,11 +141,11 @@ jobs:
     # Run if any component changed, or workflow/root config changed
     if: |
       needs.changes.outputs.common == 'true' ||
-      needs.changes.outputs.dashboard == 'true' ||
       needs.changes.outputs.ui == 'true' ||
       needs.changes.outputs.gps == 'true' ||
       needs.changes.outputs.audio-motion == 'true' ||
       needs.changes.outputs.audio-playback == 'true' ||
+      needs.changes.outputs.audio-events == 'true' ||
       needs.changes.outputs.video-motion == 'true' ||
       needs.changes.outputs.video-snapshotter == 'true' ||
       needs.changes.outputs.video-timelapser == 'true' ||
@@ -121,6 +165,8 @@ jobs:
 
       - name: Check dependency versions
         run: make check-deps
+      # (make check-installable moved to the always-on guardrails job — a
+      # root-Makefile-only PR never trips this job's path filter.)
 
   test-orpheus-common:
     name: Test orpheus-common
@@ -168,54 +214,6 @@ jobs:
         with:
           name: coverage-orpheus-common
           path: platform/orpheus-common/coverage.xml
-
-  test-orpheus-dashboard:
-    name: Test orpheus-dashboard
-    runs-on: ubuntu-latest
-    needs: [changes, check-dependencies]
-    # Run if dashboard or common changed, or workflow/root config changed
-    if: |
-      needs.changes.outputs.common == 'true' ||
-      needs.changes.outputs.dashboard == 'true' ||
-      needs.changes.outputs.workflow == 'true' ||
-      needs.changes.outputs.root-config == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: make install-dashboard
-
-      - name: Run linting (informational)
-        run: make lint-dashboard || echo "::warning::Linting issues found in dashboard"
-
-      - name: Run tests with coverage
-        env:
-          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_DASHBOARD }}
-        run: make coverage-dashboard COV_REPORTS="${{ env.COV_REPORTS }}"
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
-        with:
-          files: services/orpheus-dashboard/coverage.xml
-          flags: orpheus-dashboard
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN || '' }}
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-orpheus-dashboard
-          path: services/orpheus-dashboard/coverage.xml
 
   test-orpheus-ui:
     name: Test orpheus_ui
@@ -470,6 +468,65 @@ jobs:
         with:
           name: coverage-orpheus-agent-audio-playback
           path: agents/orpheus-agent-audio-playback/coverage.xml
+
+  test-orpheus-agent-audio-events:
+    name: Test orpheus-agent-audio-events
+    runs-on: ubuntu-latest
+    needs: [changes, check-dependencies]
+    # Run if audio-events or common changed, or workflow/root config changed.
+    if: |
+      needs.changes.outputs.common == 'true' ||
+      needs.changes.outputs.audio-events == 'true' ||
+      needs.changes.outputs.workflow == 'true' ||
+      needs.changes.outputs.root-config == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # Don't pull LFS objects in CI — the PANNs checkpoint is
+          # 312 MB and unit tests use the DeterministicFakeSED. The
+          # integration test in tests/integration/ skips when the
+          # checkpoint isn't present.
+          lfs: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies for audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsndfile1 ffmpeg
+
+      - name: Install dependencies
+        run: make install-audio-events
+
+      - name: Run linting
+        run: make lint-audio-events
+
+      - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_AUDIO_EVENTS }}
+        run: make coverage-audio-events COV_REPORTS="${{ env.COV_REPORTS }}"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: agents/orpheus-agent-audio-events/coverage.xml
+          flags: orpheus-agent-audio-events
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN || '' }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-orpheus-agent-audio-events
+          path: agents/orpheus-agent-audio-events/coverage.xml
 
   test-orpheus-agent-video-motion:
     name: Test orpheus-agent-video-motion
@@ -778,6 +835,33 @@ jobs:
           COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_EVENT_CORRELATOR }}
         run: make coverage-event-correlator COV_REPORTS="${{ env.COV_REPORTS }}"
 
+      # The e2e bus-contract oracle needs a real JetStream broker. GH Actions
+      # `services:` containers can't pass image args (nats needs `-js`), so run
+      # the container directly and wait for the port — a silent pytest.skip here
+      # would defeat the oracle's whole contract-drift claim. Correlator-only:
+      # no other component job gets a broker.
+      - name: Start NATS (JetStream) broker for the e2e oracle
+        run: |
+          docker run -d --name nats-e2e -p 4222:4222 nats:2 -js
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/4222) 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "nats-server did not become reachable on 127.0.0.1:4222" >&2
+          docker logs nats-e2e >&2 || true
+          exit 1
+
+      - name: Run e2e bus-contract oracle (pytest -m e2e, real broker)
+        run: make -C agents/orpheus-agent-event-correlator test-e2e
+
+      # Repo-level end-to-end BDD suites (tests/bdd/) + the generated failure
+      # matrix run from this agent's venv (behave/pytest are its dev extras).
+      - name: Run end-to-end BDD scenarios (tests/bdd)
+        run: make test-bdd
+
+      - name: Run generated failure matrix (sim-matrix-ci, in-process)
+        run: make sim-matrix-ci
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
@@ -806,21 +890,49 @@ jobs:
       - name: Run shared Makefile tests
         run: bash tests/make/test_shared_make.sh
 
+  test-bash:
+    name: Test Shell Scripts (bats)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.shell-scripts == 'true' ||
+      needs.changes.outputs.workflow == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run bats suites
+        run: make test-bash
+
   # Gate job - this is the only job that should be "required" in branch protection
   # All other jobs can be skipped based on path filters, but this job always runs
   # and checks that no jobs failed (allowing skipped jobs to pass)
+  docs-build:
+    name: Docs Site Build
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Build docs site (--strict — broken nav fails the PR)
+        run: make docs-build
+
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
     needs:
+      - guardrails
       - changes
       - check-dependencies
       - test-orpheus-common
-      - test-orpheus-dashboard
       - test-orpheus-ui
       - test-orpheus-gps
       - test-orpheus-agent-audio-motion
       - test-orpheus-agent-audio-playback
+      - test-orpheus-agent-audio-events
       - test-orpheus-agent-video-motion
       - test-orpheus-agent-video-snapshotter
       - test-orpheus-agent-video-timelapser
@@ -828,6 +940,8 @@ jobs:
       - test-orpheus-agent-crow-detection
       - test-orpheus-agent-event-correlator
       - test-shared-make
+      - test-bash
+      - docs-build
     if: always()
     steps:
       - name: Check all jobs passed or were skipped

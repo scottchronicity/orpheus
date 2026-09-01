@@ -1,0 +1,49 @@
+[Unit]
+Description=Orpheus storage retention sweep
+Documentation=https://github.com/scottchronicity/orpheus
+# Deliberately no dependency on the broker or on any agent. This deletes
+# files; making it wait on a message bus would mean a broker outage stops
+# retention, and a full disk is a worse outcome than a late sweep.
+# time-sync.target because every retention decision is clock-relative: the
+# floors that protect recent recordings are `now - floor_days` against file
+# mtimes. A clock reading ahead of real time puts that cutoff past every real
+# file and makes a whole category evictable. Every other unit waits for the
+# clock; this is the one where getting it wrong is irreversible.
+After=local-fs.target time-sync.target
+
+[Service]
+# One shot, then exit. There is nothing to supervise between runs and no
+# state to leak — a sweep is a measurement and a decision, not a service.
+Type=oneshot
+User=orpheus
+Group=orpheus
+WorkingDirectory=/opt/orpheus/platform/orpheus-common
+EnvironmentFile=-/opt/orpheus/config/.env
+# The console script, not `python -m orpheus_common.storage.sweep`. The package
+# __init__ imports the sweep module, so running it as __main__ imports it twice
+# and runpy prints a RuntimeWarning about it — once every 15 minutes, forever,
+# into the journal this same change set is trying to keep clean.
+ExecStart=/opt/orpheus/platform/orpheus-common/venv/bin/orpheus-storage-sweep
+Environment="PYTHONPATH=/opt/orpheus/platform/orpheus-common/src"
+StandardOutput=journal
+StandardError=journal
+
+# A sweep that cannot finish inside its own cadence is a sweep that is
+# wedged. It holds a lock, so the next run would back off rather than pile
+# up; killing it means the next tick starts clean instead of never running.
+TimeoutStartSec=10min
+
+# Log bounds. systemd's default is 10000 messages per 30s per service —
+# enough for one stuck component to emit gigabytes a day into the journal
+# and, on Ubuntu, into rsyslog's unbounded /var/log/syslog mirror. A sweep
+# logs one line per removed file, so a large recovery is the one case that
+# legitimately approaches this; 500/30s keeps a normal run intact and caps a
+# runaway. When the limit engages journald records "Suppressed N messages
+# from <unit>", so a flood is visible as a flood rather than silently lost.
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=500
+SyslogIdentifier=orpheus-storage-sweep
+
+# No [Install] section: this unit is started by orpheus-storage-sweep.timer,
+# never enabled on its own. Enabling it would run one sweep at boot and
+# never again.

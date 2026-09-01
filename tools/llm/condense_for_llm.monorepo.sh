@@ -9,10 +9,10 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 cd "$REPO_ROOT"
 
 "$SCRIPT_DIR/condense_for_llm.platform.orpheus-common.sh"
-"$SCRIPT_DIR/condense_for_llm.services.orpheus-dashboard.sh"
-"$SCRIPT_DIR/condense_for_llm.services.orpheus-mqtt.sh"
+"$SCRIPT_DIR/condense_for_llm.services.orpheus-backplane.sh"
 "$SCRIPT_DIR/condense_for_llm.services.orpheus-bluetooth-autoconnect.sh"
 "$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-audio-motion.sh"
+"$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-audio-events.sh"
 "$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-audio-playback.sh"
 "$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-bird-detection.sh"
 "$SCRIPT_DIR/condense_for_llm.agents.orpheus-agent-crow-detection.sh"

@@ -65,7 +65,7 @@ sync_payload() {
     "${source_root}/src" "${INSTALL_ROOT}/"
   cp "${source_root}/pyproject.toml" "${INSTALL_ROOT}/"
   cp "${source_root}/requirements.txt" "${INSTALL_ROOT}/"
-  # No longer need audio.yaml - using unified orpheus.yaml from orpheus-common
+  # Config comes from the unified orpheus.yaml (orpheus-common); no per-agent audio.yaml
 }
 
 setup_venv() {

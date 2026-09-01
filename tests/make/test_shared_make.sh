@@ -204,13 +204,13 @@ all_parse=true
 for dir in \
     agents/orpheus-agent-audio-motion \
     agents/orpheus-agent-audio-playback \
+    agents/orpheus-agent-audio-events \
     agents/orpheus-agent-bird-detection \
     agents/orpheus-agent-crow-detection \
     agents/orpheus-agent-event-correlator \
     agents/orpheus-agent-video-motion \
     agents/orpheus-agent-video-snapshotter \
     agents/orpheus-agent-video-timelapser \
-    services/orpheus-dashboard \
     services/orpheus-gps \
     services/orpheus_ui \
     services/orpheus_ui/backend; do
@@ -228,13 +228,13 @@ all_have_deploy=true
 for dir in \
     agents/orpheus-agent-audio-motion \
     agents/orpheus-agent-audio-playback \
+    agents/orpheus-agent-audio-events \
     agents/orpheus-agent-bird-detection \
     agents/orpheus-agent-crow-detection \
     agents/orpheus-agent-event-correlator \
     agents/orpheus-agent-video-motion \
     agents/orpheus-agent-video-snapshotter \
     agents/orpheus-agent-video-timelapser \
-    services/orpheus-dashboard \
     services/orpheus-gps \
     services/orpheus_ui; do
     if ! make -C "$REPO_ROOT/$dir" -n deploy >/dev/null 2>&1; then

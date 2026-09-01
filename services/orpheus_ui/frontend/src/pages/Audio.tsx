@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchWithAuth, formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { AUDIO_CHANNEL_IDS, POLLING_INTERVALS } from '../config'
 import { Mic, Activity, Volume2, X, MapPin, GitBranch, Code } from 'lucide-react'
 import {
@@ -148,19 +149,13 @@ export default function AudioPage() {
   const [page, setPage] = useState(1)
   const { data: diagnostics, isLoading: diagLoading } = useQuery<AudioDiagnostics>({
     queryKey: ['audio-diagnostics'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/audio')
-      return res.json()
-    },
+    queryFn: () => fetchJson<AudioDiagnostics>('/api/diagnostics/audio'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 
   const { data: detections, isLoading: detectionsLoading } = useQuery<AudioDetectionsResponse>({
     queryKey: ['audio-detections'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/audio/detections')
-      return res.json()
-    },
+    queryFn: () => fetchJson<AudioDetectionsResponse>('/api/diagnostics/audio/detections'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 

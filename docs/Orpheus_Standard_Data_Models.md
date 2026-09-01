@@ -1,13 +1,17 @@
 # Orpheus Standard Data Models
 
-**Document Date:** December 5, 2025  
-**Purpose:** Define canonical data structures for inter-agent communication
+This page is the wire contract: the JSON payloads agents publish to each other, and
+what every field means. Read it if you are writing an agent, integrating against the
+bus, or working out what a stored detection actually contains.
 
 ---
 
 ## Overview
 
-All Orpheus agents communicate via MQTT with JSON payloads. This document defines the **canonical data models** that agents MUST use for interoperability.
+Agents never call each other directly. They exchange JSON payloads over the messaging
+backplane — NATS with JetStream by default, with mosquitto as the one-line MQTT
+fallback. The `orpheus/...` topic names below are the contract on either backend:
+NATS mirrors them as subjects, mosquitto uses them as literal topics.
 
 ---
 
@@ -17,7 +21,7 @@ All Orpheus agents communicate via MQTT with JSON payloads. This document define
 
 **Topic:** `orpheus/detection/bird/events`  
 **Producer:** orpheus-agent-bird-detection  
-**Consumers:** orpheus-agent-crow-detection, orpheus-dashboard
+**Consumers:** orpheus-agent-crow-detection, orpheus_ui
 
 ```python
 @dataclass
@@ -63,11 +67,11 @@ class SpeciesDetection:
 
 **Topic:** `orpheus/audio/motion/events`  
 **Producer:** orpheus-agent-audio-motion  
-**Consumers:** orpheus-agent-bird-detection, orpheus-dashboard
+**Consumers:** orpheus-agent-bird-detection, orpheus-agent-audio-events, orpheus_ui
 
 The audio motion agent publishes detection events using `Detection.model_dump(mode="json")`, which produces a **nested** payload structure. The UI backend (`diagnostics.py`) flattens several fields from `metadata` to the top level before serving them to the frontend.
 
-#### Nested payload (as published on MQTT)
+#### Nested payload (as published on the bus)
 
 ```json
 {
@@ -116,7 +120,7 @@ The original `metadata` dict is preserved alongside the promoted fields.
 
 **Topic:** `orpheus/detection/crow/events`  
 **Producer:** orpheus-agent-crow-detection  
-**Consumers:** orpheus-dashboard, future interaction agents
+**Consumers:** orpheus_ui, future interaction agents
 
 ```python
 @dataclass
@@ -241,7 +245,7 @@ class PlaybackOptions:
 {
   "request_id": "play_20251205_143200_def456",
   "timestamp": "2025-12-05T14:32:00.000000+00:00",
-  "source_agent": "orpheus-dashboard",
+  "source_agent": "orpheus_ui",
   "audio_source": {
     "detection_id": "crow_det_20251205_143023_ch1_d4e5f6"
   },
@@ -251,32 +255,45 @@ class PlaybackOptions:
 }
 ```
 
-### Playback Status
+### Playback Response
 
-**Topic:** `orpheus/audio/playback/status`  
+**Topic:** `orpheus/audio/playback/response`  
 **Producer:** orpheus-agent-audio-playback  
 **Consumers:** Requesting agents, dashboard
 
+The response is a flat envelope, published once per request. It echoes back whichever
+identifier the request used, so a caller can match it up; there is no `request_id` and
+no progress reporting — the agent answers when playback has been *started*, not when
+it finishes.
+
 ```python
 @dataclass
-class PlaybackStatus:
-    request_id: str                  # Matches request
-    status: str                      # "queued", "playing", "completed", "error"
-    timestamp: str
-    message: Optional[str]           # Human-readable status
-    error: Optional[str]             # Error details if status="error"
-    duration_played: Optional[float] # Seconds played so far
+class PlaybackResponse:
+    status: str                      # "success" or "error"
+    message: Optional[str]           # Human-readable status, on success
+    error: Optional[str]             # Error description, when status="error"
+    sound_name: Optional[str]        # Echoed back, when the request named a sound
+    file_path: Optional[str]         # Echoed back, when the request gave a path
+    detection_id: Optional[str]      # Echoed back, when the request gave a detection
 ```
 
-**JSON Example:**
+**JSON Example - Success:**
 
 ```json
 {
-  "request_id": "play_20251205_143100_abc123",
-  "status": "completed",
-  "timestamp": "2025-12-05T14:31:02.500000+00:00",
-  "message": "Playback completed successfully",
-  "duration_played": 1.5
+  "status": "success",
+  "message": "Playback started",
+  "detection_id": "crow_det_20251205_143023_ch1_d4e5f6"
+}
+```
+
+**JSON Example - Error:**
+
+```json
+{
+  "status": "error",
+  "error": "Sound not found: alarm_caw",
+  "sound_name": "alarm_caw"
 }
 ```
 
@@ -288,7 +305,7 @@ class PlaybackStatus:
 
 **Topic:** `orpheus/system/{agent-name}/health`  
 **Producer:** Each agent  
-**Consumer:** orpheus-dashboard
+**Consumer:** orpheus_ui
 
 ```python
 @dataclass
@@ -298,6 +315,14 @@ class AgentHealth:
     version: Optional[str]           # Agent/model version
     details: Optional[dict]          # Agent-specific details
 ```
+
+There is no `AgentHealth` class in the tree, and nothing publishes `version` or
+`details`. Each agent builds its own health dict in `health_payload()`: the
+default in `orpheus_common.actor.base` is `status` plus the `ActorStats` counters
+(`events_processed`, `errors_count`, `last_error`), and every agent overrides it —
+bird-detection adds `model_loaded`, `timestamp` and `detections_found`; the
+correlator adds its window and feature flags. Read `health_payload()` in the agent
+you care about before consuming this topic.
 
 ---
 
@@ -309,7 +334,7 @@ class AgentHealth:
 | -------- | ------ | ------------- |
 | `event_id` | TEXT | Primary identifier |
 | `timestamp` | DATETIME | UTC timestamp |
-| `detection_type` | TEXT | `audio.motion`, `bird.detected`, `crow.analyzed` |
+| `detection_type` | TEXT | `audio.motion`, `species.detected`, `crow.analyzed`, `audio.classified` |
 | `channel` | INTEGER | Audio channel 1-4 |
 | `species_code` | TEXT | eBird species code |
 | `species_common` | TEXT | Common name |
@@ -317,6 +342,16 @@ class AgentHealth:
 | `audio_clip_path` | TEXT | Path to audio file |
 | `metadata` | TEXT | JSON with additional data |
 | `source_event_id` | TEXT | Parent event link |
+| `id` | INTEGER | Primary key, autoincrement |
+| `root_event_id` | TEXT | Root of the lineage chain (ADR 0012) |
+| `created_at` | TEXT | Row insertion time |
+| `event_metadata` | TEXT | The JSON sidecar (ADR 0005) |
+| `intervals_json` | TEXT | Intra-clip localisation (ADR 0011) |
+| `taxonomy_namespace` | TEXT | Label authority (ADR 0011) |
+| `taxonomy_id` | TEXT | Identifier within that authority (ADR 0011) |
+
+`ensure_schema_updates()` adds the last four to a legacy database on startup, so
+an older DB gains them without a migration step.
 
 ### metadata JSON for crow.analyzed
 
@@ -364,35 +399,33 @@ class AgentHealth:
 
 ---
 
-## Implementation in orpheus-common
+## Entity Events
 
-These models should be implemented in `orpheus_common.models`:
+`orpheus/entities/animal` — produced by `orpheus-agent-event-correlator`,
+consumed by the dashboard. One message per real animal, carrying every
+classifier's evidence.
 
-```python
-# platform/orpheus-common/src/orpheus_common/models/__init__.py
+`EntityEvent` (`orpheus_common.events`) is a standalone model, deliberately not
+an `OrpheusBaseEvent` subclass — see [ADR 0016](adr/0016-entity-type-taxonomy.md).
+Its fields: `entity_id`, `species_code`, `common_name`, `confidence`,
+`entity_type`, `context`, `evidence` (a `list[EntityEvidence]`), `also_detected`,
+`event_signature`, `is_self_generated`.
 
-from .bird_detection import BirdDetectionEvent, SpeciesDetection
-from .crow_analysis import CrowAnalysisEvent, CrowAnalysis, CrowBehaviors
-from .playback import PlaybackRequest, PlaybackStatus, AudioSource, PlaybackOptions
-from .health import AgentHealth
+Late-arriving evidence is published separately on
+`orpheus/entity-updates/animal`, a sibling root rather than a child, so a
+wildcard subscription to entity creation cannot pick it up by accident. With
+`publish_entity_type_topics` enabled, entities also route by type —
+`orpheus/entities/animal/bird/crow`.
 
-__all__ = [
-    "BirdDetectionEvent",
-    "SpeciesDetection", 
-    "CrowAnalysisEvent",
-    "CrowAnalysis",
-    "CrowBehaviors",
-    "PlaybackRequest",
-    "PlaybackStatus",
-    "AudioSource",
-    "PlaybackOptions",
-    "AgentHealth",
-]
-```
+See [ADR 0013](adr/0013-source-identity-entities.md) for what merge keys on.
 
-All models should:
+## Where these live
 
-- Use `@dataclass` or Pydantic `BaseModel`
-- Include `to_dict()` and `from_dict()` methods
-- Validate required fields
-- Handle optional fields gracefully
+The one shipped model is `Detection` in `orpheus_common.detection.models`, and
+every agent publishes `Detection.model_dump(mode="json")` (ADR 0006 §3). Entities
+are `Entity` in the same module and `EntityEvent` in `orpheus_common.events`.
+
+There is no `orpheus_common.models` package. The shapes above describe what lands
+*inside* the `Detection` envelope's fields — its `metadata` in particular — not
+separate Python classes to import.
+

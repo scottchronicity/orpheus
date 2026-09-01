@@ -6,7 +6,7 @@
 
 - **Main workflow file**: `.github/workflows/pr-tests.yml`
 - **Human documentation**: `docs/CI_WORKFLOWS.md`
-- **System**: Path filtering with `dorny/paths-filter@v3`
+- **System**: Path filtering with `dorny/paths-filter@v4`
 
 ## Core Principles
 
@@ -222,11 +222,6 @@ See current implementation in `.github/workflows/pr-tests.yml`:
 - `changes` job: Lines 25-66
 - `check-dependencies` job: Lines 68-93
 - Component test jobs: Lines 95-458
-
-Each component follows the same pattern:
-1. Depends on `[changes, check-dependencies]`
-2. Conditional checks 4 triggers (common, component, workflow, root-config)
-3. Standard steps: checkout, setup Python, install, lint, test, upload coverage
 
 ## Related Files
 

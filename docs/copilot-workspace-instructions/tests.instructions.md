@@ -4,9 +4,9 @@ applyTo: "**/tests/**"
 
 # Test Development Instructions
 
-**See [`/CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains test-specific quick reference patterns.
+**See [`/CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains test-specific quick reference patterns.
 
-**See [`/docs/TESTING.md`](../TESTING.md) for comprehensive testing strategy and patterns.**
+**See [`/docs/TESTING.md`](https://github.com/scottchronicity/orpheus/blob/main/TESTING.md) for comprehensive testing strategy and patterns.**
 
 ---
 

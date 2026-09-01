@@ -1,15 +1,19 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [project]
 name = "orpheus-agent-crow-detection"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "Crow detection agent using crow-tools classifier models"
 authors = [{name = "Orpheus Project"}]
 requires-python = ">=3.9, <3.10"
 dependencies = [
-    "orpheus-common",
+    "orpheus-common>=0.2.0",
 #    "torch>=2.0.0,<3.0.0",
     "torch==2.4.0",
     "librosa>=0.10.0",
@@ -21,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",

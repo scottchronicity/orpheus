@@ -144,5 +144,5 @@ Expected output: `h264`
 ## Related
 
 - [ADR 0003: Timelapse Generation Architecture](0003-timelapse-generation-architecture.md)
-- [agents/orpheus-agent-video-timelapser/README.md](../../agents/orpheus-agent-video-timelapser/README.md)
+- [agents/orpheus-agent-video-timelapser/README.md](https://github.com/scottchronicity/orpheus/blob/main/agents/orpheus-agent-video-timelapser/README.md)
 - [docs/ARCHITECTURE.md](../ARCHITECTURE.md)

@@ -1,0 +1,22 @@
+# Orpheus UI backend (FastAPI) for the Simulacrum fleet — the dashboards' API.
+# Serves /api/entities etc. off the shared DetectionDB the correlator writes, so
+# the e2e validation can assert the dashboard reflects the produced entity.
+# (API only — the built React frontend is optional and not needed for assertions.)
+FROM python:3.9-slim
+
+WORKDIR /opt/orpheus
+ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
+
+# orpheus-common first (the backend depends on it), then the backend.
+COPY platform/orpheus-common ./platform/orpheus-common
+RUN pip install ./platform/orpheus-common
+COPY services/orpheus_ui/backend ./backend
+# Install the backend's deps EXCEPT the editable orpheus-common path ref (already
+# installed above + won't resolve here). The backend is run from src via
+# PYTHONPATH (its dev convention) rather than pip-installed — pip's package
+# discovery misses the subpackages (orpheus_ui.api/auth/...).
+RUN grep -vE '^-e ' backend/requirements.txt > /tmp/reqs.txt \
+    && pip install -r /tmp/reqs.txt
+ENV PYTHONPATH=/opt/orpheus/backend/src
+
+CMD ["uvicorn", "orpheus_ui.main:app", "--host", "0.0.0.0", "--port", "8082"]

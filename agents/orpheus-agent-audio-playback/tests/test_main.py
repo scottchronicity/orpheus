@@ -93,6 +93,39 @@ class TestAudioPlaybackAgent:
         assert call_args[0][1]["status"] == "success"
 
     @pytest.mark.asyncio
+    async def test_play_sound_async_publishes_playback_window(
+        self,
+        mock_orpheus_config,  # noqa: ARG002
+        mock_mqtt_client,
+        mock_sound_registry,  # noqa: ARG002
+        mock_audio_player,  # noqa: ARG002
+    ):
+        """After a sound plays, a corollary-discharge playback-window event is
+        published so the event-correlator can blank self-generated detections."""
+        from unittest.mock import AsyncMock
+
+        agent = AudioPlaybackAgent()
+        agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+
+        player = MagicMock()
+        player.play = AsyncMock(return_value=None)
+
+        await agent._play_sound_async(player, Path("crow.wav"), 1, 0.0, "crow_call")  # noqa: SLF001
+
+        window_calls = [
+            c
+            for c in mock_mqtt_client.publish.call_args_list
+            if c[0][0] == agent.TOPIC_ACTUATION_AUDIO_PLAYBACK
+        ]
+        assert len(window_calls) == 1
+        payload = window_calls[0][0][1]
+        assert payload["sound_name"] == "crow_call"
+        assert payload["source"] == "audio_playback_agent"
+        assert "start_time" in payload
+        assert isinstance(payload["duration_seconds"], (int, float))
+        assert payload["duration_seconds"] >= 0
+
+    @pytest.mark.asyncio
     async def test_handle_playback_request_missing_sound_name(
         self,
         mock_orpheus_config,  # noqa: ARG002

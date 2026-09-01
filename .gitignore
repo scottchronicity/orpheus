@@ -32,6 +32,16 @@ downloads/
 eggs/
 .eggs/
 lib/
+# But DO track the frontend source's lib directory (Python build-artifact
+# rule above shouldn't apply to TypeScript). Otherwise new files in
+# services/orpheus_ui/frontend/src/lib/ get silently ignored.
+!services/orpheus_ui/frontend/src/lib/
+!services/orpheus_ui/frontend/src/lib/**
+# bats libraries bootstrapped by `make test-bash` (pinned shallow clones,
+# deliberately NOT submodules). Already covered by the `lib/` rule above; kept
+# explicit so a future scoping of that rule can't silently start tracking
+# three vendored repos.
+tests/bats/lib/
 lib64/
 parts/
 sdist/
@@ -102,6 +112,17 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Claude Code agent tooling (the flywheel pipeline): TRACK the shared skills +
+# agents + the generated repo map + the committed hooks — they're part of the
+# repo's tooling — but ignore local/personal Claude state (settings.local.json,
+# command history, etc.). The negations re-include the shared items; everything
+# else directly under .claude stays ignored.
+.claude/*
+!.claude/skills/
+!.claude/agents/
+!.claude/hooks/
+!.claude/repo-map.md
+
 # IDEs
 .idea/
 *.swp
@@ -144,6 +165,15 @@ data/
 output/
 recordings/
 
+# Exception: packaged source data (ships in the wheel), NOT runtime data.
+!platform/orpheus-common/src/orpheus_common/detection/data/
+!platform/orpheus-common/src/orpheus_common/detection/data/*.yaml
+
+# Exception: bundled, committed data files (taxonomies, ontologies, etc.)
+# that ship inside an agent's source tree.
+!agents/*/src/*/data/
+!agents/*/src/*/data/**
+
 # Model checkpoints (use Git LFS for permanent models)
 checkpoints/
 *.ckpt
@@ -181,3 +211,5 @@ platform/orpheus-common/config/orpheus.yaml
 docker-compose.override.yml
 local-config/
 test_venv/
+/site/
+/site-pages/

@@ -1,5 +1,6 @@
 """Tests for main agent logic."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -264,14 +265,26 @@ def test_signal_handler(mock_load_config, mock_app_config):
     assert snapshotter._running is False
 
 
-@patch("orpheus_agent_video_snapshotter.main.cleanup_old_files_by_age")
+@patch("orpheus_agent_video_snapshotter.main.cv2.VideoCapture")
 @patch("orpheus_agent_video_snapshotter.main.load_app_config")
 @patch("orpheus_agent_video_snapshotter.main.time.sleep")
-def test_cleanup_called_with_correct_args(
-    mock_sleep, mock_load_config, mock_cleanup, mock_app_config
+def test_agent_does_not_delete_recordings(
+    mock_sleep, mock_load_config, mock_video_capture, mock_app_config
 ):
-    """Test that cleanup utility is called with correct path and retention_days."""
+    """The agent captures; orpheus-storage-sweep is the only component that deletes
+    under the data root. This snapshot is decades past retention_days and the clock
+    is well past any cleanup interval, so a reinstated trim would take it."""
     mock_load_config.return_value = mock_app_config
+
+    snapshot_dir = mock_app_config.storage_base_path / "video" / "snapshots"
+    snapshot_dir.mkdir(parents=True)
+    expired_snapshot = snapshot_dir / "2020-01-01T00-00-00Z.camera-1.jpg"
+    expired_snapshot.write_bytes(b"jpeg")
+    os.utime(expired_snapshot, (0, 0))
+
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = False
+    mock_video_capture.return_value = mock_cap
 
     snapshotter = VideoSnapshotter()
     snapshotter._running = True
@@ -286,14 +299,9 @@ def test_cleanup_called_with_correct_args(
 
     mock_sleep.side_effect = sleep_side_effect
 
-    # Start last_cleanup_time at 0 so cleanup triggers on first iteration
     with patch("orpheus_agent_video_snapshotter.main.time.time") as mock_time:
-        mock_time.return_value = 99999.0  # Large value ensures cleanup interval elapsed
+        mock_time.return_value = 99999.0  # past any cleanup interval the loop had
 
         snapshotter._run_snapshot_loop()
 
-    mock_cleanup.assert_called_once_with(
-        path=mock_app_config.storage_base_path / "video" / "snapshots",
-        max_age_days=mock_app_config.retention_days,
-        dry_run=False,
-    )
+    assert expired_snapshot.exists()
