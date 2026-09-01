@@ -151,6 +151,13 @@ class TestChannelProcessor:
         assert payload["context"]["sensor_id"] == "mic-channel_1"
         assert call_args.kwargs["qos"] == 2
 
+        # Motion event covers the whole clip — one interval spanning duration.
+        assert payload["intervals"] == [
+            {"start_seconds": 0.0, "end_seconds": 1.5, "confidence": None}
+        ]
+        # No taxonomy on motion events (no semantic label yet).
+        assert payload["taxonomy"] is None
+
     @pytest.mark.asyncio
     async def test_handle_frame_detection_without_clip(self) -> None:
         """Processor should handle detections without clip payloads."""
@@ -196,6 +203,10 @@ class TestChannelProcessor:
         assert payload["audio_clip_path"] is None
         assert payload["metadata"]["frame_count"] == 0
         assert payload["detection_type"] == "audio.motion"
+        # Even without a saved clip, the motion span still has a duration.
+        assert payload["intervals"] == [
+            {"start_seconds": 0.0, "end_seconds": 0.8, "confidence": None}
+        ]
 
     @pytest.mark.asyncio
     async def test_handle_frame_detector_error(self) -> None:

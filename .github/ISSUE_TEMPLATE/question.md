@@ -18,7 +18,7 @@ What are you trying to accomplish? What have you already tried?
 
 - **Platform**: (e.g., Jetson Orin NX, MacBook Pro M1)
 - **Python Version**: (e.g., 3.9.5)
-- **Component**: (e.g., orpheus-common, orpheus-dashboard)
+- **Component**: (e.g., orpheus-common, orpheus_ui)
 
 ## Additional Information
 

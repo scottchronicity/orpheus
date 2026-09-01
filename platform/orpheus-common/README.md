@@ -62,7 +62,10 @@ src/
   │
   ├── storage/           # T7 storage utilities
   │   ├── paths.py       # Path construction for /data/orpheus
-  │   └── management.py  # Cleanup, retention policies
+  │   ├── usage.py       # How big each recording category is
+  │   ├── sweep.py       # orpheus-storage-sweep: the ONE component that deletes
+  │   ├── cleanup.py     # Per-directory helper; nothing runs it on a timer
+  │   └── management.py  # Small standalone age/disk helpers
   │
   ├── detection/         # Detection data models (placeholder)
   │   ├── models.py      # Pydantic models for detection events
@@ -304,9 +307,11 @@ Services use systemd for lifecycle management. The library provides:
 
 Full type hints throughout. Use mypy for static type checking.
 
-## Migration from Dashboard
+## Migration history (orpheus-dashboard → orpheus-common)
 
-The dashboard service (`services/orpheus-dashboard/`) contains battle-tested code that has been migrated to `orpheus-common`:
+The legacy `orpheus-dashboard` service (removed in favour of
+`orpheus_ui`) contributed battle-tested code that was migrated into
+`orpheus-common`:
 
 - ✅ `hardware/` - Camera abstractions and registry
 - ✅ `system/health.py` - System metrics

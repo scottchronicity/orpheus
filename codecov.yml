@@ -11,11 +11,6 @@ flags:
       - platform/orpheus-common/
     target: 78%
 
-  orpheus-dashboard:
-    paths:
-      - services/orpheus-dashboard/
-    target: 80%
-
   orpheus-gps:
     paths:
       - services/orpheus-gps/
@@ -39,6 +34,11 @@ flags:
   orpheus-agent-audio-playback:
     paths:
       - agents/orpheus-agent-audio-playback/
+    target: 70%
+
+  orpheus-agent-audio-events:
+    paths:
+      - agents/orpheus-agent-audio-events/
     target: 70%
 
   orpheus-agent-bird-detection:
@@ -84,11 +84,6 @@ coverage:
           - orpheus-common
         target: 78%
 
-      orpheus-dashboard:
-        flags:
-          - orpheus-dashboard
-        target: 80%
-
       orpheus-gps:
         flags:
           - orpheus-gps
@@ -112,6 +107,11 @@ coverage:
       orpheus-agent-audio-playback:
         flags:
           - orpheus-agent-audio-playback
+        target: 70%
+
+      orpheus-agent-audio-events:
+        flags:
+          - orpheus-agent-audio-events
         target: 70%
 
       orpheus-agent-bird-detection:

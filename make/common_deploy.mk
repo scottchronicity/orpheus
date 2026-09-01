@@ -34,6 +34,13 @@ _deploy-check:
 		exit 1; \
 	fi
 
+# The orpheus-common reinstall below runs WITH dependency resolution on
+# purpose: pip always rebuilds a local-directory install (force-reinstall
+# adds nothing), and suppressing resolution (--no-deps) starves long-lived
+# agent venvs of any NEW platform dependency — invisibly, because the
+# platform's lazy imports keep the import smoke green and the gap only
+# surfaces as a runtime failure (e.g. at bus connect). Satisfied
+# pins are left alone (no --upgrade); only missing deps are installed.
 deploy: _deploy-check
 	@echo "Deploying $(SERVICE_NAME) to $(DEPLOY_ROOT)..."
 	@sudo rsync -a --delete \
@@ -46,12 +53,15 @@ deploy: _deploy-check
 			sudo cp "$$f" $(DEPLOY_ROOT)/; \
 		fi; \
 	done
-	@if [ -x "$(DEPLOY_ROOT)/venv/bin/pip" ]; then \
+	@if [ -x "$(DEPLOY_ROOT)/venv/bin/python" ]; then \
 		if [ -d "/opt/orpheus/platform/orpheus-common" ]; then \
 			echo "  Reinstalling orpheus-common into venv..."; \
-			sudo $(DEPLOY_ROOT)/venv/bin/pip install /opt/orpheus/platform/orpheus-common -q 2>/dev/null || true; \
+			sudo $(DEPLOY_ROOT)/venv/bin/python -m pip install --no-cache-dir \
+				/opt/orpheus/platform/orpheus-common -q || \
+				echo "  ⚠️  orpheus-common reinstall FAILED — agent may run stale code"; \
 		fi; \
-		sudo $(DEPLOY_ROOT)/venv/bin/pip install $(DEPLOY_ROOT) -q 2>/dev/null || true; \
+		sudo $(DEPLOY_ROOT)/venv/bin/python -m pip install $(DEPLOY_ROOT) -q || \
+			echo "  ⚠️  agent package install reported an issue"; \
 	fi
 	@sudo chown -R orpheus:orpheus $(DEPLOY_ROOT)
 	@echo "✓ Deployed to $(DEPLOY_ROOT)"

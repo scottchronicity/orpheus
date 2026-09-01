@@ -18,8 +18,8 @@ Describe your proposed solution or implementation approach.
 ## Component(s) Affected
 Which parts of the codebase would this change?
 - [ ] orpheus-common (platform library)
-- [ ] orpheus-dashboard (web UI)
-- [ ] orpheus-mqtt (message broker)
+- [ ] orpheus_ui (web UI)
+- [ ] orpheus-backplane (messaging backplane)
 - [ ] orpheus-agent-audio-motion (audio detection agent)
 - [ ] Other: ___________
 

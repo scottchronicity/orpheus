@@ -1,0 +1,83 @@
+/* Orpheus palette — forest, bark, dawn light.
+ *
+ * Light and dark are defined independently rather than derived from one another,
+ * because a tint that reads well on paper turns muddy on a dark background. Every
+ * pairing below clears WCAG AA (4.5:1) for body text and links; the glyph green
+ * clears the 3:1 graphical-object threshold against BOTH backgrounds, which is why
+ * one colour can serve both schemes.
+ */
+
+:root {
+  --orpheus-glyph: #4a8f6b;
+}
+
+/* ---------------------------------------------------------------- light ---- */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:              #1f4d3a;  /* header/nav — white on it, 9.6:1 */
+  --md-primary-fg-color--light:       #2e6b4f;
+  --md-primary-fg-color--dark:        #163a2b;
+  --md-primary-bg-color:              #ffffff;
+  --md-primary-bg-color--light:       rgba(255, 255, 255, 0.72);
+
+  --md-accent-fg-color:               #7a5a07;  /* dawn gold, 6.2:1 on paper */
+  --md-accent-fg-color--transparent:  rgba(122, 90, 7, 0.1);
+
+  --md-default-bg-color:              #fcfbf7;  /* warm paper, not clinical white */
+  --md-default-fg-color:              rgba(35, 48, 31, 0.87);
+  --md-default-fg-color--light:       rgba(35, 48, 31, 0.62);
+  --md-default-fg-color--lighter:     rgba(35, 48, 31, 0.32);
+  --md-default-fg-color--lightest:    rgba(35, 48, 31, 0.12);
+
+  --md-typeset-color:                 #23301f;  /* bark, 13.4:1 */
+  --md-typeset-a-color:               #1f6b47;  /* forest link, 6.2:1 */
+
+  --md-code-bg-color:                 #f2f0e8;
+  --md-code-fg-color:                 #23301f;
+
+  --md-footer-bg-color:               #163a2b;
+  --md-footer-bg-color--dark:         #112c21;
+}
+
+/* ----------------------------------------------------------------- dark ---- */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:              #1f4d3a;
+  --md-primary-fg-color--light:       #2e6b4f;
+  --md-primary-fg-color--dark:        #12301f;
+  --md-primary-bg-color:              #ffffff;
+  --md-primary-bg-color--light:       rgba(255, 255, 255, 0.72);
+
+  --md-accent-fg-color:               #e3c069;  /* dawn gold, 9.8:1 on charcoal */
+  --md-accent-fg-color--transparent:  rgba(227, 192, 105, 0.1);
+
+  --md-default-bg-color:              #151d18;  /* forest charcoal */
+  --md-default-fg-color:              rgba(228, 233, 226, 0.87);
+  --md-default-fg-color--light:       rgba(228, 233, 226, 0.62);
+  --md-default-fg-color--lighter:     rgba(228, 233, 226, 0.32);
+  --md-default-fg-color--lightest:    rgba(228, 233, 226, 0.12);
+
+  --md-typeset-color:                 #e4e9e2;  /* 14.0:1 */
+  --md-typeset-a-color:               #7fd1a6;  /* 9.5:1 */
+
+  --md-code-bg-color:                 #1d271f;
+  --md-code-fg-color:                 #e4e9e2;
+
+  --md-footer-bg-color:               #101711;
+  --md-footer-bg-color--dark:         #0c120e;
+}
+
+/* ---------------------------------------------------------------- glyphs ---- */
+/* Section marks are plain Markdown images, so they render everywhere the source
+ * does — the command line, github.com, and here. Sizing lives in CSS so the
+ * Markdown stays free of site-only attribute syntax. */
+.md-typeset img[src*="assets/glyph-"] {
+  height: 1.1em;
+  width: auto;
+  vertical-align: -0.16em;
+  margin-right: 0.4em;
+}
+
+/* The header mark carries its own white stroke; give it room to breathe. */
+.md-header__button.md-logo img {
+  height: 1.6rem;
+  width: auto;
+}

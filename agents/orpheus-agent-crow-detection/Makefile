@@ -70,12 +70,16 @@ run: check-deps
 	fi
 
 test: check-deps
-	@echo "Running pytest..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v
+	@echo "Running pytest (unit; e2e excluded — see test-e2e)..."
+	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e"
 
 coverage: check-deps
 	@echo "Running pytest with coverage..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v --cov=orpheus_agent_crow_detection --cov-report=term-missing
+	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_crow_detection --cov-report=term-missing
+
+test-e2e: check-deps
+	@echo "Running e2e bus-contract oracle (needs a broker; pair with 'make sim-up')..."
+	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m e2e
 
 clean:
 	@echo "Cleaning project..."
@@ -89,6 +93,14 @@ update:
 	git pull
 	$(MAKE) install
 	$(MAKE) deploy
+	@# Provision the AVES + crow-classifier checkpoints into
+	@# $ORPHEUS_DATA_ROOT/models/ if they aren't there yet. Reuses
+	@# download-models (idempotent — skips when present) so models land
+	@# automatically on deploy instead of being copied by hand. Defaults the
+	@# data root to the Jetson path and is non-fatal: a model hiccup must
+	@# never block the code restart.
+	@ORPHEUS_DATA_ROOT="$${ORPHEUS_DATA_ROOT:-/data/orpheus}" $(MAKE) download-models \
+		|| echo "⚠️  Model provisioning skipped — run 'make download-models' manually"
 	$(MAKE) restart
 	@echo "✓ $(SERVICE_NAME) updated and restarted"
 

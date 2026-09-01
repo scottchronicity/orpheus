@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchWithAuth, formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { CAMERA_IDS, POLLING_INTERVALS } from '../config'
 import { Video, Activity, Camera, FolderOpen } from 'lucide-react'
 import {
@@ -63,28 +64,19 @@ export default function VideoPage() {
 
   const { data: diagnostics, isLoading: diagLoading } = useQuery<VideoDiagnostics>({
     queryKey: ['video-diagnostics'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/video')
-      return res.json()
-    },
+    queryFn: () => fetchJson<VideoDiagnostics>('/api/diagnostics/video'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 
   const { data: detections, isLoading: detectionsLoading } = useQuery<VideoDetectionsResponse>({
     queryKey: ['video-detections'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/video/detections')
-      return res.json()
-    },
+    queryFn: () => fetchJson<VideoDetectionsResponse>('/api/diagnostics/video/detections'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 
   const { data: clips } = useQuery<VideoClipsResponse>({
     queryKey: ['video-clips', selectedClipCamera],
-    queryFn: async () => {
-      const res = await fetchWithAuth(`/api/diagnostics/video/clips/${selectedClipCamera}`)
-      return res.json()
-    },
+    queryFn: () => fetchJson<VideoClipsResponse>(`/api/diagnostics/video/clips/${selectedClipCamera}`),
     refetchInterval: POLLING_INTERVALS.HISTORY,
   })
 

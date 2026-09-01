@@ -13,7 +13,8 @@ with open("requirements.txt") as f:
 
 setup(
     name="orpheus-common",
-    version="0.2.0",
+    # version omitted on purpose: it is dynamic, sourced from the VERSION
+    # file via [tool.setuptools.dynamic] in pyproject.toml (the SSoT).
     description="Shared platform library for Orpheus cross-species communication system",
     author="Orpheus Project",
     author_email="scottchronicity@gmail.com",
@@ -28,6 +29,11 @@ setup(
             "sounds/*.ogg",
             "sounds/*.m4a",
             "sounds/*.aiff",
+        ],
+        # Data-driven entity taxonomy (must ship in the wheel for the Jetson
+        # install, where code runs from the installed package, not the tree).
+        "orpheus_common.detection": [
+            "data/*.yaml",
         ],
     },
     include_package_data=True,

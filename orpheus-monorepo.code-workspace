@@ -9,10 +9,6 @@
       "name": "orpheus-bluetooth-autoconnect",
     },
     {
-      "path": "services/orpheus-dashboard",
-      "name": "orpheus-dashboard",
-    },
-    {
       "path": "services/orpheus-gps",
       "name": "orpheus-gps",
     },
@@ -25,8 +21,8 @@
       "name": "orpheus-ui-frontend",
     },
     {
-      "path": "services/orpheus-mqtt",
-      "name": "orpheus-mqtt",
+      "path": "services/orpheus-backplane",
+      "name": "orpheus-backplane",
     },
     {
       "path": "platform/orpheus-common",
@@ -39,6 +35,10 @@
     {
       "path": "agents/orpheus-agent-audio-playback",
       "name": "orpheus-agent-audio-playback",
+    },
+    {
+      "path": "agents/orpheus-agent-audio-events",
+      "name": "orpheus-agent-audio-events",
     },
     {
       "path": "agents/orpheus-agent-bird-detection",

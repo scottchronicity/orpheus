@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { POLLING_INTERVALS } from '../config'
 import { Camera, RefreshCw } from 'lucide-react'
 import {
@@ -116,10 +117,7 @@ function CameraCard({ camera }: { camera: CameraStatus }) {
 export default function CamerasPage() {
   const { data: cameras, isLoading, error, refetch } = useQuery<CameraStatus[]>({
     queryKey: ['cameras'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/cameras')
-      return res.json()
-    },
+    queryFn: () => fetchJson<CameraStatus[]>('/api/cameras'),
     refetchInterval: POLLING_INTERVALS.CAMERAS,
   })
 

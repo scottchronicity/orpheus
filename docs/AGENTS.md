@@ -1,10 +1,22 @@
 # AI Agent Context - Orpheus
 
-This file provides context for AI coding assistants (Claude, Copilot, Gemini, Cursor, etc.) working on the Orpheus codebase.
+**The canonical entry point for AI coding agents is now [`/AGENTS.md`](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md)
+at the repo root.** It provides a short list of non-negotiable rules
+and a navigation map to themed deep-dive files in
+[`docs/agent-instructions/`](../agent-instructions/).
+
+This file is retained as a project reference and quick read for
+maintainers. The deep-dive files supersede most of what's below for
+agent-specific guidance.
+
+---
+
+This file provides high-level context for AI coding assistants (Claude, Copilot, Gemini, Cursor, etc.) working on the Orpheus codebase.
 
 ## Project Overview
 
-Orpheus is a Python monorepo for wildlife monitoring and cross-species communication research, designed for NVIDIA Jetson Orin NX edge deployment. The system uses distributed agents communicating via MQTT.
+Orpheus is a Python monorepo for wildlife monitoring and cross-species communication research, designed for NVIDIA Jetson Orin NX edge deployment. The system uses distributed agents communicating over an event bus — NATS with
+JetStream by default, with MQTT as a fallback backend.
 
 ## Critical Constraints
 
@@ -21,17 +33,18 @@ Orpheus is a Python monorepo for wildlife monitoring and cross-species communica
 orpheus/
 ├── platform/orpheus-common/     # Shared library (config, mqtt, storage, logging)
 ├── services/
-│   ├── orpheus-dashboard/       # FastAPI web UI (legacy)
-│   ├── orpheus_ui/              # React/FastAPI web UI (new)
-│   ├── orpheus-mqtt/            # Mosquitto broker wrapper
+│   ├── orpheus_ui/              # React/FastAPI web UI
+│   ├── orpheus-backplane/       # Messaging backplane (NATS default, mosquitto fallback)
 │   └── orpheus-bluetooth-autoconnect/ # Bluetooth speaker autoconnect
 ├── agents/
 │   ├── orpheus-agent-audio-motion/      # Layer 1: Audio motion detection
 │   ├── orpheus-agent-video-motion/      # Layer 1: Video motion detection
 │   ├── orpheus-agent-video-snapshotter/ # Video: Periodic camera snapshots
 │   ├── orpheus-agent-video-timelapser/  # Video: Timelapse generation
-│   ├── orpheus-agent-bird-detection/    # Layer 2: BirdNET species identification
-│   ├── orpheus-agent-crow-detection/    # Layer 2: Crow vocalization analysis
+│   ├── orpheus-agent-bird-detection/    # Layer 2: BirdNET species identification (IOC taxonomy)
+│   ├── orpheus-agent-audio-events/      # Layer 2: PANNs SED on AudioSet ontology
+│   ├── orpheus-agent-crow-detection/    # Layer 2: Crow vocalization analysis (call type / age)
+│   ├── orpheus-agent-event-correlator/  # Layer 2/3: Event-based clustering + auto-discovery
 │   └── orpheus-agent-audio-playback/    # Audio output agent
 └── Makefile                     # Root orchestration
 ```
@@ -42,8 +55,9 @@ orpheus/
 # Install all components
 make install
 
-# Run all tests
-make test
+# Run all tests (`make test` at the root aliases test-all; there is no
+# root `make coverage`)
+make test-all
 
 # Run tests with coverage
 make coverage-all
@@ -60,7 +74,7 @@ make lint
 Each component follows the same pattern:
 
 ```bash
-cd platform/orpheus-common  # or services/orpheus-dashboard, agents/*, etc.
+cd platform/orpheus-common  # or services/orpheus_ui/backend, agents/*, etc.
 make install          # Create venv, install deps
 make test             # Run pytest
 make coverage         # Run with coverage
@@ -143,7 +157,29 @@ audio_path = get_audio_path(category="audio_motion", channel_id="1")
 | --------- | --------- | --------- |
 | `orpheus/{domain}/{type}/events` | Event notifications | `orpheus/audio/motion/events` |
 | `orpheus/{domain}/{type}/status` | Agent status | `orpheus/video/motion/status` |
-| `orpheus/system/{agent}/health` | Health monitoring | `orpheus/system/dashboard/health` |
+| `orpheus/system/{agent}/health` | Health monitoring | `orpheus/system/bird-detection/health` |
+| `orpheus/detection/{classifier}/events` | Classifier output | `orpheus/detection/bird/events`, `orpheus/detection/audio/events`, `orpheus/detection/crow/events` |
+| `orpheus/entities/animal` | Correlated Entity events | (Layer 2 output from the event-correlator) |
+| `orpheus/system/auto-discovery/health` | Auto-discovery scan summaries | (Layer 3 background worker pulse) |
+
+## Cross-classifier identity
+
+The `detectallanimals` branch introduced a 5-layer identity stack that
+keeps each classifier autonomous (holonic) while combining their
+outputs into one coherent picture per acoustic event. New code should
+respect these invariants:
+
+- Each classifier emits `taxonomy: TaxonomyRef` in a canonical
+  namespace (`ioc`, `audioset`, `ebird`, `inaturalist`, `itis`).
+- Each Detection carries `root_event_id` denormalising the audio.motion
+  root; new agents should propagate it via
+  `Detection.derive_root_event_id(parent)`.
+- Multi-classifier evidence is preserved per-Entity — never collapse
+  to a single "consensus" species.
+- Cross-namespace identity goes through `equivalent_taxa()` — never
+  hand-maintain alias maps.
+
+See `docs/designs/cross-classifier-identity.md` for the full design.
 
 ## Key Files
 
@@ -151,8 +187,15 @@ audio_path = get_audio_path(category="audio_motion", channel_id="1")
 | ------ | --------- |
 | `platform/orpheus-common/src/orpheus_common/config.py` | Central configuration |
 | `platform/orpheus-common/src/orpheus_common/mqtt.py` | MQTT client wrapper |
+| `platform/orpheus-common/src/orpheus_common/detection/models.py` | Detection / Entity / TaxonomyRef / EntityEvidence |
+| `platform/orpheus-common/src/orpheus_common/detection/equivalence.py` | TaxonomyEquivalenceDB (Layer 3) |
+| `platform/orpheus-common/src/orpheus_common/detection/equivalence_discovery.py` | Auto-discovery worker |
+| `platform/orpheus-common/src/orpheus_common/detection/species.py` | Corvid genera + is_corvid helpers |
+| `platform/orpheus-common/src/orpheus_common/detection/namespaces.py` | KNOWN_NAMESPACES registry |
 | `agents/orpheus-agent-audio-motion/src/orpheus_agent_audio_motion/main.py` | Reference agent implementation |
-| `services/orpheus-dashboard/src/orpheus_dashboard/main.py` | Dashboard FastAPI app |
+| `agents/orpheus-agent-event-correlator/src/orpheus_agent_event_correlator/cluster_manager.py` | Layer 2 time-window clustering |
+| `docs/designs/cross-classifier-identity.md` | Layered identity design |
+| `services/orpheus_ui/backend/src/orpheus_ui/main.py` | UI backend FastAPI app |
 
 ## Testing
 
@@ -179,7 +222,7 @@ def test_my_function(mock_config):
 
 ## Don't Do
 
-- ❌ Use `X | None` type unions (Python 3.10+)
+- ❌ Use `X | None` where the expression is evaluated at runtime (`isinstance`, `cast`, `TypeAdapter`) — in annotations it is fine, because every module has `from __future__ import annotations`
 - ❌ Use `match` statements (Python 3.10+)
 - ❌ Use `list[X]` or `dict[K, V]` without importing from typing
 - ❌ Add Black as a dependency (use ruff only)
@@ -190,7 +233,7 @@ def test_my_function(mock_config):
 
 ## Do
 
-- ✅ Run `make test` before committing
+- ✅ Run `make test-<component>` (and `make lint-<component>`) before committing
 - ✅ Use `Optional[X]`, `List[X]`, `Dict[K, V]` from typing
 - ✅ Keep coverage above 70%
 - ✅ Follow existing patterns in `orpheus-agent-audio-motion`

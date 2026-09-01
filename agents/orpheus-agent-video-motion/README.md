@@ -121,11 +121,23 @@ This is a **Layer 1 agent** — it reads directly from camera hardware (RTSP str
 
 ## Storage
 
-Video clips are stored in `/mnt/data/video/motion/{camera_id}/` with automatic cleanup based on retention policy:
+Video clips are stored under `$ORPHEUS_DATA_ROOT/video/video_motion/{date}/{camera}/`
+(default data root `/data/orpheus`):
 
-- **Retention**: 30 days (default)
 - **Format**: MP4 with H.264 codec
-- **Cleanup**: Triggered at 90% capacity, removes 25% oldest files
+- **Deletion**: not this agent's job. It used to trim its own directory on a timer;
+  `orpheus-storage-sweep` now owns every deletion under the data root, running from
+  a systemd timer every 15 minutes. A per-directory budget cannot see the disk it
+  shares with three other categories, which is why there is one deleter instead of
+  four.
+- **Policy**: these clips are the `video_motion` category — trimmed oldest-first
+  once it passes `storage.retention.categories.video_motion.max_gb` (60 GB by
+  default), and sooner if free space falls below `storage.retention.reserve_gb`.
+  Nothing inside `floor_days` (90 by default) is ever deleted. `make storage-report`
+  shows what the next sweep would do.
+- **Age windows**: `storage.retention.raw_video_days` still parses but nothing
+  applies it; `floor_days` and `max_gb` replaced it. See
+  [Data & retention](../../docs/operator-manual/index.md#7-data-retention).
 
 ## Development
 
@@ -160,11 +172,11 @@ make reinstall
 
 - NVIDIA Jetson Orin NX (or compatible ARM64/x86_64 system)
 - Network access to Amcrest IP cameras
-- MQTT broker (orpheus-mqtt service)
+- Message broker (orpheus-backplane service)
 - Storage for video clips
 
 ## See Also
 
 - [orpheus-agent-audio-motion](../orpheus-agent-audio-motion/) - Audio motion detection service (reference implementation)
 - [orpheus-common](../../platform/orpheus-common/) - Shared platform library
-- [orpheus-dashboard](../../services/orpheus-dashboard/) - Web-based diagnostic interface
+- [orpheus_ui](../../services/orpheus_ui/) - Web-based diagnostic interface

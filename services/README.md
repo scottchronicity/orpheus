@@ -12,34 +12,36 @@ System-wide services that provide:
 
 ## Structure
 
-- `orpheus-mqtt/` - MQTT broker for inter-service messaging
-- `orpheus-dashboard/` - Web-based diagnostic dashboard
+- `orpheus-backplane/` - Messaging backplane (NATS + JetStream default, mosquitto fallback)
+- `orpheus_ui/` - React + FastAPI web UI (system health, detections, entities, equivalences)
+- `orpheus-gps/` - GPS time + location service
+- `orpheus-bluetooth-autoconnect/` - Audio-out Bluetooth routing
 
 ## Services
 
-### MQTT Broker
+### Messaging Backplane
 Central message broker for agent coordination and event distribution.
 
 - **Purpose**: Inter-service communication via pub/sub messaging
-- **Default Port**: 1883
-- **Protocol**: MQTT 3.1.1
+- **Default**: NATS + JetStream on port 4222 (`event_bus.backend: nats`)
+- **Fallback**: mosquitto/MQTT 3.1.1 on port 1883 (`event_bus.backend: mqtt`)
 - **Usage**: Agents publish detections, status updates, and requests
 
-See `orpheus-mqtt/README.md` for setup and configuration.
+See `orpheus-backplane/README.md` for setup and configuration.
 
-### Orpheus Dashboard
-Diagnostic web interface for system monitoring and status.
+### Orpheus UI
+The user-facing web interface for system monitoring, detection
+browsing, equivalence management, and configuration.
 
-- **Purpose**: Real-time system health and service status monitoring
-- **Default Port**: 8080
-- **Tech Stack**: FastAPI backend, vanilla JavaScript frontend
-- **Features**: 
-  - System health (CPU, memory, disk, uptime)
-  - Service status tracking
-  - Hardware validation (coming soon)
-  - Detection statistics (coming soon)
+- **Default Port**: 8080 (nginx proxies to 8082)
+- **Tech Stack**: React + TypeScript + Tailwind frontend; FastAPI +
+  fastapi-users backend; JWT auth.
+- **Features**: System health grid, entity browsing, bird/crow
+  history, cross-classifier equivalences, audio-event correlation,
+  per-agent error feed.
 
-See `orpheus-dashboard/README.md` for development and deployment.
+See `orpheus_ui/README.md` for setup and `docs/ORPHEUS_UI.md` for
+the full design.
 
 ## Service Management
 
@@ -57,9 +59,9 @@ make clean      # Clean build artifacts
 ### Production
 ```bash
 cd <service-name>/
-sudo make install-service   # Install to /opt/orpheus/<service-name>
+make install-service        # Install to /opt/orpheus/<service-name>
 sudo systemctl enable orpheus-<service-name>
-sudo make service-start     # Start service
+make service-start          # Start service
 make service-status         # Check status
 make service-logs           # View logs
 make update                 # Deploy code changes
@@ -101,8 +103,8 @@ See individual service documentation for specific topic schemas.
 
 ## Monitoring
 
-The dashboard service provides a unified view of all service health. Access at:
-- Development: `http://localhost:8080`
+Orpheus UI provides a unified view of all service health. Access at:
+- Development: `http://localhost:5173` (Vite dev) or `http://localhost:8082` (backend)
 - Production: `http://jetson1.local:8080`
 
-For production deployment on port 80, see `orpheus-dashboard/README.md` for nginx configuration.
+See `orpheus_ui/README.md` for production nginx configuration.

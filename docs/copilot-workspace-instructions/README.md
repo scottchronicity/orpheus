@@ -16,11 +16,11 @@ When you edit a file in VS Code with GitHub Copilot:
 
 ### Example
 
-When editing `agents/orpheus-agent-audio-motion/src/orpheus_agent_audio)_motion/main.py`:
+When editing `agents/orpheus-agent-audio-motion/src/orpheus_agent_audio_motion/main.py`:
 
 - ✅ **Loads**: `agents.instructions.md` (matches `agents/**`)
 - ✅ **Loads**: `tests.instructions.md` if it's a test file
-- ❌ **Ignores**: `dashboard.instructions.md` (doesn't match pattern)
+- ❌ **Ignores**: `orpheus-ui.instructions.md` (doesn't match pattern)
 
 ## File Descriptions
 
@@ -28,17 +28,13 @@ When editing `agents/orpheus-agent-audio-motion/src/orpheus_agent_audio)_motion/
 | ------ | --------- | --------- |
 | `agents.instructions.md` | `agents/**` | Quick reference for agent development patterns |
 | `tests.instructions.md` | `**/tests/**` | Quick reference for writing tests |
-| `dashboard.instructions.md` | `services/orpheus-dashboard/**` | Quick reference for dashboard development |
+| `orpheus-ui.instructions.md` | `services/orpheus_ui/**` | Quick reference for UI work |
 | `orpheus-common.instructions.md` | `platform/orpheus-common/**` | Quick reference for shared library work |
 
 ## Why Quick References?
 
-These files:
-
-- ✅ **Provide quick lookups** for common patterns when editing code
-- ✅ **Link to comprehensive docs** (like `docs/TESTING.md`) for details
-- ✅ **Don't duplicate** - they reference the main documentation
-- ✅ **Auto-apply** based on file location - no manual selection needed
+These files hold the patterns you want while editing, and link out to the main
+documentation (like `docs/TESTING.md`) rather than restating it.
 
 ## Relationship to Main Docs
 
@@ -70,8 +66,9 @@ docs/copilot-workspace-instructions/  ← Quick references that auto-apply per f
 
 **For comprehensive documentation, see:**
 
-- [`../CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) - Core development guidelines
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) - System architecture
-- [`../TESTING.md`](../TESTING.md) - Testing strategy
-- [`../AGENTS.md`](../AGENTS.md) - Agent design patterns
-- [`../DASHBOARD.md`](../DASHBOARD.md) - Dashboard architecture
+- [`../../AGENTS.md`](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md) - Canonical entry point for AI coding agents
+- [`../../CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) - Legacy comprehensive guide
+- [`../ARCHITECTURE.md`](https://github.com/scottchronicity/orpheus/blob/main/ARCHITECTURE.md) - System architecture
+- [`../TESTING.md`](https://github.com/scottchronicity/orpheus/blob/main/TESTING.md) - Testing strategy
+- [`../AGENTS.md`](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md) - Agent design patterns (legacy; superseded by root-level AGENTS.md)
+- [`../ORPHEUS_UI.md`](https://github.com/scottchronicity/orpheus/blob/main/ORPHEUS_UI.md) - Web UI design

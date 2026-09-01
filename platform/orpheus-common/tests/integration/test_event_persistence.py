@@ -162,3 +162,78 @@ class TestEnsureSchemaUpdates:
         # Running again should be safe
         ensure_schema_updates(db_path)
         ensure_schema_updates(db_path)  # Third time
+
+
+class TestUpgradeFromPreRootEventIdSchema:
+    """Opening a pre-``root_event_id`` database with the new code.
+
+    This is the Jetson-upgrade case: a database created by an OLD release whose
+    ``detections`` table has none of the new columns and none of the compound
+    indices. Regression test for the crash where ``DetectionDB.__init__`` ran
+    ``_init_schema()`` (which built ``idx_root_event_id_ts`` on a column that
+    did not exist yet) BEFORE ``ensure_schema_updates()`` added the column,
+    raising ``sqlite3.OperationalError: no such column: root_event_id`` and
+    taking down every agent + UI endpoint on first start after upgrade.
+    """
+
+    def _make_legacy_db(self, db_path: Path) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        # Original detections table — no root_event_id / event_metadata /
+        # intervals_json / taxonomy_* and (crucially) no compound indices.
+        conn.execute("""
+            CREATE TABLE detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT UNIQUE NOT NULL,
+                timestamp TEXT NOT NULL,
+                detection_type TEXT NOT NULL,
+                channel INTEGER,
+                species_code TEXT,
+                species_common TEXT,
+                confidence REAL,
+                audio_clip_path TEXT,
+                metadata TEXT,
+                source_event_id TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "INSERT INTO detections "
+            "(event_id, timestamp, detection_type, confidence) "
+            "VALUES ('evt-legacy-1', '2025-01-01T00:00:00+00:00', 'bird', 0.9)"
+        )
+        conn.commit()
+        conn.close()
+
+    def test_opening_legacy_db_does_not_crash(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "legacy.db"
+        self._make_legacy_db(db_path)
+
+        # Pre-fix this raised: no such column: root_event_id
+        db = DetectionDB(db_path=db_path)
+
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(detections)")}
+        idx = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )}
+        conn.close()
+
+        # The migration ran: the column and its index now exist.
+        assert "root_event_id" in cols
+        assert "idx_root_event_id_ts" in idx
+        assert "idx_detections_type_ts" in idx
+        # And the old row still reads through the DetectionDB API (which now
+        # selects the migrated columns — they must be NULL-tolerant).
+        legacy = db.get_by_event_id("evt-legacy-1")
+        assert legacy is not None
+        assert legacy.root_event_id is None
+
+    def test_legacy_open_is_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "legacy2.db"
+        self._make_legacy_db(db_path)
+        DetectionDB(db_path=db_path)
+        DetectionDB(db_path=db_path)  # second open must also be clean

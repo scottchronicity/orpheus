@@ -4,19 +4,20 @@ applyTo: "services/orpheus_ui/**"
 
 # Orpheus UI Service Instructions
 
-**See [`CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains orpheus-ui-specific quick reference patterns.
+**See [`CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains orpheus-ui-specific quick reference patterns.
 
-**See [`services/orpheus_ui/README.md`](../../services/orpheus_ui/README.md) for comprehensive documentation.**
+**See [`services/orpheus_ui/README.md`](https://github.com/scottchronicity/orpheus/blob/main/services/orpheus_ui/README.md) for comprehensive documentation.**
 
 ---
 
 ## Overview
 
-Orpheus UI is the modern React/FastAPI replacement for the legacy vanilla JS `orpheus-dashboard`. It provides:
+Orpheus UI is the React/FastAPI web interface for the Orpheus wildlife monitoring system. It provides:
 
 - **React 18 + TypeScript + Tailwind CSS** frontend
 - **FastAPI + FastAPI-Users** backend with JWT authentication
-- **Role-based access control** (Admin, Viewer, Public)
+- **Role-based access control**: Admin and Viewer. A `public` role exists in the
+  user model (`UserRole.PUBLIC`) but nothing assigns or enforces it.
 - **MQTT integration** for real-time updates
 
 ---
@@ -25,18 +26,19 @@ Orpheus UI is the modern React/FastAPI replacement for the legacy vanilla JS `or
 
 | Service | Port | Notes |
 | --------- | ------ | ------- |
-| **Orpheus UI Backend** | 8082 | FastAPI backend (NOT 8080!) |
+| **Orpheus UI Backend** | 8082 | FastAPI backend |
 | **Orpheus UI Frontend (dev)** | 5173 | Vite dev server, proxies to 8082 |
-| **Legacy Dashboard** | 8080 | `orpheus-dashboard` remains on 8080 |
+| **Orpheus UI (production)** | 80 | nginx proxies port 80 → 8082 |
 
-⚠️ **Important:** The backend runs on port **8082**, not 8080. The legacy dashboard stays on 8080 until orpheus-ui fully replaces it.
+The backend runs on port **8082**. In production, nginx proxies port 80 → 8082.
 
 ---
 
 ## User Database
 
-- **Development:** `./users.db` (current directory)
-- **Production:** `/data/orpheus/users.db` (persists across installs)
+- `users.db` at the top of `$ORPHEUS_DATA_ROOT` (`/data/orpheus/users.db` on a
+  station), or an existing accounts file wherever it already is
+- `ORPHEUS_UI_DATABASE_URL` overrides it; the systemd unit sets it
 
 The database **persists across service reinstalls**. To reset:
 ```bash
@@ -305,4 +307,4 @@ services/orpheus_ui/
 - [FastAPI-Users Documentation](https://fastapi-users.github.io/fastapi-users/)
 - [TanStack Query](https://tanstack.com/query)
 - [Vite Configuration](https://vitejs.dev/config/)
-- [`CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) - Core guidelines
+- [`CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) - Core guidelines

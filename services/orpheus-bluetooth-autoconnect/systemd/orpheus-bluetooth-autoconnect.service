@@ -31,6 +31,16 @@ StartLimitBurst=5
 # Logging
 StandardOutput=journal
 StandardError=journal
+
+# Log bounds. systemd's default is 10000 messages per 30s per service — enough
+# for one stuck agent to emit gigabytes a day into the journal and, on Ubuntu,
+# into rsyslog's unbounded /var/log/syslog mirror. 500/30s is ~100x this
+# station's busiest agent in normal operation and still passes a crash-loop
+# traceback or a noisy model load intact. When the limit engages journald
+# records "Suppressed N messages from <unit>", so a flood is visible as a
+# flood rather than silently truncated.
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=500
 SyslogIdentifier=orpheus-bluetooth
 
 # Resource limits

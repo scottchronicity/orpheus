@@ -383,7 +383,18 @@ Audio clips are saved to:
 /data/orpheus/audio/motion/{YYYY-MM-DD}/channel_{id}/event_{timestamp}.flac
 ```
 
-Retention is controlled by `storage.retention.raw_audio_days` in `orpheus.yaml`.
+**This agent does not delete clips.** It used to trim its own directory on a
+timer; that job now belongs to `orpheus-storage-sweep`, which runs from a systemd
+timer every 15 minutes and is the only thing on the station that removes a
+recording. One deleter is the point — a per-directory budget cannot see the disk
+it shares with three other categories.
+
+Audio clips are the `audio_motion` category. It is trimmed oldest-first once it
+passes `storage.retention.categories.audio_motion.max_gb` (600 GB by default), and
+sooner if free space falls below `storage.retention.reserve_gb`; nothing inside
+`floor_days` (30 by default) is ever deleted. `make storage-report` shows what the
+next sweep would do. `storage.retention.raw_audio_days` still parses but nothing
+applies it. See [Data & retention](../../docs/operator-manual/index.md#7-data-retention).
 
 ## Next Steps
 
@@ -409,4 +420,4 @@ Contributions welcome! This agent is production-ready but can be extended with:
 
 - [Orpheus Common Library](../../platform/orpheus-common/README.md)
 - [Multi-Channel Audio Implementation](MULTI_CHANNEL_AUDIO.md)
-- [MQTT Broker Setup](../../services/orpheus-mqtt/README.md)
+- [Messaging Backplane Setup](../../services/orpheus-backplane/README.md)

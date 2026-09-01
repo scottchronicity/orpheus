@@ -1,5 +1,20 @@
 # Orpheus Logging
 
+Most of this page is the convention for *writing* log calls, which is a
+contributor's job. If you are running a station and want to read logs, you need
+four things and none of the rest:
+
+```bash
+sudo journalctl -u orpheus-agent-audio-motion -f     # follow one unit
+sudo journalctl -u "orpheus-*" --since -10m          # everything, last 10 minutes
+sudo journalctl -u orpheus-ui -o json | jq .         # the structured payload
+make dev-logs SVC=bird-detection                     # dev stack: logs/<service>.log
+```
+
+Verbosity is `LOG_LEVEL` in the unit's environment (`DEBUG`, `INFO`, `WARNING`,
+`ERROR`); the default is `INFO`. Under `make dev-stack` the same output also
+lands in `logs/<service>.log` in the repo.
+
 ## Overview
 
 Orpheus uses [structlog](https://www.structlog.org/) for structured, keyword-based logging. All log messages use keyword arguments so logs are machine-parseable and consistent across agents and services.
@@ -80,14 +95,14 @@ logger.error("Failed to process detection event",
              event_id=event_id, channel_id=channel_id, error=str(e))
 ```
 
-Examples: model inference failed, failed to save file, MQTT publish failed after retries.
+Examples: model inference failed, failed to save file, event-bus publish failed after retries.
 
 ### WARNING
 
 Something unexpected happened but was handled gracefully.
 
 ```python
-logger.warning("MQTT connection lost, will retry",
+logger.warning("Event bus connection lost, will retry",
                broker=broker_host, retry_in_seconds=5)
 ```
 
@@ -103,7 +118,7 @@ logger.info("Model loaded", model_path=model_path, load_time_ms=elapsed)
 logger.info("Detection processed", event_id=event_id, species=species)
 ```
 
-Examples: service start/stop, MQTT connected, model loaded, detection processed, periodic statistics.
+Examples: service start/stop, event bus connected, model loaded, detection processed, periodic statistics.
 
 ### DEBUG
 
@@ -145,14 +160,14 @@ if not is_valid(data):
 
 - Startup (with config details, version, dependencies)
 - Shutdown (graceful or unexpected)
-- MQTT connection/disconnection
+- Event-bus connection/disconnection
 - Model loading success/failure
 
 ### Detection Events
 
 - Detection event processed (INFO with key details)
 - Failed to process event (ERROR with full context)
-- Periodic statistics (every N events) — **not** every MQTT message
+- Periodic statistics (every N events) — **not** every event-bus message
 
 ### Health & Performance
 
@@ -177,7 +192,7 @@ Always log service name, configuration source, critical dependencies, and listen
 logger.info("Starting Audio Motion Detector agent", version=__version__)
 logger.info("Configuration loaded", config_path=config_path)
 logger.info("Model loaded", embedder=embedder_path, classifier=classifier_path)
-logger.info("Subscribed to MQTT topics", topics=["orpheus/audio/motion/events"])
+logger.info("Subscribed to event-bus subjects", subjects=["orpheus/audio/motion/events"])
 ```
 
 ### Signs of Life
@@ -233,7 +248,14 @@ logger.debug("Config loaded", config=str(config_obj))
 - **Systemd integration**: Logs automatically go to journald with structured metadata
 - **JSON output**: Logs formatted as JSON when running under systemd (auto-detected)
 - **Console output**: Colorful human-readable output in development
-- **Searchability**: All keyword fields are indexed and searchable in log aggregation
+- **Searchability**: each event is a JSON object, but it reaches the journal as a
+  *message string*, so `-o json` hands you the journal envelope with your payload
+  escaped inside `MESSAGE`. Pull the message out first and strip the colour codes:
+  `journalctl -u orpheus-ui -o cat | sed 's/\x1b\[[0-9;]*m//g' | jq 'select(.event=="…")'`.
+  With `systemd-python` installed the journal handler wraps the payload a second time
+  and every event is written twice — once by that handler, once through stdout — so
+  expect duplicate lines and an extra `| jq -r .event` unwrap. Nothing in this repo
+  ships a log-aggregation stack.
 
 ## Testing Logs
 
@@ -316,7 +338,7 @@ Key metrics to watch from logs:
 - WARNING count (track trends)
 - "Signs of life" messages (alert if missing for > 5 minutes)
 - Detection event rates (alert on sudden drops)
-- MQTT connection state changes (alert on frequent reconnects)
+- Event-bus connection state changes (alert on frequent reconnects)
 
 ## Migration Checklist
 

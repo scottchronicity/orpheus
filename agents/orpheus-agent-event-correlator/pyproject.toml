@@ -1,24 +1,31 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [project]
 name = "orpheus-agent-event-correlator"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "Event correlator agent for multi-sensor fusion of detection events"
 authors = [{name = "Orpheus Project"}]
 requires-python = ">=3.9, <3.10"
 dependencies = [
-    "orpheus-common",
+    "orpheus-common>=0.2.0",
     "paho-mqtt>=1.6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
+    # End-to-end BDD suite (tests/bdd/) drives the correlation loop in-process
+    # through this agent + orpheus-common; it runs from this venv.
+    "behave>=1.2.6",
 ]
 
 [tool.ruff]

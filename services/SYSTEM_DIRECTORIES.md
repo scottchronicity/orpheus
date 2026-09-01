@@ -40,9 +40,9 @@ Root data directory for persistent application data, caches, and state. **Shared
 
 ```
 /var/lib/orpheus/                  # Root data directory (shared, never delete)
-├── mqtt/                          # MQTT message persistence
+├── mqtt/                          # MQTT message persistence (mosquitto fallback)
 │   ├── mosquitto.db
-│   └── orpheus-mqtt.db.new
+│   └── mosquitto.db.new           # mosquitto's autosave temp file
 ├── audio/                         # Audio recordings and cache (future)
 │   ├── recordings/
 │   ├── chunks/
@@ -206,10 +206,12 @@ If you have an existing service using `/etc/orpheus/` directly (old structure):
 /etc/orpheus/mqtt/mosquitto.conf
 ```
 
-**Migration steps:**
+**Migration steps** (mosquitto-fallback unit; the service was renamed
+`orpheus-mqtt` → `orpheus-backplane`, so the mqtt unit is now
+`orpheus-backplane-mosquitto.service`):
 ```bash
 # Stop service
-sudo systemctl stop orpheus-mqtt.service
+sudo systemctl stop orpheus-backplane-mosquitto.service
 
 # Create subdirectory
 sudo mkdir -p /etc/orpheus/mqtt
@@ -218,11 +220,11 @@ sudo mkdir -p /etc/orpheus/mqtt
 sudo mv /etc/orpheus/mosquitto.conf /etc/orpheus/mqtt/
 
 # Update systemd service file to point to new location
-sudo nano /etc/systemd/system/orpheus-mqtt.service
+sudo nano /etc/systemd/system/orpheus-backplane-mosquitto.service
 
 # Reload and restart
 sudo systemctl daemon-reload
-sudo systemctl start orpheus-mqtt.service
+sudo systemctl start orpheus-backplane-mosquitto.service
 ```
 
 ## Best Practices
@@ -263,7 +265,7 @@ When creating a new Orpheus service, verify:
 
 If you're unsure about directory structure for a new service:
 
-1. Check existing services (e.g., `services/orpheus-mqtt/`) as examples
+1. Check existing services (e.g., `services/orpheus-backplane/`) as examples
 2. Review this document
 3. Follow the pattern: `/etc/orpheus/<service>/` and `/var/lib/orpheus/<service>/`
 4. When in doubt, create a subdirectory rather than using the root

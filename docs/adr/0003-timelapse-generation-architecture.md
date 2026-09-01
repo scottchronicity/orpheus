@@ -2,6 +2,10 @@
 
 **Status:** Accepted
 
+**Superseded in part by** [ADR 0007](0007-timelapse-scheduling-race-condition-and-label-requirement.md):
+the scheduling design below was replaced by collect-then-execute, and labels became
+required. Tiers, filename format and bucket sampling remain live.
+
 **Date:** 2026-01-25
 
 **Deciders:** Development Team
@@ -61,12 +65,8 @@ orpheus-eye-1.hourly.tl3.1h.20260125-170000.mp4
 - `lookback`: Duration for display (e.g., `24h`, `1h`)
 - `timestamp`: Generation time in UTC
 
-This format enables:
-
-- Lexicographic sorting = chronological sorting
-- Easy parsing by dashboard/UI
-- Clear identification at a glance
-- Tier-based filtering and cleanup
+Lexicographic sorting is chronological sorting within a camera and label, and the
+`tier` field is what the dashboard filters and cleans up on.
 
 ### 3. Bucket Sampling Algorithm
 
@@ -102,13 +102,6 @@ Job deduplication prevents running the same job twice in the same interval.
 
 ## Consequences
 
-### Positive
-
-- Multiple resolution levels for different analysis needs
-- Standardized filenames enable dashboard filtering and display
-- Bucket sampling ensures consistent frame density
-- Tier system is extensible (add new tiers as needed)
-
 ### Negative
 
 - Multiple tiers increase storage requirements
@@ -124,5 +117,5 @@ Job deduplication prevents running the same job twice in the same interval.
 
 - [ADR 0002: Video Snapshot Architecture](0002-video-snapshot-architecture.md)
 - [ADR 0004: Jetson Video Codec Strategy](0004-jetson-video-codec-strategy.md)
-- [orpheus_common.storage.timelapse](../../platform/orpheus-common/src/orpheus_common/storage/timelapse.py)
-- [agents/orpheus-agent-video-timelapser/README.md](../../agents/orpheus-agent-video-timelapser/README.md)
+- [orpheus_common.storage.timelapse](https://github.com/scottchronicity/orpheus/blob/main/platform/orpheus-common/src/orpheus_common/storage/timelapse.py)
+- [agents/orpheus-agent-video-timelapser/README.md](https://github.com/scottchronicity/orpheus/blob/main/agents/orpheus-agent-video-timelapser/README.md)

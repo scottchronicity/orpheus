@@ -169,6 +169,81 @@ logging:
         with pytest.raises(ConfigError):
             load_app_config(Path("/nonexistent/config.yaml"))
 
+    def test_cleanup_cadence_defaults_to_hourly(self) -> None:
+        """storage.retention.check_interval_hours UNSET ⇒ the audio agent keeps its
+        historical HOURLY sweep. The shared StorageRetention default is 6h — silently
+        inheriting it would 6x the gap between cleanup passes on an unchanged yaml
+        (reversibility: defaults preserve today's behavior)."""
+        config_content = """---
+mqtt:
+  broker_host: localhost
+  broker_port: 1883
+
+audio:
+  sample_rate: 48000
+  channels:
+    - id: 1
+      name: Channel 1
+      enabled: true
+
+storage:
+  base_path: /tmp
+  format:
+    audio: wav
+  retention:
+    raw_audio_days: 30
+
+logging:
+  level: INFO
+  format: text
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(config_content)
+            temp_path = Path(f.name)
+
+        try:
+            config = load_app_config(temp_path)
+            assert config.storage.check_interval_hours == 1.0
+        finally:
+            temp_path.unlink()
+
+    def test_cleanup_cadence_honors_explicit_operator_knob(self) -> None:
+        """An EXPLICIT storage.retention.check_interval_hours wins over the agent's
+        hourly default — including a value equal to the shared 6h default."""
+        config_content = """---
+mqtt:
+  broker_host: localhost
+  broker_port: 1883
+
+audio:
+  sample_rate: 48000
+  channels:
+    - id: 1
+      name: Channel 1
+      enabled: true
+
+storage:
+  base_path: /tmp
+  format:
+    audio: wav
+  retention:
+    raw_audio_days: 30
+    check_interval_hours: 6
+
+logging:
+  level: INFO
+  format: text
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(config_content)
+            temp_path = Path(f.name)
+
+        try:
+            config = load_app_config(temp_path)
+            assert config.storage.check_interval_hours == 6.0
+        finally:
+            temp_path.unlink()
+
     def test_channel_enabled_coercion(self) -> None:
         """Channels should properly coerce enabled field to boolean."""
         test_cases = [

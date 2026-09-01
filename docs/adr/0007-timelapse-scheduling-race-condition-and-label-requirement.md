@@ -89,10 +89,8 @@ The goal: a single `journalctl` session should tell you exactly what the agent d
 
 ### Positive
 
-- All cameras get equal scheduling opportunity regardless of processing order
-- Labels are explicit and predictable — what you see in YAML is what appears in filenames
-- Missing labels fail fast at config load, not silently at runtime
-- Logs provide complete audit trail for debugging production issues
+- Missing labels fail fast at config load, rather than silently producing empty
+  labels at runtime (Bug 2).
 
 ### Negative
 

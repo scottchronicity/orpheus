@@ -1,0 +1,458 @@
+# Simulacrum Test Matrix — build-ready design
+
+Status: partially implemented. Shipped: the in-process layer (Slices 1–4 plus the in-process topology invariance check). **Not implemented: Slice 5 (the `SimFleet` docker backend), Slice 6 (multi-broker topology), Slice 7 (full `@matrix` wiring).** §2b and §6.5–6.7 describe unbuilt work. The in-process layer is complete (Slice 1 n-1 failures,
+Slice 2 correlator-down canary, Slice 3 multiplicity, Slice 4 the generated
+full-powerset matrix, plus the topology leg); the real-model container fleet runs
+on demand. Additive, test-only. No production code, no schema, no agent-behavior
+changes.
+
+## Goal & owner constraints
+
+A test framework that can **express the full generated matrix** of
+`failure × topology × multiplicity` over the agent fleet, and **assert
+whole-system output including DB queries** ("query the DB and see this event
+was logged with all its evidence") — especially validating the
+**event-correlator**. The geometric explosion is by design; the framework must
+support it. CI stays fast by running a representative subset; the full matrix
+and the real-model fleet run on demand.
+
+"Keep it simple now, support advanced architectures later" is reconciled by:
+the **framework** supports the full matrix + multi-instance + multi-host; a
+**representative `@ci` subset** runs by default on the fast in-process surface;
+the **full `@matrix`** + real models run on demand and are never in default CI.
+
+REUSE mandate honored by slotting onto the **two suites that already exist**
+(not inventing a third):
+
+- **Fast / CI surface = `tests/bdd` (behave).** It already drives the real
+  `EventCorrelatorAgent` in-process with a `Mock()` bus and synthetic
+  detections, persisting to a tmp `DetectionDB` and flushing clusters
+  synchronously (`tests/bdd/environment.py`, `tests/bdd/steps/cognitive_loop_steps.py`).
+  This is the genuine "no models, no docker, seconds" surface and it already
+  asserts the DB. The matrix extends it.
+- **Real-model / on-demand surface = `tests/e2e_bdd` (pytest, `-m real_audio`).**
+  It already runs the real-audio cascade against the running docker fleet,
+  gated by `ORPHEUS_E2E_REAL_AUDIO` + `broker_reachable` skip
+  (`tests/e2e_bdd/conftest.py`, `test_real_audio_cascade.py`,
+  `fleet_helpers.audio_motion`). The matrix's docker path extends this.
+
+> Correction baked in from review: the earlier draft proposed an in-process
+> `SimFleet` built on `AgentRunner` "as a stub." That is not buildable —
+> `AgentRunner` (`bus_harness.py`) runs a *real* agent's `start()` against a
+> *real* bus, and the real classifier agents load ML models in `start()`.
+> There is no stub agent in the repo. The real fast surface is the behave
+> correlator+Mock pattern above; the real-fleet surface is e2e_bdd/pytest.
+> This design uses each for what it is and does not conflate them.
+
+---
+
+## 1. Matrix dimensions → concrete parametrization mechanism
+
+The matrix is the cartesian product of three independent axes. Each maps to a
+mechanism that **already exists**; the harness composes them.
+
+| Axis | Values | Mechanism (all shipped) |
+|---|---|---|
+| **D1: Agent failure / operational** | full powerset of the cascade agents down (n−1 each single down, n−2 each pair, …); plus *operational* restart (stop → start mid-run) | **In-process (CI):** the surviving set is just *which classifier contracts get driven* through `_on_detection_event` — a down agent = its detection is never injected. **Docker (on-demand):** subset = `docker compose up -d <svc…>` (omitted = down); restart = `docker compose stop/start <svc>` between `When` steps. |
+| **D2: Topology** | all-on-one-host → all-on-different-hosts, and in-between | **E6 overlay + backbone alias** (`docker-compose.distributed.yml`: `backbone-nuc` alias ~:19-22, `ORPHEUS_EVENT_BUS__NATS_URL` ~:25-28). "Host" = the env-seam NATS URL each agent points at, **not** real hardware. Single-host = all agents → one URL; multi-host = k brokers + per-agent URL override. This is the production `env > yaml > default` chain the overlay already proves. Two topology surfaces: an in-process **invariance** check (`topology.feature`, tagged `@topology @ci`) that varies a `host` discriminator and asserts fusion is unaffected — no bus involved — and the real multi-broker wiring on the docker path, which is **not implemented**. |
+| **D3: Multiplicity** | N instances of a type (audio-motion × 3 hosts × 4 mics) | **`instance_id` seam** (`actor/identity.py`): each instance = a distinct compose service with `ORPHEUS_AGENT_INSTANCE_ID=hostA-mic2` → unique `client_id` + health topic `orpheus/system/audio-motion/hostA-mic2/health`. **In-process (CI):** multiplicity is just multiple synthetic detections carrying distinct `sensor_id`s (already supported — `cognitive_loop_steps.py` `_detection(species, sensor_id=…)`). |
+
+**KISS decision — topology = NATS-URL grouping, not hardware.** The full
+topology axis is generated by *partitioning the agent set across k backbone
+URLs* (k=1 single-host … k=n fully distributed). No new infra: k extra
+`nats:2.10-alpine` services + per-agent `ORPHEUS_EVENT_BUS__NATS_URL`. First
+pass: k ∈ {1, n} (all-one-broker, one-broker-per-agent) covers the endpoints;
+the in-between partitions are *generated* (so the matrix is complete) but
+`@ci`-skipped.
+
+**Cascade universe.** The 9 agents are the universe; the **n=5 cascade-relevant
+set** is `audio-motion → {bird-detection, crow-detection, audio-events} →
+event-correlator`. The matrix is enumerated over these 5; the framework is not
+hard-coded to 5 (see §4 oracle).
+
+---
+
+## 2. The fleet-subset harness — `SimFleet` (docker path) + the in-process surface
+
+There are **two surfaces, deliberately**, each reusing what already exists. The
+**step library is shared** so feature files don't branch on backend.
+
+### 2a. In-process surface (fast, CI default) — extend `tests/bdd/environment.py`
+
+No new harness object. The existing behave fixture already builds a real
+correlator with a Mock bus + tmp DB and flushes synchronously. The matrix adds:
+
+- a **subset driver**: given the surviving classifier set for a row, inject one
+  synthetic detection per surviving classifier's contract via
+  `context.agent._on_detection_event(topic, det)`, then
+  `for e in context.agent.cluster_manager.flush_all(): context.agent._on_entity_ready(e)`
+  — exactly the existing `cognitive_loop_steps.py` pattern.
+- a **correlator-down** variant: drive nothing through the correlator (or
+  assert against agents' own self-save) — see §5 canary.
+- **multiplicity**: append multiple `_detection(species, sensor_id=…)` with
+  distinct sensors (existing helper) to assert cross-sensor fusion.
+
+This surface has **no bus and no topology** — D2 is out of scope here by
+construction. That is correct: topology is a transport property, only
+observable on the docker path.
+
+### 2b. Docker surface (real models, on-demand) — `SimFleet` + extend `tests/e2e_bdd`
+
+> **Not built.** No such module exists; `testing/` holds `bus_harness.py` only.
+
+One new module, `platform/orpheus-common/src/orpheus_common/testing/sim_fleet.py`,
+exported alongside the existing `bus_harness` symbols. A thin context manager
+over `docker compose` that reuses the compose files **verbatim** — it does not
+reinvent agent startup (Dockerfile.agent + profiles) or bus observation
+(`Observer`/`Recorder`/`publish`). Consumed from **pytest** in `tests/e2e_bdd`
+(parametrized), alongside `test_real_audio_cascade.py`, not from behave.
+
+```python
+# sim_fleet.py — KISS: a typed wrapper over `docker compose up -d <subset>` + teardown
+@dataclass(frozen=True)
+class Instance:
+    type: str                          # "audio-motion" | "bird-detection" | ...
+    instance_id: str | None = None     # -> ORPHEUS_AGENT_INSTANCE_ID  (D3)
+    broker: str = "backbone-nuc"       # -> ORPHEUS_EVENT_BUS__NATS_URL host (D2)
+    clip: str | None = None            # mounted clip for multiplicity
+
+class SimFleet:
+    """Bring up an arbitrary agent subset (+ topology + multiplicity), tear it down.
+
+    Reuses docker-compose.dev.yml (profiles) + docker-compose.distributed.yml
+    (env-seam, backbone alias). Generates a per-run override compose snippet for
+    the instance fan-out; everything else is the shipped fleet.
+    """
+    def __init__(self, instances, brokers=("backbone-nuc",), data_root=None):
+        self._instances = instances
+        self._brokers = brokers        # k>1 => extra nats services (D2)
+        self._data_root = data_root    # per-row ORPHEUS_DATA_ROOT subdir (F5 fix)
+
+    def __enter__(self):
+        self._write_override()         # tmp docker-compose.matrix.yml: one svc per Instance
+        run(["docker","compose","-f","docker-compose.dev.yml",
+             "-f","docker-compose.distributed.yml","-f",self._override,
+             "up","-d", *self._service_names()])     # no --build per row (F5)
+        self._wait_healthy()           # reuse sim-distributed-validate.sh gate
+        return self
+
+    def __exit__(self, *exc):
+        run(["docker","compose", *self._files, "stop", *self._service_names()])
+        # DB isolation is per-row ORPHEUS_DATA_ROOT, not `down -v` (F5)
+
+    def stop(self, type_, instance_id=None):  ...   # operational restart op (D1)
+    def start(self, type_, instance_id=None): ...
+    @property
+    def db_path(self): ...             # f"{data_root}/detections.db" for this row
+    @property
+    def nats_url(self): ...
+```
+
+- **Reuse:** `broker_reachable()` for readiness; `Observer`/`publish` +
+  `fleet_helpers.audio_motion` for the bus leg; the `x-detection-agent` anchor
+  + Dockerfile.agent for the agents; the `sim-distributed-validate.sh`
+  `_wait_healthy` pattern (backplane `/healthz` + agent "Connected to NATS"
+  log). The only generated artifact is a tmp override declaring one service per
+  `Instance` (instance fan-out is the one thing compose profiles can't express).
+- **Per-row isolation without `down -v --build` (F5 fix):** each row gets a
+  fresh `ORPHEUS_DATA_ROOT` subdir (its own DB file) inside the already-mounted
+  named volume. Build once for the whole run; `up -d`/`stop` per row, never
+  `--build` per row, never a full volume wipe per row. This is what makes the
+  on-demand full matrix actually runnable rather than hours of rebuilds.
+
+---
+
+## 3. Gherkin layout + concrete feature + step library
+
+One **behave** feature file per dimension under `tests/bdd/features/` (the
+existing `environment.py` is already wired). The geometric explosion lives
+**entirely in the Examples tables**; step code never enumerates.
+
+- `agent_failure.feature` — tags `@n-1`, `@n-2`, `@fault`, `@restart`
+- `topology.feature` — tags `@single-host`, `@multi-host` *(docker path; `@matrix` only)*
+- `multiplicity.feature` — tag `@multi-instance`
+- `correlator_down.feature` — tags `@correlator-down`, `@all-down` (§5)
+
+Concrete first slice — the n−1 single-agent-down over the existing cascade, on
+the in-process surface:
+
+```gherkin
+# tests/bdd/features/agent_failure.feature
+Feature: Cascade DB output under single-agent-down (n-1)
+  The whole-system output — the published EntityEvent AND the DetectionDB
+  evidence — is asserted for each single classifier removed from the cascade.
+  Validates that the correlator still fuses the survivors into one entity.
+
+  @n-1 @fault @ci
+  Scenario Outline: <down> down — DB logs the entity with the surviving evidence
+    Given the surviving classifiers are everything except <down>
+    When the surviving classifiers each report on one signal
+    Then the DB has exactly 1 entity
+    And the entity evidence types are exactly <evidence_types>
+    And the entity has at least 1 corvid evidence type
+
+    Examples: each single classifier removed (evidence is correct-by-construction)
+      | down            | evidence_types                              |
+      | crow-detection  | species.detected,audio.classified           |
+      | bird-detection  | crow.analyzed,audio.classified              |
+      | audio-events    | species.detected,crow.analyzed              |
+      | none            | species.detected,crow.analyzed,audio.classified |
+```
+
+Note: the **evidence-type set** is the load-bearing, correct-by-construction
+assertion (it is literally "surviving classifiers' output types"). The degraded
+**species** value across taxonomies is **not** hard-asserted here — see F4 fix
+in §5. The `@n-2` Examples live in the same file; `topology.feature` carries a
+`<topology>` (k brokers) column; `multiplicity.feature` carries `<instance_count>`.
+Each row = one surviving-set configuration (in-process) or one `SimFleet`
+(docker).
+
+### Step library — `tests/bdd/steps/sim_matrix_steps.py` (new)
+
+The `Then` steps query exactly the DB surfaces the domain calls out:
+`get_chain(root)` (`database.py`), `get_entities()` (`:852`),
+`get_entity_by_id()` (`:830`). This is the literal "query the DB and see this
+event logged with all its evidence."
+
+```python
+from orpheus_common.detection import is_corvid_species_code  # species.py:166
+
+CASCADE_CLASSIFIERS = ["bird-detection", "crow-detection", "audio-events"]
+
+# CONTRACT ORACLE (the one source of truth — §4). type -> output detection_type
+CONTRACT = {
+    "bird-detection": "species.detected",
+    "crow-detection": "crow.analyzed",
+    "audio-events":   "audio.classified",
+}
+
+@given("the surviving classifiers are everything except {down}")
+def step_surviving(context, down):
+    context.surviving = [c for c in CASCADE_CLASSIFIERS if c != down]  # down="none" => all
+
+@when("the surviving classifiers each report on one signal")
+def step_report(context):
+    for clf in context.surviving:
+        det = synth_detection(clf)                       # contract-shaped dict
+        context.agent._on_detection_event(CONTRACT_TOPIC[clf], det)
+    for e in context.agent.cluster_manager.flush_all():  # reuse existing pattern
+        context.agent._on_entity_ready(e)
+    context.db = context.agent.db
+
+@then("the DB has exactly 1 entity")
+def step_one_entity(context):
+    ents = context.db.get_entities()
+    assert len(ents) == 1, [e.species for e in ents]
+    context.entity = ents[0]
+
+@then("the entity evidence types are exactly {types}")
+def step_evidence(context, types):
+    got = {ev.detection_type for ev in context.entity.evidence}
+    assert got == set(parse_csv(types)), got           # degraded = exactly survivors
+
+@then("the entity has at least 1 corvid evidence type")
+def step_corvid(context):
+    assert any(is_corvid_species_code(ev.species_code) for ev in context.entity.evidence)
+
+# Docker-path Then steps (pytest, @matrix) additionally assert get_chain integrity:
+def assert_chain(db, root, n):
+    chain = db.get_chain(root)
+    assert len(chain) == n, [d.detection_type for d in chain]
+    assert all(d.root_event_id == root for d in chain)         # chain integrity
+    assert chain[0].source_event_id is None                    # audio.motion self-root
+```
+
+---
+
+## 4. CI-representative vs on-demand-full-matrix — generation + make targets
+
+### Generation — `tests/bdd/matrix_gen.py` (the matrix is generated, not hand-curated)
+
+A small generator enumerates `powerset(CASCADE_CLASSIFIERS) × topologies(k) ×
+instance_counts` and computes the expected DB outcome **compositionally** from
+one declarative oracle: the per-agent contract `{type: (input_topic,
+output_detection_type)}` (~the domain-mapping table encoded as ~40 lines of
+dict). Expected entity evidence = **∪ of surviving classifiers' output types** —
+correct-by-construction, so adding a 10th agent extends coverage automatically.
+This is the *one* source of truth and satisfies the
+generated-not-hand-curated criterion + the "support advanced architectures"
+mandate without hand-writing 2^n rows.
+
+**Signal vs noise (F3 fix).** The cascade is linear
+(audio-motion → {3 classifiers} → correlator), so most powerset rows are
+**oracle-tautologies**: removing {bird, crow} yields exactly the set-difference
+the two single-down rows already imply. The generator therefore emits **all**
+rows (satisfies "generated"), but tags only the **behaviorally-distinct
+frontier** for default selection:
+
+- all n−1 single-classifier-down rows (3) — each removes one independent
+  contribution;
+- all-classifiers-down (1) — entity with zero classifier evidence;
+- correlator-down (1) — the persist-without-fusion canary (§5);
+- one multi-instance cross-sensor fusion row (1).
+
+≈6 behaviorally-novel rows carry the real assertions; the remaining
+powerset rows are emitted, tagged `@matrix-derived`, and documented as
+oracle-derived (they test the generator, not the system). The full powerset
+still *runs* under `@matrix` on demand for completeness.
+
+### CI default (fast, additive, no slowdown)
+
+- Runs the **in-process behave surface** (real correlator + Mock bus + synthetic
+  detections — §2a) over the `@ci` frontier: all n−1 rows + all-down + a
+  2-instance multiplicity smoke. **Seconds, no models, no docker.**
+- The real-model docker fleet stays gated behind `ORPHEUS_E2E_REAL_AUDIO` +
+  `broker_reachable`, exactly like `tests/e2e_bdd/conftest.py` — never in
+  default CI.
+
+### On-demand (full geometric matrix + real models)
+
+- The docker `SimFleet` parametrized pytest (no make target ships for it today) runs in
+  `tests/e2e_bdd` under `ORPHEUS_E2E_REAL_AUDIO=1`, full
+  powerset × topology × multiplicity. Mirrors the existing `sim-validate`
+  pattern (`Makefile:818-820`).
+- `make sim-matrix-ci` — runs the generated full-powerset matrix
+  (`tests/bdd/test_matrix_generated.py`) through the in-process correlator via
+  pytest. It touches no `.feature` file; the readable `@ci` behave frontier is
+  `make test-bdd`.
+
+Make targets land next to `sim-validate` (`Makefile:818`) and `test-bdd`
+(`Makefile:1022-1032`), reusing the correlator venv's behave / the e2e venv's
+pytest as those targets already do.
+
+---
+
+## 5. Correlator-focused scenarios — `correlator_down.feature` (`@correlator-down`, `@all-down`)
+
+Two of the groups below were never written: **Fusion under each subset** (the
+generated matrix asserts the evidence-type set, not the count) and
+**Equivalence / label-compat**. Multi-instance fusion lives in
+`multiplicity.feature`.
+
+The subset whose assertions target fusion specifically, not just survival:
+
+- **Fusion under each subset.** For every D1 row, assert
+  `len(get_entities()) == 1` (one fused entity, not N orphans) AND evidence
+  count == number of surviving classifiers — proving the cluster's
+  `_same_source` (overlap ∧ label-compatible) still unions the survivors
+  (`cluster_manager.py` `same_source` / `is_equivalent` wiring, mirrored from
+  `environment.py`).
+- **Correlator-down is the canary (highest-value single scenario).** All
+  surviving classifiers' detections **persist** (agents self-save, ADR 0012)
+  but `get_entities() == 0` — the one scenario that isolates the fusion+persist
+  leg. On the docker path this is the only row where we assert
+  `get_chain(root)` has the detections present while the entities table is
+  empty.
+- **Multi-instance fusion.** 3 audio-motion instances on distinct mics
+  observing one signal → assert `event_signature` (`database.py`,
+  `:800-820`) carries 3 sensors yet still **one** entity (cross-sensor
+  fusion). In-process: 3 `_detection(species, sensor_id=…)`
+  with distinct sensors (existing helper).
+- **Equivalence / label-compat.** bird(ioc) + audio-events(audioset) with
+  crow-detection down → still 1 entity, proving label compatibility via
+  taxonomy equivalence survives a missing leg (`equivalence.py` `is_equivalent`).
+
+**F4 fix — degraded cross-taxonomy species is `@pending`, not hard-asserted.**
+The earlier draft asserted exact degraded species values (e.g.
+`bird-detection down → species audioset_/m/04s8yn`). There is **no
+`resolve_species` function** to cite — the entity species is set during fusion,
+and the cross-taxonomy precedence on a degraded path is exactly what Task #25
+(*open*: "crow AVES classifier is_crow=False on a real crow clip") is about.
+Asserting a hard species value on that path would either flake or encode the
+bug. Therefore:
+
+- Degraded-path assertions check **evidence-type set** (correct-by-construction)
+  and **corvid-ness via `is_corvid_species_code`** (`species.py`, a real
+  cited code path), **not** an exact cross-taxonomy species string.
+- The exact degraded-species rows are emitted by the generator but tagged
+  `@pending` (behave `@skip`/expected-fail) with a comment pointing at #25;
+  un-pend them when #25 closes and a citable resolution path exists.
+
+---
+
+## 6. Ordered slices (flywheel-pickable, one green commit each)
+
+1. **n−1 single-agent-down on the in-process behave surface** *(small — FIRST)*.
+   `agent_failure.feature` (the §3 outline, `@ci`) + `sim_matrix_steps.py` DB
+   step library, driving the existing `environment.py` correlator+Mock surface
+   via `_on_detection_event` + `flush_all`. No new harness object, no docker, no
+   models. Proves the whole loop (surviving-set → inject → DB query → 1 entity
+   with the surviving evidence) end to end in seconds. **Green.**
+2. **DB-evidence step hardening + correlator-down canary** *(small)*. Generalize
+   evidence-set / corvid-evidence / entity-count steps; add the correlator-down
+   canary (detections persist, 0 entities) and all-classifiers-down row.
+   `correlator_down.feature` `@correlator-down`. **Green.**
+3. **Multiplicity on the in-process surface** *(small)*. `multiplicity.feature`
+   `@multi-instance`: multiple `_detection(sensor_id=…)` → assert
+   `event_signature` sensor count == N but one entity. **Green.**
+4. **`matrix_gen.py` generator + tag-frontier selection** *(medium)*. The
+   declarative contract oracle; emit full powerset; tag `@ci` frontier vs
+   `@matrix-derived`; degraded-species rows `@pending` (#25). `make sim-matrix-ci`.
+   Closes "generated, not hand-curated." **Green.**
+5. **`SimFleet` docker backend** *(big, on-demand)*. New `sim_fleet.py` + export;
+   compose-override generator + `docker compose up -d <subset>` + the
+   `sim-distributed-validate.sh` healthcheck poll + per-row `ORPHEUS_DATA_ROOT`
+   isolation (no `down -v --build` per row). Consumed from a **parametrized
+   pytest** in `tests/e2e_bdd` alongside `test_real_audio_cascade.py`, gated by
+   `ORPHEUS_E2E_REAL_AUDIO` + `broker_reachable` skip; run the docker fleet suite directly.
+   **Past the env-var gate an unreachable broker is a failure, not a skip** — see the rationale in `tests/e2e_bdd/conftest.py`.
+6. **Topology axis (E6 multi-broker)** *(medium, docker/on-demand)*. k ∈ {1, n}
+   brokers via per-agent `ORPHEUS_EVENT_BUS__NATS_URL` + backbone alias reuse;
+   plus the operational **restart** op via `SimFleet.stop/start` between `When`
+   steps. The in-between partitions are generated, `@matrix`-only. **Green.**
+7. **Full `@matrix` wiring + on-demand docs** *(medium)*. Wire the full
+   powerset × topology × multiplicity through the docker `SimFleet`; document
+   the @ci-vs-@matrix split, the nightly/on-demand invocation, and the
+   oracle-tautology caveat. **Green.**
+
+Slices 1–4 land **entirely in-process and fast** (default CI). The heavy docker
+/ real-model work (5–7) is opt-in and never touches default CI.
+
+---
+
+## 7. Reversibility + risks
+
+- **Reversibility (best axis).** Every slice is additive — new files
+  (`sim_fleet.py`, `*.feature`, `sim_matrix_steps.py`, `matrix_gen.py`), new
+  make targets, a tmp override compose file. No production code, no schema, no
+  agent-behavior change. Revert = delete the file / remove the target. The
+  `instance_id` seam (`identity.py`), the E6 overlay
+  (`docker-compose.distributed.yml`), `bus_harness`, and the behave
+  `environment.py` surface are all already shipped and **unmodified**.
+- **Risk — CI time.** Mitigated by (a) in-process behave default backend (no
+  models, no docker), (b) `@ci` ≈6-row frontier only, (c) real-model fleet gated
+  by `ORPHEUS_E2E_REAL_AUDIO` + `broker_reachable` skip — identical to the proven
+  `tests/e2e_bdd` gating.
+- **Risk — on-demand full-matrix runtime.** Mitigated by per-row
+  `ORPHEUS_DATA_ROOT` isolation + build-once (no `down -v --build` per row), so
+  a row costs `up -d`/`stop`, not a full compose cycle. The geometric explosion
+  is by design and lives only in the docker fleet suite, which has no make target today.
+- **Risk — flake from docker readiness.** Reuse the existing
+  `sim-distributed-validate.sh` `_wait_healthy` pattern (`/healthz` + "Connected
+  to NATS" log) and `broker_reachable()`; on-demand only, so flake never reds
+  default CI.
+- **Risk — degraded cross-taxonomy species correctness.** Mitigated by F4 fix:
+  assert evidence-type set + corvid-ness (cited code), not exact cross-taxonomy
+  species; the exact-species rows are `@pending` until #25 closes.
+- **Caveat — oracle tautologies.** The full powerset's n−2+ rows are mostly
+  derivable from the n−1 rows; they are emitted for completeness but documented
+  as oracle-derived. Behavioral signal lives in the ≈6-row frontier.
+
+### Key files
+
+- New: `platform/orpheus-common/src/orpheus_common/testing/sim_fleet.py`
+  (+ `testing/__init__.py` export); `tests/bdd/features/{agent_failure,topology,multiplicity,correlator_down}.feature`;
+  `tests/bdd/steps/sim_matrix_steps.py`; `tests/bdd/matrix_gen.py`.
+- Reused unmodified: `tests/bdd/environment.py`,
+  `tests/bdd/steps/cognitive_loop_steps.py`,
+  `tests/e2e_bdd/{conftest.py,fleet_helpers.py,test_real_audio_cascade.py}`,
+  `platform/orpheus-common/src/orpheus_common/testing/bus_harness.py`,
+  `platform/orpheus-common/src/orpheus_common/actor/identity.py`,
+  `platform/orpheus-common/src/orpheus_common/detection/database.py`
+  (`get_chain:659`, `get_entity_by_id:830`, `get_entities:852`,
+  `event_signature` col `:330`/`:800-820`),
+  `platform/orpheus-common/src/orpheus_common/detection/species.py`
+  (`is_corvid_species_code`), `docker-compose.dev.yml`,
+  `docker-compose.distributed.yml`, `docker/sim-distributed-validate.sh`.
+- Make targets near `Makefile:818` (`sim-validate`) and `Makefile:1022-1032`
+  (`test-bdd`): add `sim-matrix`, `sim-matrix-ci`.

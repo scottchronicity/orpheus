@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any, List, Optional
 
+from orpheus_common import EventBus
 from orpheus_common.diagnostics.video_health import get_video_health_monitor
 from orpheus_common.logging import get_logger
-from orpheus_common.mqtt import MQTTClient
 from orpheus_common.utils.buffer import PreRollRingBuffer
 from orpheus_common.video.source import VideoFrame
 
@@ -36,7 +36,7 @@ class CameraProcessor:
         self,
         camera_id: str,
         detector: DetectorAlgorithm,
-        mqtt_client: MQTTClient,
+        mqtt_client: EventBus,
         clip_saver: ClipSaver,
         topic_events: str,
         topic_status: str,

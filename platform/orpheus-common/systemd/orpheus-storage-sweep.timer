@@ -1,0 +1,26 @@
+[Unit]
+Description=Run the Orpheus storage retention sweep every 15 minutes
+Documentation=https://github.com/scottchronicity/orpheus
+
+[Timer]
+# Not at boot exactly: a station coming up has agents loading models and
+# opening cameras, and a walk over a quarter-million files is not what that
+# minute needs. Five minutes in, everything that is going to start has.
+OnBootSec=5min
+# Matches storage.retention.sweep_interval_minutes. Change both together —
+# the config value is what the dashboard reports as the cadence, and the
+# timer is what actually schedules it.
+OnUnitActiveSec=15min
+# A station that was powered off through several ticks sweeps once on the
+# way up rather than not at all. It also does not try to make up the missed
+# runs, which for a retention sweep would be pointless: one run measures the
+# current state, and the current state is all that matters.
+Persistent=true
+# Spread the walk off the exact quarter-hour so it does not land on top of
+# whatever else a station schedules there.
+RandomizedDelaySec=60
+AccuracySec=30s
+Unit=orpheus-storage-sweep.service
+
+[Install]
+WantedBy=timers.target

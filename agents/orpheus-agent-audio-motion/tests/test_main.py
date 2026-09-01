@@ -1,7 +1,7 @@
-"""Tests for the AudioMotionDetector main class and cleanup functionality."""
+"""Tests for the AudioMotionDetector main class."""
 
 import asyncio
-from pathlib import Path
+import os
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -30,253 +30,163 @@ def mock_config():
 
 
 @pytest.mark.asyncio
-async def test_cleanup_task_started_on_start():
-    """Test that cleanup task is created when agent starts."""
-    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config:
-        with patch("orpheus_agent_audio_motion.main.setup_logging"):
-            mock_config = Mock()
-            mock_config.logging.level = "INFO"
-            mock_config.logging.use_json = False
-            mock_config.storage.retain_days = 30
-            mock_config.storage.category = "audio_motion"
-            mock_config.storage.write_format = "flac"
-            mock_config.mqtt.broker_host = "localhost"
-            mock_config.mqtt.broker_port = 1883
-            mock_config.mqtt.qos = 1
-            mock_config.mqtt.keepalive = 60
-            mock_config.mqtt.topic_events = "test/events"
-            mock_config.mqtt.topic_status = "test/status"
-            mock_config.runtime.sample_rate = 48000
-            # Add at least one enabled channel so we don't get RuntimeError
-            mock_channel = Mock()
-            mock_channel.id = "test_channel"
-            mock_channel.enabled = True
-            mock_config.channels = [mock_channel]
-            mock_load_config.return_value = mock_config
+async def test_agent_does_not_delete_recordings(tmp_path, mock_config):
+    """The agent records; orpheus-storage-sweep is the only component that deletes
+    under the data root. The clip here predates every retention window and
+    retain_days is 0, so any trim the agent still ran would take it."""
+    clip_dir = tmp_path / "audio_motion"
+    clip_dir.mkdir()
+    expired_clip = clip_dir / "2020-01-01T00-00-00Z.flac"
+    expired_clip.write_bytes(b"clip")
+    os.utime(expired_clip, (0, 0))
 
-            detector = AudioMotionDetector()
+    mock_config.storage.retain_days = 0
 
-            # Track coroutines that need to be closed
-            pending_coros = []
+    # Captured before the patch below, which lands on the real asyncio module:
+    # collapsing the agent's timers means a reinstated cleanup pass reaches its
+    # first sweep within the loop turns this test drives, instead of sleeping
+    # past the assertion.
+    yield_once = asyncio.sleep
 
-            # Patch dependencies
-            with patch.object(
-                detector, "_initialize_dependencies", new_callable=AsyncMock
-            ) as mock_init:  # noqa: F841
-                with patch(
-                    "orpheus_agent_audio_motion.main.asyncio.create_task"
-                ) as mock_create_task:
-                    # Simulate the cleanup task being created
-                    mock_cleanup_task = Mock()
-                    mock_stream_task = Mock()
+    async def no_wait(_delay):
+        await yield_once(0)
 
-                    def side_effect(coro):
-                        # Close the coroutine to prevent "never awaited" warning
-                        pending_coros.append(coro)
-                        # Return different mocks for different tasks
-                        if "periodic_cleanup" in str(coro):
-                            return mock_cleanup_task
-                        return mock_stream_task
-
-                    mock_create_task.side_effect = side_effect
-
-                    # Start the detector but immediately stop it
-                    detector._stop_event.set()
-
-                    try:
-                        await detector.start()
-                    except Exception:
-                        pass  # Expected since we're mocking heavily
-                    finally:
-                        # Close all pending coroutines to avoid warnings
-                        for coro in pending_coros:
-                            coro.close()
-
-                    # Verify cleanup task was created
-                    assert detector._cleanup_task is not None or mock_create_task.call_count >= 1
-
-
-@pytest.mark.asyncio
-async def test_cleanup_task_cancelled_on_stop():
-    """Test that cleanup task is cancelled when agent stops."""
-    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config:
-        mock_config = Mock()
-        mock_config.logging.level = "INFO"
-        mock_config.logging.use_json = False
-        mock_config.storage.retain_days = 30
-        mock_config.channels = []  # Add channels list
-        mock_load_config.return_value = mock_config
+    with patch("orpheus_agent_audio_motion.main.load_app_config", return_value=mock_config), patch(
+        "orpheus_agent_audio_motion.main.setup_logging"
+    ), patch(
+        "orpheus_agent_audio_motion.main.get_audio_path", return_value=clip_dir
+    ), patch(
+        "orpheus_agent_audio_motion.main.get_audio_health_monitor"
+    ) as mock_monitor, patch(
+        "orpheus_agent_audio_motion.main.build_operational_health", return_value=None
+    ), patch(
+        "orpheus_common.config.OrpheusConfig.get_instance"
+    ), patch(
+        "orpheus_agent_audio_motion.main.asyncio.sleep", no_wait
+    ):
+        mock_monitor.return_value.get_status.return_value = {"status": "online"}
 
         detector = AudioMotionDetector()
+        with patch.object(
+            detector, "_initialize_dependencies", new_callable=AsyncMock
+        ), patch.object(detector, "_consume_frames", new_callable=AsyncMock):
+            start_task = asyncio.create_task(detector.start())
+            for _ in range(20):
+                await yield_once(0)
+            detector._stop_event.set()
+            await start_task
 
-        # Create a real task that we can track
-        async def dummy_task():
-            try:
-                await asyncio.sleep(100)
-            except asyncio.CancelledError:
-                raise
-
-        cleanup_task = asyncio.create_task(dummy_task())
-        detector._cleanup_task = cleanup_task
-
-        # Call stop
-        await detector.stop()
-
-        # Verify task was cancelled
-        assert cleanup_task.cancelled()
+    assert expired_clip.exists()
 
 
 @pytest.mark.asyncio
-async def test_periodic_cleanup_uses_correct_policy():
-    """Test that periodic cleanup uses correct CleanupPolicy settings."""
-    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config:
-        with patch("orpheus_agent_audio_motion.main.get_audio_path") as mock_get_audio_path:
-            with patch("orpheus_agent_audio_motion.main.StorageCleanup") as mock_storage_cleanup:
-                with patch("orpheus_agent_audio_motion.main.CleanupPolicy") as mock_cleanup_policy:
-                    with patch("orpheus_agent_audio_motion.main.asyncio.sleep") as mock_sleep:
-                        # Make sleep return immediately and raise CancelledError on second call
-                        mock_sleep.side_effect = [None, asyncio.CancelledError()]
+async def test_stop_cancels_the_background_tasks(mock_config):
+    """A task left running past stop() keeps the process alive and keeps
+    publishing after the agent has said it is down."""
+    with patch("orpheus_agent_audio_motion.main.load_app_config", return_value=mock_config), patch(
+        "orpheus_agent_audio_motion.main.setup_logging"
+    ), patch("orpheus_agent_audio_motion.main.get_audio_path"), patch(
+        "orpheus_agent_audio_motion.main.get_audio_health_monitor"
+    ) as mock_monitor, patch(
+        "orpheus_agent_audio_motion.main.build_operational_health", return_value=None
+    ), patch(
+        "orpheus_agent_audio_motion.main.health_on_bus_active", return_value=False
+    ), patch("orpheus_common.config.OrpheusConfig.get_instance"):
+        mock_monitor.return_value.get_status.return_value = {"status": "online"}
 
-                        mock_config = Mock()
-                        mock_config.logging.level = "INFO"
-                        mock_config.logging.use_json = False
-                        mock_config.storage.retain_days = 30
-                        mock_config.storage.max_size_gb = 100.0
-                        mock_config.storage.cleanup_strategy = "oldest"
-                        mock_config.storage.cleanup_trigger_percent = 85.0
-                        mock_config.storage.cleanup_amount_percent = 20.0
-                        mock_config.storage.check_interval_hours = 2
-                        mock_config.storage.min_file_age_hours = 2.0
-                        mock_config.channels = []  # Add channels list
-                        mock_load_config.return_value = mock_config
+        detector = AudioMotionDetector()
+        with patch.object(
+            detector, "_initialize_dependencies", new_callable=AsyncMock
+        ), patch.object(detector, "_consume_frames", new_callable=AsyncMock):
+            start_task = asyncio.create_task(detector.start())
+            # Enough turns for the health loop to reach its first sleep, so
+            # "not done" below means genuinely parked rather than not started.
+            for _ in range(5):
+                await asyncio.sleep(0)
+            health_task = detector._health_task
+            assert health_task is not None
+            assert not health_task.done(), "health loop died on its own; test proves nothing"
 
-                        mock_get_audio_path.return_value = Path("/data/orpheus/audio_motion")
+            detector._stop_event.set()
+            await start_task
 
-                        # Mock cleanup result
-                        mock_result = Mock()
-                        mock_result.files_removed = 0
-                        mock_result.errors = []
-                        mock_cleanup_instance = Mock()
-                        mock_cleanup_instance.cleanup.return_value = mock_result
-                        mock_storage_cleanup.return_value = mock_cleanup_instance
-
-                        detector = AudioMotionDetector()
-                        detector._stop_event = asyncio.Event()
-
-                        # Run cleanup - it will execute once then raise CancelledError
-                        try:
-                            await detector._periodic_cleanup()
-                        except asyncio.CancelledError:
-                            pass
-
-                        # Verify CleanupPolicy was created with correct settings
-                        mock_cleanup_policy.assert_called_once()
-                        call_kwargs = mock_cleanup_policy.call_args[1]
-                        assert call_kwargs["max_size_gb"] == 100.0
-                        assert call_kwargs["max_age_days"] == 30
-                        assert call_kwargs["cleanup_strategy"] == "oldest"
-                        assert call_kwargs["cleanup_trigger_percent"] == 85.0
-                        assert call_kwargs["cleanup_amount_percent"] == 20.0
-                        assert call_kwargs["min_file_age_hours"] == 2.0
-                        assert call_kwargs["file_pattern"] == "*.flac"
+    # Done, not cancelled: the loop catches CancelledError and returns, so a
+    # cancelled() assertion would be false even when stop() worked.
+    assert health_task.done()
+    assert detector._stream_task is None
 
 
 @pytest.mark.asyncio
-async def test_periodic_cleanup_uses_defaults_for_missing_config():
-    """Test that periodic cleanup gracefully handles missing config fields with defaults."""
-    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config:
-        with patch("orpheus_agent_audio_motion.main.get_audio_path") as mock_get_audio_path:
-            with patch("orpheus_agent_audio_motion.main.StorageCleanup") as mock_storage_cleanup:
-                with patch("orpheus_agent_audio_motion.main.CleanupPolicy") as mock_cleanup_policy:
-                    with patch("orpheus_agent_audio_motion.main.asyncio.sleep") as mock_sleep:
-                        # Make sleep return immediately and raise CancelledError on second call
-                        mock_sleep.side_effect = [None, asyncio.CancelledError()]
+async def test_event_bus_built_from_shared_orpheus_config():
+    """create_event_bus must receive the OrpheusConfig SINGLETON (which carries the
+    operator's event_bus.* section), NOT the agent-local AppConfig — the AppConfig
+    has no event_bus attribute, so handing it to the factory silently killed every
+    event_bus knob (backend, nats_url, connect_required, …)."""
+    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config, patch(
+        "orpheus_agent_audio_motion.main.create_event_bus"
+    ) as mock_bus_factory, patch(
+        "orpheus_agent_audio_motion.main.ClipSaver"
+    ), patch(
+        "orpheus_agent_audio_motion.main.create_audio_source", new_callable=AsyncMock
+    ) as mock_source_factory, patch(
+        "orpheus_agent_audio_motion.main.DetectionDB"
+    ), patch(
+        "orpheus_common.config.OrpheusConfig.get_instance"
+    ) as mock_get_instance:
+        mock_config = Mock()
+        mock_config.storage.category = "audio_motion"
+        mock_config.storage.write_format = "flac"
+        mock_config.runtime.sample_rate = 48000
+        mock_config.runtime.frame_duration_ms = 200
+        mock_config.mqtt.qos = 1
+        mock_config.channels = []
+        mock_load_config.return_value = mock_config
 
-                        # Config with minimal fields (no cleanup-specific fields)
-                        mock_config = Mock()
-                        mock_config.logging.level = "INFO"
-                        mock_config.logging.use_json = False
-                        mock_config.storage.retain_days = 30
-                        mock_config.channels = []  # Add channels list
-                        # Remove all optional cleanup fields to test defaults
-                        del mock_config.storage.max_size_gb
-                        del mock_config.storage.cleanup_strategy
-                        del mock_config.storage.cleanup_trigger_percent
-                        del mock_config.storage.cleanup_amount_percent
-                        del mock_config.storage.check_interval_hours
-                        del mock_config.storage.min_file_age_hours
-                        mock_load_config.return_value = mock_config
+        shared_config = Mock()
+        shared_config.audio.channels = []
+        mock_get_instance.return_value = shared_config
+        mock_source_factory.return_value = AsyncMock()
 
-                        mock_get_audio_path.return_value = Path("/data/orpheus/audio_motion")
+        detector = AudioMotionDetector()
+        with patch.object(detector, "_setup_event_sourcing_shadow", return_value=False):
+            # No enabled channels raises AFTER the bus is built — expected here.
+            with pytest.raises(RuntimeError, match="No enabled channels"):
+                await detector._initialize_dependencies()
 
-                        # Mock cleanup result
-                        mock_result = Mock()
-                        mock_result.files_removed = 0
-                        mock_result.errors = []
-                        mock_cleanup_instance = Mock()
-                        mock_cleanup_instance.cleanup.return_value = mock_result
-                        mock_storage_cleanup.return_value = mock_cleanup_instance
-
-                        detector = AudioMotionDetector()
-                        detector._stop_event = asyncio.Event()
-
-                        # Run cleanup - it will execute once then raise CancelledError
-                        try:
-                            await detector._periodic_cleanup()
-                        except asyncio.CancelledError:
-                            pass
-
-                        # Verify CleanupPolicy was created with defaults
-                        mock_cleanup_policy.assert_called_once()
-                        call_kwargs = mock_cleanup_policy.call_args[1]
-                        assert call_kwargs["max_size_gb"] == 50.0  # default
-                        assert call_kwargs["max_age_days"] == 30
-                        assert call_kwargs["cleanup_strategy"] == "oldest"  # default
-                        assert call_kwargs["cleanup_trigger_percent"] == 90.0  # default
-                        assert call_kwargs["cleanup_amount_percent"] == 25.0  # default
-                        assert call_kwargs["min_file_age_hours"] == 1.0  # default
-                        assert call_kwargs["file_pattern"] == "*.flac"
+        assert mock_bus_factory.call_args[0][0] is shared_config
+        assert mock_bus_factory.call_args[0][0] is not detector._config
 
 
 @pytest.mark.asyncio
-async def test_periodic_cleanup_continues_after_error():
-    """Test that periodic cleanup continues running even after errors."""
-    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config:
-        with patch("orpheus_agent_audio_motion.main.get_audio_path") as mock_get_audio_path:
-            with patch("orpheus_agent_audio_motion.main.StorageCleanup") as mock_storage_cleanup:
-                with patch("orpheus_agent_audio_motion.main.asyncio.sleep") as mock_sleep:
-                    # First sleep succeeds, second sleep cancels after error recovery
-                    mock_sleep.side_effect = [None, None, asyncio.CancelledError()]
+@pytest.mark.parametrize("shadow", [True, False])
+async def test_health_status_carries_event_sourcing_shadow_flag(shadow):
+    """The health payload surfaces whether the event-sourcing shadow is actually
+    recording (additive key, same as the classifier agents) — a silent self-disable
+    on mqtt / stream_ensure error is otherwise invisible on Diagnostics."""
+    with patch("orpheus_agent_audio_motion.main.load_app_config") as mock_load_config, patch(
+        "orpheus_agent_audio_motion.main.get_audio_health_monitor"
+    ) as mock_monitor, patch(
+        "orpheus_agent_audio_motion.main.build_operational_health", return_value=None
+    ), patch(
+        "orpheus_common.config.OrpheusConfig.get_instance"
+    ) as mock_get_instance, patch(
+        "orpheus_agent_audio_motion.main.asyncio.sleep"
+    ) as mock_sleep:
+        mock_sleep.side_effect = [None, None, asyncio.CancelledError()]
+        mock_config = Mock()
+        mock_config.channels = []
+        mock_load_config.return_value = mock_config
+        mock_get_instance.return_value = Mock()
+        mock_monitor.return_value.get_status.return_value = {"status": "online"}
 
-                    mock_config = Mock()
-                    mock_config.logging.level = "INFO"
-                    mock_config.logging.use_json = False
-                    mock_config.storage.retain_days = 30
-                    mock_config.storage.check_interval_hours = 0.001  # Very short for testing
-                    mock_config.channels = []  # Add channels list
-                    mock_load_config.return_value = mock_config
+        detector = AudioMotionDetector()
+        detector._stop_event = asyncio.Event()
+        detector._mqtt_client = Mock()
+        detector._shadow_stream_publish = shadow
 
-                    mock_get_audio_path.return_value = Path("/data/orpheus/audio_motion")
+        await detector._publish_health_status()
 
-                    # First call raises exception, second succeeds
-                    mock_result = Mock()
-                    mock_result.files_removed = 0
-                    mock_result.errors = []
-                    mock_cleanup_instance = Mock()
-                    mock_cleanup_instance.cleanup.side_effect = [
-                        Exception("Test error"),
-                        mock_result,
-                    ]
-                    mock_storage_cleanup.return_value = mock_cleanup_instance
-
-                    detector = AudioMotionDetector()
-                    detector._stop_event = asyncio.Event()
-
-                    # Run cleanup - first iteration fails, second succeeds, third cancels
-                    try:
-                        await detector._periodic_cleanup()
-                    except asyncio.CancelledError:
-                        pass
-
-                    # Verify cleanup was called twice (once failed, once succeeded)
-                    assert mock_cleanup_instance.cleanup.call_count == 2
+        topic, payload = detector._mqtt_client.publish.call_args[0][:2]
+        assert topic == "orpheus/system/audio/health"
+        assert payload["event_sourcing_shadow"] is shadow
+        assert payload["status"] == "online"  # existing keys untouched

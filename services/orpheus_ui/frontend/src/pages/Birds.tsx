@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { fetchWithAuth, formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { POLLING_INTERVALS } from '../config'
-import { Bird, Activity, X, MapPin, GitBranch, Code, Sparkles } from 'lucide-react'
+import { Bird, Activity, X, MapPin, GitBranch, Code, Sparkles, ExternalLink } from 'lucide-react'
+import { buildSpeciesLinks } from '../lib/speciesLinks'
 import {
   LoadingSpinner,
   PageHeader,
@@ -12,8 +14,8 @@ import {
   StatCard,
   Pagination,
 } from '../components/ui'
-import { DateRangeFilter, usePaginatedDateRange, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
-import { ConfidenceScatterChart, DistributionPieChart, SpeciesBarChart, DailyActivityChart } from '../components/Charts'
+import { DateRangeFilter, usePaginatedDateRange, useUrlMultiSelect, ITEMS_PER_PAGE, DEFAULT_START_TIME, DEFAULT_END_TIME } from '../components/DateRangeFilter'
+import { ConfidenceScatterChart, DistributionPieChart, SpeciesBarChart, DailyActivityChart, HourlyActivityChart } from '../components/Charts'
 import { ClipActions } from '../components/ClipActions'
 import { LocationBadge, SpatiotemporalContext } from '../components/LocationBadge'
 import { SpeciesFilter } from '../components/SpeciesFilter'
@@ -23,9 +25,16 @@ import { SpeciesFilter } from '../components/SpeciesFilter'
  * Includes optional spatiotemporal context and lineage fields.
  */
 interface BirdDetection {
+  /** Unique event id from the backend Detection model — stable across
+   *  pagination so it's the right thing to use as a React key. */
+  event_id?: string
   timestamp: string
   species_code: string
   species_common: string
+  /** IOC scientific name when available (Layer 1 of cross-classifier-identity). */
+  species_scientific?: string | null
+  /** TaxonomyRef serialised by the backend. */
+  taxonomy?: { namespace: string; id: string; common_name?: string | null } | null
   confidence: number
   channel: string
   audio_clip_path?: string
@@ -72,6 +81,40 @@ function getConfidenceColor(confidence: number): string {
   return 'text-red-400'
 }
 
+/**
+ * Compact row of external species references (iNaturalist, Wikipedia,
+ * GBIF). Built from the IOC scientific name when available, falls back
+ * to common-name search for legacy detections. See lib/speciesLinks.ts.
+ */
+function SpeciesExternalLinks({
+  scientificName,
+  commonName,
+}: {
+  scientificName?: string | null
+  commonName?: string | null
+}) {
+  const links = buildSpeciesLinks({ scientificName, commonName })
+  if (links.length === 0) return null
+  return (
+    <div className="mt-1 flex items-center gap-2 flex-wrap">
+      {links.map((link) => (
+        <a
+          key={link.label}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-3 h-3" />
+          {link.label}
+        </a>
+      ))}
+    </div>
+  )
+}
+
+
 function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection; onClose: () => void }) {
   const [showJson, setShowJson] = useState(false)
 
@@ -82,7 +125,16 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
         <div className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium text-white">{detection.species_common}</h2>
+            {detection.species_scientific && (
+              <p className="text-xs text-slate-500 italic">
+                {detection.species_scientific}
+              </p>
+            )}
             <p className="text-sm text-slate-400">{formatDateTime(detection.timestamp)}</p>
+            <SpeciesExternalLinks
+              scientificName={detection.species_scientific}
+              commonName={detection.species_common}
+            />
           </div>
           <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
             <X className="w-5 h-5" />
@@ -155,12 +207,10 @@ function BirdDetectionDetail({ detection, onClose }: { detection: BirdDetection;
 export default function BirdsPage() {
   const { startDate, endDate, startTime, endTime, handleChange, page, setPage } = usePaginatedDateRange(1)
   const [selectedDetection, setSelectedDetection] = useState<BirdDetection | null>(null)
-  const [selectedSpecies, setSelectedSpecies] = useState<Set<string>>(new Set())
-
-  // Reset species selection whenever the date range changes.
-  useEffect(() => {
-    setSelectedSpecies(new Set())
-  }, [startDate, endDate])
+  // Species selection lives in ``?species=...`` so the URL captures the
+  // full filter state — bookmark-able, shareable, reload-safe. No
+  // date-change reset: the URL is the source of truth.
+  const [selectedSpecies, setSelectedSpecies] = useUrlMultiSelect('species')
 
   // Query key includes page and species selection so react-query caches per-slice
   // and prevents stale overwrites when the user changes filters rapidly.
@@ -174,7 +224,7 @@ export default function BirdsPage() {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
   }, [])
 
-  const { data, isLoading, error } = useQuery<BirdHistoryResponse>({
+  const { data, isLoading, isFetching, error, isPlaceholderData } = useQuery<BirdHistoryResponse>({
     queryKey: ['bird-history', startDate, endDate, startTime, endTime, page, speciesCsv],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -189,10 +239,10 @@ export default function BirdsPage() {
         params.set('end_time', endTime)
         params.set('tz', browserTz)
       }
-      const res = await fetchWithAuth(`/api/data/birds/history?${params.toString()}`)
-      return res.json()
+      return fetchJson<BirdHistoryResponse>(`/api/data/birds/history?${params.toString()}`)
     },
     refetchInterval: POLLING_INTERVALS.HISTORY,
+    placeholderData: (previousData) => previousData,
   })
 
   if (isLoading) {
@@ -248,13 +298,17 @@ export default function BirdsPage() {
         startTime={startTime}
         endTime={endTime}
         onChange={handleChange}
+        isPlaceholderData={isPlaceholderData}
       />
 
       {/* Species Filter */}
       <SpeciesFilter
         availableItems={availableSpeciesItems}
         selected={selectedSpecies}
-        onChange={(next) => { setSelectedSpecies(next); setPage(1) }}
+        // No setPage(1): useUrlMultiSelect.setValue resets page atomically
+        // inside the same setSearchParams call (avoids react-router-dom v6
+        // stale-closure race that would silently lose the selection).
+        onChange={setSelectedSpecies}
         label="Species"
       />
 
@@ -299,6 +353,12 @@ export default function BirdsPage() {
           <DistributionPieChart data={speciesDist} />
         </Card>
       </div>
+
+      <Card>
+        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity</h2>
+        <p className="text-xs text-slate-500 mb-3">All detections grouped by hour of day</p>
+        <HourlyActivityChart data={data?.stats?.hourly_activity ?? []} />
+      </Card>
 
       {/* Confidence scatter + top species */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -347,7 +407,7 @@ export default function BirdsPage() {
                 </thead>
                 <tbody>
                   {pageDetections.map((det, i) => (
-                    <tr key={i} className="border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/30 transition-colors" onClick={() => setSelectedDetection(det)}>
+                    <tr key={det.event_id ?? `${det.timestamp}-${i}`} className="border-b border-slate-700/50 cursor-pointer hover:bg-slate-700/30 transition-colors" onClick={() => setSelectedDetection(det)}>
                       <td className="py-3 pr-4 text-slate-300">
                         {formatDateTime(det.timestamp)}
                       </td>
@@ -373,7 +433,12 @@ export default function BirdsPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              isLoading={isFetching && !isLoading}
+            />
           </>
         ) : (
           <p className="text-slate-500 text-center py-8">No detections</p>

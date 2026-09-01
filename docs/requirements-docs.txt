@@ -1,0 +1,3 @@
+# Docs site (MkDocs Material) — see docs/designs/docs-site.md. Build: `make docs-build`.
+mkdocs-material
+mkdocs-include-markdown-plugin

@@ -8,7 +8,7 @@
  * Reuses the existing chart components from Charts.tsx for visual consistency.
  */
 import { useQuery } from '@tanstack/react-query'
-import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { POLLING_INTERVALS } from '../config'
 import { Sparkles, Bird, Clock } from 'lucide-react'
 import { Card, StatCard } from './ui'
@@ -187,12 +187,10 @@ function deriveHourlyAges(entities: EntityEvent[]): { hour: number; [key: string
 export function CrowEntitySection({ startDate, endDate }: { startDate: string; endDate: string }) {
   const { data, isLoading } = useQuery<EntitiesResponse>({
     queryKey: ['crow-entities', startDate, endDate],
-    queryFn: async () => {
-      const res = await fetchWithAuth(
+    queryFn: () =>
+      fetchJson<EntitiesResponse>(
         `/api/entities?species=corvus,crow&start_date=${startDate}&end_date=${endDate}`
-      )
-      return res.json()
-    },
+      ),
     refetchInterval: POLLING_INTERVALS.HISTORY,
   })
 

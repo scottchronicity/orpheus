@@ -3,9 +3,16 @@ import { navigateTo } from './helpers'
 
 /**
  * Media Playback Tests
- * 
+ *
  * Tests verify:
- * 1. Media Authentication - Audio/video requests include Authorization header
+ * 1. Media Authentication - Audio/video requests are authenticated either
+ *    via a Bearer Authorization header OR via a ``?token=`` query param.
+ *    ClipActions explicitly uses ``?token=`` (via getTokenUrl) so the
+ *    request stays inside the mobile-Safari user-gesture task — Bearer
+ *    headers can't be attached to ``<audio src>`` / synthetic <a> clicks
+ *    without burning the gesture token (see the ClipActions docstring).
+ *    Either auth surface is acceptable; the test only asserts SOMETHING
+ *    authenticates the request, not the specific mechanism.
  * 2. Timezone Formatting - Timestamps display in local time with proper format
  */
 
@@ -22,17 +29,25 @@ test.describe('Media Playback Authentication', () => {
     await expect(page.getByText(/system health|dashboard|cpu/i)).toBeVisible({ timeout: 10000 })
   })
 
-  test('audio clip requests include Authorization header', async ({ page }) => {
-    // Track API requests to audio clips endpoint
-    const audioRequests: { url: string; hasAuthHeader: boolean }[] = []
-    
+  test('audio clip requests are authenticated', async ({ page }) => {
+    // Track API requests to audio clips endpoint. A request is
+    // considered authenticated if EITHER an explicit ``Bearer`` header
+    // is present OR the URL carries a ``?token=`` query param — both
+    // surfaces are valid against the FastAPI ``current_user_or_token_param``
+    // dependency on the clip routes. ClipActions uses ``?token=`` so
+    // the click handler stays synchronous and the mobile-Safari user-
+    // gesture token survives.
+    const audioRequests: { url: string; hasAuth: boolean }[] = []
+
     page.on('request', (request) => {
       const url = request.url()
       if (url.includes('/api/audio/clips/')) {
         const authHeader = request.headers()['authorization'] || request.headers()['Authorization']
-        audioRequests.push({ 
-          url, 
-          hasAuthHeader: !!authHeader && authHeader.startsWith('Bearer ')
+        const hasBearer = !!authHeader && authHeader.startsWith('Bearer ')
+        const hasTokenParam = url.includes('token=')
+        audioRequests.push({
+          url,
+          hasAuth: hasBearer || hasTokenParam,
         })
       }
     })
@@ -105,7 +120,7 @@ test.describe('Media Playback Authentication', () => {
     
     const audioRequest = audioRequests.find(req => req.url.includes('/api/audio/clips/'))
     expect(audioRequest).toBeDefined()
-    expect(audioRequest?.hasAuthHeader).toBe(true)
+    expect(audioRequest?.hasAuth).toBe(true)
   })
 })
 

@@ -11,7 +11,8 @@
 #
 # Provides variables: PYTHON, PYTHON_DIR, PIP, PIP_INSTALL, PYTEST, RUFF, HAS_UV
 # Provides targets:   check-python-version, assure-python-version,
-#                     check-deps, $(VENV)/bin/activate
+#                     check-deps, $(VENV)/bin/activate, preclean-egg-info
+#                     (auto-hooked as a prerequisite of `install`)
 #
 # uv integration:
 #   When uv is available, it is used to accelerate venv creation and pip
@@ -125,18 +126,34 @@ assure-python-version:
 	fi
 	@$(MAKE) check-python-version
 
-# $(VENV)/bin/activate: Create a virtual environment.
+# $(VENV)/bin/activate: Create a virtual environment if missing.
 # Uses uv for faster venv creation when available, else falls back to
 # the standard library venv module.
+#
+# Idempotent: skips creation entirely if $(VENV)/bin/activate already
+# exists. Without this guard, the phony prerequisite (assure-python-version)
+# causes make to re-run the recipe on every invocation, and uv then prompts
+# whether to replace the existing venv — which fails noisily if anything in
+# the venv is owned by a different user (e.g. from a past `sudo` mishap).
+# Use `make clean` (or `sudo rm -rf $(VENV)`) to force a fresh venv.
 $(VENV)/bin/activate: assure-python-version
 ifdef HAS_UV
-	@echo "Creating virtual environment at $(VENV) via uv..."
-	@uv venv --seed --python $(PYTHON_SYSTEM) $(VENV)
+	@if [ -f "$(VENV)/bin/activate" ]; then \
+		echo "✓ Virtual environment already present at $(VENV)"; \
+	else \
+		echo "Creating virtual environment at $(VENV) via uv..."; \
+		uv venv --seed --python $(PYTHON_SYSTEM) $(VENV) && \
+		echo "✓ Virtual environment created"; \
+	fi
 else
-	@echo "Creating virtual environment at $(VENV) with $(PYTHON_SYSTEM)..."
-	@$(PYTHON_SYSTEM) -m venv $(VENV)
+	@if [ -f "$(VENV)/bin/activate" ]; then \
+		echo "✓ Virtual environment already present at $(VENV)"; \
+	else \
+		echo "Creating virtual environment at $(VENV) with $(PYTHON_SYSTEM)..."; \
+		$(PYTHON_SYSTEM) -m venv $(VENV) && \
+		echo "✓ Virtual environment created"; \
+	fi
 endif
-	@echo "✓ Virtual environment created"
 
 check-deps:
 	@if [ ! -f "$(PYTHON)" ]; then \
@@ -165,3 +182,37 @@ else
 CREATE_DRYRUN_VENV  = $(PYTHON_SYSTEM) -m venv $(DRYRUN_VENV_PATH)
 DRYRUN_PIP_INSTALL  = $(DRYRUN_VENV_PATH)/bin/pip install
 endif
+
+# -- Egg-info pre-clean ---------------------------------------------------------
+# Stale *.egg-info build metadata in the source tree — typically root-owned,
+# left behind by a sudo'd run from before the "don't run make install as
+# root" guards existed — makes every later non-sudo editable install
+# (`pip install -e .`, which each component's requirements.txt triggers)
+# die mid-deploy with the cryptic:
+#     error: Cannot update time stamp of directory 'src/<pkg>.egg-info'
+# setuptools regenerates egg-info on each editable install, so removing it
+# beforehand is always safe. Declaring preclean-egg-info as an extra
+# prerequisite of `install` here (GNU make merges prerequisite lists across
+# rules) gives every component the pre-clean without touching its own
+# Makefile. Safe no-op when nothing matches; if a foreign-owned dir can't
+# be removed, fail FAST with the exact one-liner instead of the timestamp
+# error. Kept at the END of this file so the default goal of including
+# Makefiles is unchanged. See docs/agent-instructions/99-gotchas.md.
+
+.PHONY: preclean-egg-info
+install: preclean-egg-info
+
+preclean-egg-info:
+	@for d in $$(find . -maxdepth 3 \
+			\( -name '$(VENV)' -o -name venv -o -name '.venv*' -o -name node_modules -o -name site-packages \) -prune \
+			-o -type d -name '*.egg-info' -print 2>/dev/null); do \
+		if rm -rf "$$d" 2>/dev/null && [ ! -d "$$d" ]; then \
+			echo "✓ Removed stale $$d (pre-clean before editable install)"; \
+		else \
+			OWNER=$$(stat -c %U "$$d" 2>/dev/null || stat -f %Su "$$d" 2>/dev/null || echo unknown); \
+			echo "❌ Cannot remove $$d (owned by '$$OWNER' — likely left by a past sudo'd run)."; \
+			echo "   Fix once with:  sudo rm -rf $$d"; \
+			echo "   (see docs/agent-instructions/99-gotchas.md — egg-info timestamp failure)"; \
+			exit 1; \
+		fi; \
+	done

@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import tensorflow as tf
@@ -112,34 +112,35 @@ class GeographicFilter:
         except Exception as e:
             raise GeoFilterError(f"Failed to load TFLite model: {e}") from e
 
-    def predict_species(
+    def predict_probabilities(
         self,
         lat: Optional[float],
         lon: Optional[float],
         date: datetime,
-        min_prob: float = 0.03,
-    ) -> Optional[List[str]]:
-        """Predict species codes that are likely to occur at the given location and time.
+    ) -> Optional[np.ndarray]:
+        """Return per-species geographic probability vector for the given location/time.
 
         Args:
             lat: Latitude in decimal degrees. If None, returns None (Open World mode).
             lon: Longitude in decimal degrees. If None, returns None (Open World mode).
             date: Date for seasonal filtering.
-            min_prob: Minimum probability threshold (0.0-1.0) for including a species.
 
         Returns:
-            List of species codes (e.g., ['amecro', 'blujay']) that exceed min_prob,
-            or None if lat/lon is None (signals "Open World" mode - no filtering).
+            np.ndarray of shape (num_species,) indexed by BirdNET label index, with
+            the meta-model's predicted occurrence probability for each species at
+            the given location and time of year. None if lat/lon is None (Open
+            World mode — caller should not apply any geographic gating).
 
         Note:
-            Current implementation returns numeric indices as strings. The mapping from
-            model output indices to species codes should be handled by the caller using
-            the labels.json file.
+            Returns raw probabilities so callers can apply more nuanced gating
+            (e.g. soft thresholds that combine geo probability with acoustic
+            confidence, or per-species whitelists) rather than a one-size-fits-all
+            cut. A binary cut at this layer silently suppresses locally-
+            confirmed-but-globally-rare species like Eastern Whip-poor-will.
 
         Raises:
             GeoFilterError: If TFLite inference fails.
         """
-        # Handle Open World mode (no geographic filtering)
         if lat is None or lon is None:
             logger.debug(
                 "Geographic filtering disabled (Open World mode)",
@@ -148,37 +149,25 @@ class GeographicFilter:
             )
             return None
 
-        # Convert date to week index
         week_index = get_week_48(date)
 
-        # Prepare input tensor: [lat, lon, week_index]
-        # Note: BirdNET meta model expects week index as 0-47, so subtract 1
+        # BirdNET meta model expects week index as 0-47, so subtract 1
         input_data = np.array([[lat, lon, week_index - 1]], dtype=np.float32)
 
         try:
-            # Run inference
             self.interpreter.set_tensor(self.input_details[0]["index"], input_data)
             self.interpreter.invoke()
-
-            # Get output probabilities
             output_data = self.interpreter.get_tensor(self.output_details[0]["index"])
             probabilities = output_data[0]  # Shape: [num_species]
-
-            # Filter species by threshold and return indices
-            # Note: The output indices correspond to species in labels.json
-            # Caller should map these indices to actual species codes
-            species_indices = np.where(probabilities >= min_prob)[0]
-            species_codes = [str(idx) for idx in species_indices]
 
             logger.debug(
                 "Geographic filter prediction",
                 lat=lat,
                 lon=lon,
                 week=week_index,
-                num_species=len(species_codes),
-                min_prob=min_prob,
+                num_species=int(probabilities.shape[0]),
             )
 
-            return species_codes
+            return probabilities
         except Exception as e:
             raise GeoFilterError(f"TFLite inference failed: {e}") from e

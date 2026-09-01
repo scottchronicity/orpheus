@@ -1,10 +1,14 @@
 [build-system]
-requires = ["setuptools>=40.8.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [project]
 name = "orpheus-agent-video-motion"
-version = "0.1.0"
+# Version SSoT: the VERSION file (read at build time). See docs/adr/0014.
+dynamic = ["version"]
 description = "Video motion detection agent for Orpheus wildlife monitoring system"
 readme = "README.md"
 requires-python = ">=3.9, <3.10"
@@ -22,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "orpheus-common",
+    "orpheus-common>=0.2.0",
     "paho-mqtt>=2.1.0",
     "PyYAML>=6.0,<7.0",
     "numpy>=1.26.0,<3.0",
@@ -32,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff==0.15.20",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",

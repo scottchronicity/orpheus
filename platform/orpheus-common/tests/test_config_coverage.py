@@ -480,9 +480,12 @@ class TestEventCorrelationConfig:
         from orpheus_common.config import EventCorrelationConfig
 
         ec = EventCorrelationConfig.from_dict({})
+        # Layer 2 (cross-classifier-identity): audio.classified is now a
+        # first-class clustering input.
         assert ec.input_topics == [
             "orpheus/detection/bird/events",
             "orpheus/detection/crow/events",
+            "orpheus/detection/audio/events",
         ]
 
     def test_custom_topics(self):
@@ -506,7 +509,8 @@ class TestEventCorrelationConfig:
             source="<test>",
         )
         assert hasattr(config, "correlation")
-        assert len(config.correlation.input_topics) == 2
+        # Layer 2: 3 default topics (bird + crow + audio.classified).
+        assert len(config.correlation.input_topics) == 3
 
     def test_orpheus_config_correlation_from_yaml(self):
         """OrpheusConfig should parse the correlation section from data."""
@@ -518,3 +522,28 @@ class TestEventCorrelationConfig:
             source="<test>",
         )
         assert config.correlation.input_topics == ["a/b"]
+
+
+class TestAgentsSectionGuards:
+    """agents.<name> must be a mapping (or empty). A scalar there previously
+    crashed config load with a raw AttributeError deep in from_dict."""
+
+    def _load(self, agents):
+        return OrpheusConfig.from_dict(
+            {"mqtt": {"broker_host": "localhost"}, "agents": agents}, source="<test>"
+        )
+
+    def test_empty_agent_entry_yields_defaults(self):
+        cfg = self._load({"audio-motion": None})  # bare `audio-motion:` key
+        assert cfg.agents["audio-motion"].heartbeat_seconds == 30.0
+
+    def test_empty_agents_section_yields_no_overrides(self):
+        assert self._load(None).agents == {}
+
+    def test_scalar_agent_entry_raises_config_error(self):
+        with pytest.raises(ConfigError, match="agents.audio-motion must be a mapping"):
+            self._load({"audio-motion": "fast"})
+
+    def test_scalar_agents_section_raises_config_error(self):
+        with pytest.raises(ConfigError, match="agents must be a mapping"):
+            self._load("fast")

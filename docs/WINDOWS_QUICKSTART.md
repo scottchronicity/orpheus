@@ -8,7 +8,7 @@
 
 Get the Orpheus Observe stack running on Windows in ~20 minutes via **WSL2** (Windows Subsystem for Linux). The repo is heavily Makefile-driven and depends on native audio libraries (portaudio, libsndfile) that install cleanly on Ubuntu but are painful on native Windows — so WSL2 is the pragmatic recommended path.
 
-For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Jetson production, see [Jetson Quick Start](JETSON_QUICKSTART.md). For generic Linux, see [Linux Quick Start](LINUX_QUICKSTART.md). For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Jetson production, see [Jetson Quick Start](JETSON_QUICKSTART.md). For generic Linux, see [Linux Quick Start](LINUX_QUICKSTART.md). For full development guidelines, see [CONTRIBUTING.md](contributing.md).
 
 ---
 
@@ -24,6 +24,13 @@ wsl --install -d Ubuntu-22.04
 
 Reboot if prompted. Launch Ubuntu from the Start menu and create your UNIX user. All remaining commands run **inside the WSL2 Ubuntu shell**, not PowerShell.
 
+Inside that Ubuntu shell you also need **Node.js 20+**, for building the dashboard frontend ([what needs it, and when](ORPHEUS_UI.md#nodejs-what-needs-it-and-when)):
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install nodejs
+```
+
 Verify you're in WSL:
 
 ```bash
@@ -37,7 +44,7 @@ uname -a        # Should show "Linux ... WSL2 ..."
 | **make** | Build automation | `sudo apt install make` |
 | **libportaudio2** | Audio I/O (sounddevice) | `sudo apt install libportaudio2` |
 | **libsndfile1** | Audio file reading/writing | `sudo apt install libsndfile1` |
-| **mosquitto** | MQTT broker | `sudo apt install mosquitto mosquitto-clients` |
+| **nats-server** | Event-bus broker (NATS + JetStream) | download the pinned 2.10.22 release binary onto your `PATH` — **do not** use `make install-backbone`, see below |
 | **Git LFS** | ML model storage | `sudo apt install git-lfs && git lfs install` |
 | **ffmpeg** | Timelapse video generation | `sudo apt install ffmpeg` |
 | **build-essential** | Compile native Python extensions | `sudo apt install build-essential` |
@@ -53,6 +60,27 @@ uv python find 3.9.5    # Should print the path to the installed interpreter
 
 The repo's `.python-version` file tells uv (and the Makefiles) which version to use.
 
+### Getting the broker on WSL2
+
+`make install-backbone` is a systemd installer: it must run as root, creates a
+system `orpheus` user, writes to `/etc/systemd/system/`, and exits non-zero
+unless the unit reaches active. Stock WSL2 has no systemd unless you set
+`systemd=true` in `/etc/wsl.conf`, so on this platform it fails — and this same
+page tells you elsewhere to use `make dev-stack` rather than systemd.
+
+Download the pinned binary instead and put it on your `PATH`:
+
+```bash
+NATS_VERSION=2.10.22
+curl -fsSL "https://github.com/nats-io/nats-server/releases/download/v${NATS_VERSION}/nats-server-v${NATS_VERSION}-linux-amd64.tar.gz" \
+  | tar -xz --strip-components=1 -C /tmp "nats-server-v${NATS_VERSION}-linux-amd64/nats-server"
+sudo install -m 0755 /tmp/nats-server /usr/local/bin/nats-server
+nats-server --version
+```
+
+`make dev-stack` starts it from there. Do this after Clone and Install — the
+version above is what the repo pins.
+
 ---
 
 ## Clone and Install
@@ -63,7 +91,7 @@ The repo's `.python-version` file tells uv (and the Makefiles) which version to 
 cd ~
 git clone https://github.com/scottchronicity/orpheus.git
 cd orpheus
-git lfs pull          # Fetch ML models (~500MB)
+git lfs pull          # Fetch ML models (~1.5 GB)
 make install          # Create venvs, install all dependencies
 ```
 
@@ -86,6 +114,19 @@ cp config/.env.orpheus.example config/.env.orpheus
 $EDITOR config/.env.orpheus
 ```
 
+**Set the dashboard passwords now, in this file.** The accounts are seeded the
+first time the UI starts, and seeding is guarded on an empty user table — so
+once `make dev-stack` has run, adding these rotates nothing and you have to
+delete the accounts database to change them. Add to `config/.env.orpheus`:
+
+```bash
+ORPHEUS_UI_ADMIN_PASSWORD=<a long random password>
+ORPHEUS_UI_GUEST_PASSWORD=<another one>
+```
+
+Full detail, including the email variables and how to recover if the UI has
+already started: [Signing in to the dashboard](INSTALLATION.md#signing-in-to-the-dashboard).
+
 ### Likely overrides
 
 | Setting | Jetson Default | WSL2 Override | Reason |
@@ -98,8 +139,8 @@ $EDITOR config/.env.orpheus
 
 WSL2 does **not** passthrough audio devices by default. Options, in rough order of difficulty:
 
-1. **Skip audio capture entirely** — the video agents, UI, MQTT, and event correlator all still work. Good for "kick the tires" exploration.
-2. **`usbipd-win` USB passthrough** — attach a USB microphone to WSL2. See [microsoft/usbipd-win](https://github.com/dorssel/usbipd-win). Untried for Orpheus; you may also need `udev` rules inside WSL2.
+1. **Skip audio capture entirely** — the video agents, UI, event bus, and event correlator all still work. Good for "kick the tires" exploration.
+2. **`usbipd-win` USB passthrough** — attach a USB microphone to WSL2. See [dorssel/usbipd-win](https://github.com/dorssel/usbipd-win). Untried for Orpheus; you may also need `udev` rules inside WSL2.
 3. **Network audio streaming** — stream audio into WSL2 via RTP/PulseAudio over TCP. Niche; only pursue if you need it.
 
 If audio capture isn't working, the `audio-motion` agent will log errors but the rest of the stack continues running.
@@ -136,6 +177,12 @@ make dev-restart SVC=bird-detection   # Restart one service
 ## See It Work
 
 1. Open [http://localhost:5173](http://localhost:5173) in your Windows browser.
+
+   When the dashboard opens it asks you to sign in. The seeded accounts and the
+   environment variables that set their passwords are documented in
+   [Signing in to the dashboard](INSTALLATION.md#signing-in-to-the-dashboard) — set
+   those before you expose this to anyone else.
+
 2. If you got audio capture working, play a YouTube video of bird calls near the mic.
 3. Within 10–20 seconds you should see audio motion events and BirdNET identifications in the UI.
 4. If cameras are connected, video motion events and snapshots appear automatically.
@@ -146,7 +193,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 
 | Limitation | Impact | Workaround |
 | --- | --- | --- |
-| No GPU acceleration assumed | CPU inference is 2–10x slower than Jetson | Acceptable for demo/dev |
+| No GPU acceleration assumed | Only affects the two torch models; BirdNET is CPU everywhere | Acceptable for demo/dev |
 | Audio capture from Windows host | Requires `usbipd-win` or network audio | Skip audio; rest of stack still works |
 | No Bluetooth auto-connect | `orpheus-bluetooth-autoconnect` is Linux/Jetson-focused | Untested on WSL2; likely won't work |
 | `/mnt/c/` performance | Git LFS and `make install` stall on Windows-mounted drives | Clone inside `~` (WSL2 native filesystem) |
@@ -161,7 +208,7 @@ Running the stack on native Windows (PowerShell/cmd, no WSL2) has **not** been a
 - `make` isn't on Windows by default. Install via [Chocolatey](https://chocolatey.org/) (`choco install make`) or [Scoop](https://scoop.sh/).
 - Most Makefile targets assume a POSIX shell. `dev-stack` in particular uses background-process plumbing (`&`, PID files in `.dev-stack/pids/`) that won't translate to cmd or PowerShell without substantial rework.
 - `sounddevice` / `pyaudio` need a portaudio binary. Pre-built wheels exist on PyPI for Windows, but the Makefile-driven install path doesn't know about them — you'd need manual intervention.
-- `mosquitto` has a Windows build but service management differs (no systemd, no `brew services`).
+- `nats-server` has a native Windows binary, but the backplane's install/service management targets systemd (WSL2) — native service wiring would need rework.
 
 If you try this and get it working, a PR adding a "Native Windows" section here would be very welcome.
 
@@ -190,14 +237,17 @@ sudo apt install libportaudio2 libsndfile1
 make clean && make install
 ```
 
-### MQTT connection refused
+### Event-bus connection refused
 
-Mosquitto isn't running. In WSL2 (which usually has systemd enabled on recent builds):
+The NATS backplane isn't running (`nats: no servers available` or connection
+refused on 4222). In WSL2:
 
 ```bash
-sudo systemctl start mosquitto
-# or foreground:
-mosquitto -v
+make -C services/orpheus-backplane run   # the genuinely minimal path.
+# `make dev-stack SVC=backplane` runs the full preflight first, so it still
+# needs nats-server on PATH and every component venv present.
+# then check its log:
+cat logs/backplane.log
 ```
 
 ### No audio input device found
@@ -229,11 +279,11 @@ make clean              # Remove all venvs (full reinstall)
 
 # Individual agents
 make dev-restart SVC=bird-detection
-make dev-logs SVC=dashboard
+make dev-logs SVC=orpheus-ui-backend
 cd agents/orpheus-agent-audio-motion
 make run                # Run single agent (foreground)
 ```
 
 ---
 
-*For full development guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md). For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md).*
+*For full development guidelines, see [CONTRIBUTING.md](contributing.md). For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md).*

@@ -50,7 +50,7 @@ make format
 
 ```bash
 # Install as systemd service (requires sudo)
-sudo make install-service
+make install-service
 
 # Start the service
 sudo systemctl start orpheus-gps
@@ -215,11 +215,11 @@ As specified in the issue, you can verify the service behavior:
 2. **No Fix Handling**: Cover the GPS or unplug it → Ensure `fix: "static"` or `fix: "none"` is published
 3. **Live Fix**: Expose GPS to the sky → Ensure live coordinates are published with `fix: "3d"` or `fix: "2d"`
 
-Example using `mosquitto_sub`:
+Example using the `nats` CLI:
 
 ```bash
 # Subscribe to location updates
-mosquitto_sub -h localhost -t 'orpheus/state/location' -v
+nats sub 'orpheus.state.location'
 ```
 
 ## Dependencies

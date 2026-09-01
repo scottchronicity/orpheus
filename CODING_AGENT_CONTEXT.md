@@ -1,8 +1,23 @@
 # Orpheus Coding Agent Context
 
-**This is the single source of truth for all AI coding agents working on Orpheus.**
-
-Read this file first before making any code changes. It contains all core development guidelines, architecture references, and workflows for this repository.
+> **⚠️ This file is the legacy comprehensive guide.** The canonical entry
+> point for AI coding agents is now [`AGENTS.md`](./AGENTS.md) at the repo
+> root, indexed against themed deep-dive files in
+> [`docs/agent-instructions/`](./docs/agent-instructions/).
+>
+> Read `AGENTS.md` first. It contains the non-negotiable rules and a
+> navigation map. Come back here when you want a single-document long-form
+> reference; the themed files supersede this for "I need to do X" lookups.
+>
+> If anything in this file contradicts `AGENTS.md` or
+> `docs/agent-instructions/`, the newer docs win. Specifically known
+> discrepancies in this file that have been corrected in the new docs:
+>
+> - `make test` at the root is an alias for `make test-all`. There is no root
+>   `make coverage` — use `make coverage-all` or `make coverage-<component>`.
+> - This file lists `.github/copilot-instructions.md` and `CLAUDE.md` as
+>   "thin wrappers that reference this document" — they are now plain
+>   text redirects to `AGENTS.md`.
 
 ---
 
@@ -20,7 +35,7 @@ Read this file first before making any code changes. It contains all core develo
 ### Technology Stack
 
 - **Language**: Python 3.9.5 (locked for Jetson JetPack compatibility)
-- **Communication**: MQTT (Mosquitto broker)
+- **Communication**: event bus — NATS + JetStream via the EventBus abstraction (legacy mqtt fallback)
 - **ML Framework**: PyTorch with ONNX inference
 - **Testing**: pytest with 70% minimum coverage
 - **Linting/Formatting**: ruff only (no Black)
@@ -337,7 +352,7 @@ make coverage         # pytest --cov with report
 make lint             # ruff check
 make format           # ruff format
 make clean            # Remove venv and caches
-make install-service  # Deploy systemd unit (requires sudo)
+make install-service  # Deploy systemd unit (sudos internally; never run make itself as root)
 make deploy           # Sync source code to /opt/orpheus/ production path
 make update           # git pull + reinstall + deploy + restart
 make service-logs     # journalctl -f
@@ -360,12 +375,15 @@ Component Makefiles set identity variables (`SERVICE_NAME`, `DEPLOY_ROOT`) and i
 
 ```bash
 # From repository root
-make install      # Install all components
-make test         # Test all components
+make install      # Install all components (per-component venvs)
+make test-all     # Test all components
 make lint         # Lint all components
 make format       # Format all components
 make coverage-all # Coverage for all components
 ```
+
+`make test` at the repo root aliases `make test-all`. There is no root
+`make coverage` — use `make coverage-all` or `make coverage-<component>`.
 
 ---
 
@@ -377,7 +395,7 @@ make coverage-all # Coverage for all components
 2. **`docs/ARCHITECTURE.md`** - Detailed system architecture, diagrams, data flows
 3. **`docs/AGENTS.md`** - Agent system design, layer architecture
 4. **`docs/TESTING.md`** - Testing strategy, patterns, fixtures
-5. **`docs/DASHBOARD.md`** - Dashboard design, API patterns
+5. **`docs/ORPHEUS_UI.md`** - Dashboard design, API patterns
 6. **`docs/adr/`** - Architectural Decision Records (immutable historical records)
 7. **`docs/copilot-workspace-instructions/`** - Component-specific implementation details
 
@@ -387,7 +405,7 @@ make coverage-all # Coverage for all components
 - **Architectural questions?** Check `docs/ARCHITECTURE.md` and `docs/adr/`
 - **Creating a new agent?** Read `docs/AGENTS.md` and `docs/copilot-workspace-instructions/agents.instructions.md`
 - **Writing tests?** Consult `docs/TESTING.md` and `docs/copilot-workspace-instructions/tests.instructions.md`
-- **Dashboard work?** See `docs/DASHBOARD.md` and `docs/copilot-workspace-instructions/dashboard.instructions.md`
+- **Dashboard work?** See `docs/ORPHEUS_UI.md` and `docs/copilot-workspace-instructions/orpheus-ui.instructions.md`
 - **Working on orpheus-common?** Check `docs/copilot-workspace-instructions/orpheus-common.instructions.md`
 
 ### Agent-Specific Files
@@ -456,7 +474,7 @@ The `docs/copilot-workspace-instructions/` directory contains implementation det
 - **`docs/copilot-workspace-instructions/agents.instructions.md`** - Agent development template, structure, patterns
 - **`docs/copilot-workspace-instructions/tests.instructions.md`** - Test development patterns, fixtures, organization
 - **`docs/copilot-workspace-instructions/orpheus-common.instructions.md`** - Shared library guidelines, module responsibilities
-- **`docs/copilot-workspace-instructions/dashboard.instructions.md`** - Dashboard API patterns, frontend guidelines
+- **`docs/copilot-workspace-instructions/orpheus-ui.instructions.md`** - Dashboard API patterns, frontend guidelines
 
 **Each instruction file references this document for core guidelines and contains ONLY component-specific details.**
 
@@ -500,7 +518,7 @@ Brief description of what this component does.
 
 Beyond READMEs, components may have their own `docs/` directories:
 
-- **`platform/orpheus-common/docs/`** - Platform library specific docs (e.g., storage cleanup integration)
+- **`platform/orpheus-common/docs/`** - Platform library specific docs (e.g. `STORAGE_CLEANUP.md`, which documents `orpheus-storage-sweep` — the one component that deletes recordings, and why no agent does)
 - **Component docs/** - Detailed component-specific documentation
 
 **Rule**: If something applies to multiple components, it belongs in root `docs/`, not component docs.
@@ -519,14 +537,14 @@ Beyond READMEs, components may have their own `docs/` directories:
 
 - [`docs/AGENTS.md`](docs/AGENTS.md) - Agent system, Layer 1/2/3 architecture
 - [`docs/TESTING.md`](docs/TESTING.md) - Testing strategy and patterns
-- [`docs/DASHBOARD.md`](docs/DASHBOARD.md) - Dashboard architecture and API design
+- [`docs/ORPHEUS_UI.md`](docs/ORPHEUS_UI.md) - Dashboard architecture and API design
 
 ### Component Implementation
 
 - [`docs/copilot-workspace-instructions/agents.instructions.md`](docs/copilot-workspace-instructions/agents.instructions.md) - How to build agents
 - [`docs/copilot-workspace-instructions/orpheus-common.instructions.md`](docs/copilot-workspace-instructions/orpheus-common.instructions.md) - Shared library guide
 - [`docs/copilot-workspace-instructions/tests.instructions.md`](docs/copilot-workspace-instructions/tests.instructions.md) - How to write tests
-- [`docs/copilot-workspace-instructions/dashboard.instructions.md`](docs/copilot-workspace-instructions/dashboard.instructions.md) - Dashboard implementation
+- [`docs/copilot-workspace-instructions/orpheus-ui.instructions.md`](docs/copilot-workspace-instructions/orpheus-ui.instructions.md) - Dashboard implementation
 
 ### Reference Implementation
 
@@ -574,10 +592,13 @@ Use **`agents/orpheus-agent-audio-motion/`** as the template for new agents:
 
 Before triggering any expensive cloud operations:
 
-1. **VERIFY** local tests pass (`make test`)
-2. **VERIFY** local linting passes (`make lint`)
-3. **VERIFY** coverage meets 70% minimum (`make coverage`)
-4. **ONLY THEN** push changes to trigger CI/CD
+1. **VERIFY** local tests pass — `make test-<component>` per touched
+   component, or `make test-all` for everything.
+2. **VERIFY** local linting passes — `make lint-<component>` per
+   touched component, or `make lint` for everything.
+3. **VERIFY** coverage meets 70% minimum — `make coverage-<component>`.
+4. **ONLY THEN** push changes to trigger CI/CD (and only if the user
+   has given explicit permission to push — see AGENTS.md rule #4).
 
 ### For All Code Changes
 
@@ -610,11 +631,11 @@ make lint                   # Check code style
 make format                 # Auto-format code
 
 # Root-level commands
-make install-all            # Install everything
+make install                # Install everything (per-component venvs)
 make test-all               # Test everything
 make coverage-all           # Coverage for everything
-make lint-all               # Lint everything
-make format-all             # Format everything
+make lint                   # Lint everything (aggregates lint-<component>)
+make format                 # Format everything
 
 # Production deployment (Jetson)
 make services-install       # Install all systemd services
@@ -631,10 +652,8 @@ make update-all             # Update and restart all
 - **Architecture questions?** Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **How to build an agent?** Read [`docs/AGENTS.md`](docs/AGENTS.md) and [`docs/copilot-workspace-instructions/agents.instructions.md`](docs/copilot-workspace-instructions/agents.instructions.md)
 - **Testing patterns?** Read [`docs/TESTING.md`](docs/TESTING.md)
-- **Dashboard work?** Read [`docs/DASHBOARD.md`](docs/DASHBOARD.md)
+- **Dashboard work?** Read [`docs/ORPHEUS_UI.md`](docs/ORPHEUS_UI.md)
 - **Architectural decisions?** Browse [`docs/adr/`](docs/adr/)
 - **Component-specific?** Check [`docs/copilot-workspace-instructions/`](docs/copilot-workspace-instructions/) for the relevant file
 
----
 
-**Remember: This file is your starting point. Read it before making changes, and always run tests and linting locally before committing.**

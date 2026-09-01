@@ -1,4 +1,13 @@
-"""Test fixtures for video motion agent tests."""
+"""Test fixtures for video motion agent tests.
+
+TODO: this conftest should grow a `reset_orpheus_config_singleton`
+autouse fixture matching the other agents — but the existing tests in
+``test_main.py`` rely on the OrpheusConfig singleton being pre-loaded
+by an earlier test in the suite, so adding the autouse reset right now
+causes 26 of them to fail with ConfigError. The right fix is to update
+each affected test to mock OrpheusConfig explicitly; tracking that
+separately. See docs/agent-instructions/99-gotchas.md for the pattern.
+"""
 
 from pathlib import Path
 

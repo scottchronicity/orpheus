@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Optional, Union
 import yaml
 
 from orpheus_common.logging import get_logger
+from orpheus_common.utils.urls import redact_url_credentials
 
 logger = get_logger(__name__)
 
@@ -230,6 +231,114 @@ class MQTTConfig:
             password=data.get("password"),
             keepalive=keepalive,
             topics={str(k): str(v) for k, v in topics.items()},
+        )
+
+
+@dataclass
+class EventBusConfig:
+    """Which transport backend the EventBus factory builds.
+
+    Default is now ``"nats"`` (NATS + JetStream — the messaging backplane; see
+    docs/designs/actor-model-and-control-plane.md). ``"mqtt"`` (mosquitto) stays
+    available as a one-line fallback so a box is never bricked. Additive +
+    defaulted: a config with no ``event_bus:`` section yields the nats default.
+    See orpheus_common.event_bus and docs/adr/0015.
+    """
+
+    backend: str = "nats"
+    # Connection URL for the "nats" backend (ignored by mqtt).
+    nats_url: str = "nats://127.0.0.1:4222"
+    # Whether a cold broker at connect() is fatal. None = the default: NOT fatal —
+    # the agent comes up "disconnected" and attaches when the broker appears, so a
+    # restart before the broker is up (the common single-host-upgrade case) self-
+    # heals instead of crash-looping. Set True to hard-fail on a missing broker
+    # (systemd surfaces it loudly); False is the same as leaving it unset.
+    connect_required: Optional[bool] = None
+    # Emit KV-TTL presence from each agent's heartbeat (nats only; the LWT
+    # replacement). Default off — new broad behavior behind a flag; no effect on the
+    # mqtt backend. See orpheus_common.actor.Presence.
+    presence_enabled: bool = False
+    # Operational-health migration off the domain bus (§11). health_kv_enabled:
+    # producers dual-write health to the orpheus_health KV plane (additive, nats only).
+    # health_on_bus: producers still publish health to the bus (default true; flipped
+    # off only after the UI is confirmed on KV + soaked — the LAST step). Both no-op on
+    # mqtt (kv unsupported -> bus stays the operational plane).
+    health_kv_enabled: bool = False
+    health_on_bus: bool = True
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EventBusConfig:
+        if not data:
+            return cls()
+        backend = data.get("backend", "nats")
+        if not isinstance(backend, str):
+            raise ConfigError("event_bus.backend must be a string")
+        cr = data.get("connect_required", None)
+        return cls(
+            backend=backend,
+            nats_url=str(data.get("nats_url", "nats://127.0.0.1:4222")),
+            connect_required=(None if cr is None else bool(cr)),
+            presence_enabled=bool(data.get("presence_enabled", False)),
+            health_kv_enabled=bool(data.get("health_kv_enabled", False)),
+            health_on_bus=bool(data.get("health_on_bus", True)),
+        )
+
+
+@dataclass
+class ConfigServiceConfig:
+    """Distributed config over the backplane KV (ADR 0018). When ``enabled``,
+    ``get_instance`` merges the base config distributed over the JetStream KV
+    (seeded by ``orpheus-config push``) OVER the local YAML — so hosts read shared
+    config with only ``nats_url`` local instead of copying identical YAML. env
+    still wins (applied after the KV read). Default **off** -> today's exact path
+    (local YAML only); broker-unreachable falls back to local YAML.
+
+    NOTE: ``enabled`` (and the ``event_bus`` bootstrap it reads ``nats_url`` from) is
+    consulted BEFORE ``_normalize``, so it must be a LITERAL in local YAML — a
+    ``${ENV}`` value or an ``ORPHEUS_CONFIG_SERVICE__ENABLED`` override won't toggle
+    the layer. ``orpheus-config push`` deliberately does NOT distribute these
+    bootstrap-local sections, so KV can't pin the flag on across the fleet."""
+
+    enabled: bool = False
+    kv_bucket: str = "orpheus_config"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ConfigServiceConfig:
+        if not data:
+            return cls()
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            kv_bucket=str(data.get("kv_bucket", "orpheus_config")),
+        )
+
+
+@dataclass
+class EventSourcingConfig:
+    """Domain event-sourcing shadow (the two-planes design §3 + the determinism
+    contract). When ``shadow_publish_enabled``, agents that own a domain stream ALSO
+    publish their detections to a bounded JetStream durable stream (in addition to the
+    DB save), so the durable log earns its first writer + the reconciliation evidence
+    a future 'stream is truth' inversion needs. SQLite stays the source of truth.
+
+    Default **off** ⇒ no stream publish (byte-identical to today). nats-only — a no-op
+    on the mqtt fallback. The stream is bounded (``max_age``/``max_bytes`` well under
+    the account store, ``discard: old``) so it reverts by ageing out, never pins the
+    account. See docs/designs/event-sourcing-determinism-contract.md §4."""
+
+    shadow_publish_enabled: bool = False
+    stream_name: str = "orpheus_domain"
+    max_age_seconds: float = 7 * 24 * 60 * 60.0  # 7 days
+    max_bytes: int = 500_000_000  # ~500 MB — well under the 2GB account store
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EventSourcingConfig:
+        if not data:
+            return cls()
+        return cls(
+            shadow_publish_enabled=bool(data.get("shadow_publish_enabled", False)),
+            stream_name=str(data.get("stream_name", "orpheus_domain")),
+            max_age_seconds=float(data.get("max_age_seconds", 7 * 24 * 60 * 60.0)),
+            max_bytes=int(data.get("max_bytes", 500_000_000)),
         )
 
 
@@ -833,6 +942,61 @@ class StorageFormat:
 
 
 @dataclass
+class SweepCategory:
+    """The ceiling and the floor for one directory the sweep owns.
+
+    Two numbers that pull in opposite directions, on purpose. ``max_gb`` is
+    the most this category may hold; ``floor_days`` is the stretch of recent
+    recording that is never deleted for any reason. When they conflict the
+    floor wins and the ceiling is left breached, because losing the last
+    month of audio to satisfy a size budget is the worse outcome.
+
+    ``max_gb`` is **gibibytes** — 1024³ bytes, the unit ``df -h`` and the
+    dashboard show — despite the ``_gb`` spelling, which is kept because
+    renaming the key would silently reset the ceilings on every station that
+    already has one configured. The sweep's own output says GiB.
+    """
+
+    max_gb: float
+    floor_days: int
+
+    @classmethod
+    def from_dict(cls, key: str, data: Any, default: SweepCategory) -> SweepCategory:
+        if data is None:
+            return default
+        if not isinstance(data, dict):
+            raise ConfigError(f"storage.retention.categories.{key} must be a mapping")
+
+        max_gb = data.get("max_gb", default.max_gb)
+        floor_days = data.get("floor_days", default.floor_days)
+
+        if not isinstance(max_gb, (int, float)) or isinstance(max_gb, bool):
+            raise ConfigError(f"storage.retention.categories.{key}.max_gb must be numeric")
+        if not isinstance(floor_days, int) or isinstance(floor_days, bool):
+            raise ConfigError(f"storage.retention.categories.{key}.floor_days must be an integer")
+        if max_gb <= 0:
+            raise ConfigError(f"storage.retention.categories.{key}.max_gb must be positive")
+        if floor_days < 0:
+            raise ConfigError(
+                f"storage.retention.categories.{key}.floor_days must be non-negative"
+            )
+
+        return cls(max_gb=float(max_gb), floor_days=floor_days)
+
+
+# Ceilings and floors for every category the sweep owns, sized for the
+# reference station (a 4 TB drive taking ~12 GB/day). Categories absent from
+# this table are measured but never deleted from — adding a key here is what
+# puts a directory under the sweep's control.
+DEFAULT_SWEEP_CATEGORIES: dict[str, SweepCategory] = {
+    "audio_motion": SweepCategory(max_gb=600.0, floor_days=30),
+    "video_motion": SweepCategory(max_gb=60.0, floor_days=90),
+    "snapshots": SweepCategory(max_gb=450.0, floor_days=90),
+    "timelapses": SweepCategory(max_gb=450.0, floor_days=90),
+}
+
+
+@dataclass
 class StorageRetention:
     raw_audio_days: int = 30
     raw_video_days: int = 30
@@ -843,6 +1007,32 @@ class StorageRetention:
     cleanup_strategy: str = "oldest"
     check_interval_hours: float = 6.0
     min_file_age_hours: float = 1.0
+    # Last-resort guard against a full filesystem. The size budgets above are
+    # per-directory; the disk they share is not, so every directory can be
+    # inside its budget while the disk fills. 0 disables the guard.
+    min_free_space_percent: float = 10.0
+
+    # --- orpheus-storage-sweep: the one component that deletes recordings ---
+    # Setting this false stops every deletion on the station at once, which is
+    # the point of having a single deleter: one switch, not four.
+    sweep_enabled: bool = True
+    # Free space the sweep works to keep available, in GiB (1024³ bytes, as in
+    # max_gb). Expressed in bytes rather than a percentage because what an
+    # operator needs is runway —
+    # "eight days before the disk is full" — and a percentage of an unknown
+    # disk size does not say that. min_free_space_percent still applies; the
+    # larger of the two wins.
+    reserve_gb: float = 100.0
+    # How often the timer fires. Held here so the dashboard can say when the
+    # numbers were last refreshed without reading a systemd unit.
+    sweep_interval_minutes: float = 15.0
+    # After a fresh install the sweep reports what it would delete and deletes
+    # nothing, so an operator sees the first sweep before it happens rather
+    # than after. 0 disables the grace and enforces from the first run.
+    first_run_grace_hours: float = 24.0
+    categories: dict[str, SweepCategory] = field(
+        default_factory=lambda: dict(DEFAULT_SWEEP_CATEGORIES)
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StorageRetention:
@@ -865,6 +1055,48 @@ class StorageRetention:
         cleanup_strategy = str(data.get("cleanup_strategy", "oldest"))
         check_interval_hours = float(data.get("check_interval_hours", 6.0))
         min_file_age_hours = float(data.get("min_file_age_hours", 1.0))
+        # A negative value would move the cutoff into the future and make files
+        # that are still being written eligible for deletion. The equivalent
+        # check already exists on the legacy cleanup policy; the component that
+        # actually deletes should not be the one missing it.
+        if min_file_age_hours < 0:
+            raise ConfigError("storage.retention.min_file_age_hours must be non-negative")
+        min_free_space_percent = float(data.get("min_free_space_percent", 10.0))
+
+        if not 0 <= min_free_space_percent < 100:
+            raise ConfigError(
+                "storage.retention.min_free_space_percent must be between 0 and 100 "
+                "(0 disables the low-disk guard)"
+            )
+
+        sweep_enabled = bool(data.get("sweep_enabled", True))
+        reserve_gb = float(data.get("reserve_gb", 100.0))
+        sweep_interval_minutes = float(data.get("sweep_interval_minutes", 15.0))
+        first_run_grace_hours = float(data.get("first_run_grace_hours", 24.0))
+
+        if reserve_gb < 0:
+            raise ConfigError("storage.retention.reserve_gb must be non-negative")
+        if sweep_interval_minutes <= 0:
+            raise ConfigError("storage.retention.sweep_interval_minutes must be positive")
+        if first_run_grace_hours < 0:
+            raise ConfigError("storage.retention.first_run_grace_hours must be non-negative")
+
+        raw_categories = data.get("categories", {})
+        if not isinstance(raw_categories, dict):
+            raise ConfigError("storage.retention.categories must be a mapping")
+        unknown = set(raw_categories) - set(DEFAULT_SWEEP_CATEGORIES)
+        if unknown:
+            # A typo here silently leaves a directory unswept, which is exactly
+            # the failure this component exists to end.
+            raise ConfigError(
+                "Unknown storage.retention.categories: "
+                f"{', '.join(sorted(unknown))}. Known categories: "
+                f"{', '.join(sorted(DEFAULT_SWEEP_CATEGORIES))}"
+            )
+        categories = {
+            key: SweepCategory.from_dict(key, raw_categories.get(key), default)
+            for key, default in DEFAULT_SWEEP_CATEGORIES.items()
+        }
 
         return cls(
             raw_audio_days=raw_audio,
@@ -876,6 +1108,12 @@ class StorageRetention:
             cleanup_strategy=cleanup_strategy,
             check_interval_hours=check_interval_hours,
             min_file_age_hours=min_file_age_hours,
+            min_free_space_percent=min_free_space_percent,
+            sweep_enabled=sweep_enabled,
+            reserve_gb=reserve_gb,
+            sweep_interval_minutes=sweep_interval_minutes,
+            first_run_grace_hours=first_run_grace_hours,
+            categories=categories,
         )
 
 
@@ -919,13 +1157,17 @@ class DetectionConfig:
 
 
 DEFAULT_DASHBOARD_SERVICES = [
-    "orpheus-dashboard",
-    "orpheus-mqtt",
+    "orpheus-backplane",
+    "orpheus-ui",                          # FastAPI/React backend
     "orpheus-agent-audio-motion",
     "orpheus-agent-audio-playback",
-    "orpheus-agent-video-motion",
+    "orpheus-agent-audio-events",          # PANNs SED (cross-classifier-identity)
     "orpheus-agent-bird-detection",
     "orpheus-agent-crow-detection",
+    "orpheus-agent-event-correlator",      # Layer 2/3 correlator + auto-discovery
+    "orpheus-agent-video-motion",
+    "orpheus-agent-video-snapshotter",
+    "orpheus-agent-video-timelapser",
 ]
 
 
@@ -987,6 +1229,109 @@ class HardwareConfig:
 
 
 @dataclass
+class AutoDiscoveryConfig:
+    """Configuration for the Layer 3 auto-discovery worker
+    (see docs/designs/cross-classifier-identity.md §5)."""
+
+    enabled: bool = True
+    # How often the worker scans for new co-occurrences. Default 6h —
+    # auto-discovery isn't latency-sensitive; running more often just
+    # costs DB queries without changing outcomes much.
+    interval_seconds: float = 6 * 60 * 60
+    # How far back to look for co-occurrence data.
+    lookback_days: int = 7
+    # Jaccard ≥ this auto-records as status="accepted" (live in
+    # equivalent_taxa queries immediately).
+    accept_threshold: float = 0.9
+    # Jaccard in [propose_threshold, accept_threshold) lands as
+    # status="pending_review". Below propose_threshold is ignored.
+    propose_threshold: float = 0.6
+    # Require at least this many joint observations before considering
+    # a pair — filters noise from one-off chance co-occurrences.
+    min_cooccurrences: int = 5
+    # Safety guard. When True, only CROSS-namespace pairs (e.g. ioc ↔ audioset
+    # — two classifiers naming the same source) are eligible for auto-accept;
+    # a same-namespace pair (two ioc species that merely co-occur, like a
+    # dawn-chorus crow + robin) is capped at "pending_review" for a human
+    # instead of being auto-merged into one Entity. Default False preserves the
+    # historical behaviour; set True to stop auto-discovery learning the "soup".
+    cross_namespace_accept_only: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AutoDiscoveryConfig:
+        # `or {}`: an empty `auto_discovery:` yaml key parses as None.
+        data = data or {}
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            interval_seconds=float(data.get("interval_seconds", 6 * 60 * 60)),
+            lookback_days=int(data.get("lookback_days", 7)),
+            accept_threshold=float(data.get("accept_threshold", 0.9)),
+            propose_threshold=float(data.get("propose_threshold", 0.6)),
+            min_cooccurrences=int(data.get("min_cooccurrences", 5)),
+            cross_namespace_accept_only=bool(
+                data.get("cross_namespace_accept_only", False)
+            ),
+        )
+
+
+@dataclass
+class AgentTickConfig:
+    """Per-agent runtime tick knobs (``agents.<name>:`` in orpheus.yaml — the
+    owner's "agents tick at different frequencies" ask). ``heartbeat_seconds``
+    drives the Actor base's heartbeat cadence AND the derived KV TTLs (presence,
+    operational health, both 3x). Default 30s = today's behavior byte-identical;
+    an explicit Actor constructor arg still wins (tests/sim)."""
+
+    heartbeat_seconds: float = 30.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AgentTickConfig:
+        heartbeat_seconds = float(data.get("heartbeat_seconds", 30.0))
+        if heartbeat_seconds <= 0:
+            raise ConfigError("agents.<name>.heartbeat_seconds must be > 0")
+        return cls(heartbeat_seconds=heartbeat_seconds)
+
+
+@dataclass
+class LateEnrichmentConfig:
+    """Late-arrival enrichment (cross-classifier-identity §1 "enrich existing
+    event"): when a slow classifier's detection arrives AFTER its acoustic
+    moment's cluster already closed, fold it into the recently-emitted Entity
+    instead of spawning a duplicate. Off by default — flag off is byte-identical
+    to today's clustering."""
+
+    enabled: bool = False
+    # How long an emitted entity stays enrichable. An engineering latency bound,
+    # not a domain constant: it must cover the slowest classifier chain
+    # (audio.motion → BirdNET → crow-tools, seconds each, plus queueing on a
+    # loaded Jetson) with generous headroom; 5 minutes is orders of magnitude
+    # above observed chain latency while keeping the map's memory trivially
+    # bounded. Absolute from first emit (never refreshed by an enrichment).
+    ttl_seconds: float = 300.0
+    # Hard cap on tracked roots (FIFO-evicted, oldest emit first) so the map
+    # stays bounded even under pathological event rates within the TTL.
+    max_tracked_roots: int = 2000
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LateEnrichmentConfig:
+        ttl_seconds = float(data.get("ttl_seconds", 300.0))
+        if ttl_seconds <= 0:
+            # A non-positive TTL would make the map permanently empty — a silent
+            # no-op feature. Fail loud instead.
+            raise ConfigError("correlation.late_enrichment.ttl_seconds must be > 0")
+        max_tracked_roots = int(data.get("max_tracked_roots", 2000))
+        if max_tracked_roots < 1:
+            raise ConfigError(
+                "correlation.late_enrichment.max_tracked_roots must be >= 1"
+            )
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            ttl_seconds=ttl_seconds,
+            max_tracked_roots=max_tracked_roots,
+        )
+
+
+@dataclass
 class EventCorrelationConfig:
     """Configuration for the event correlator agent."""
 
@@ -994,17 +1339,70 @@ class EventCorrelationConfig:
         default_factory=lambda: [
             "orpheus/detection/bird/events",
             "orpheus/detection/crow/events",
+            "orpheus/detection/audio/events",
         ]
     )
+    # Time-window-only clustering — Observations within this many seconds
+    # of each other cluster into one Entity (see cross-classifier-identity §4).
+    window_seconds: float = 3.0
+    # Safety cap: force-close a cluster after this many seconds even if new
+    # observations keep arriving (continuous wind/traffic/dawn-chorus would
+    # otherwise reschedule the window timer forever and the cluster never
+    # closes). The companion to window_seconds; bounded so a noisy site can
+    # retune it without a rebuild.
+    max_cluster_duration_seconds: float = 30.0
+    # Off-by-default: also publish each EntityEvent on its entity_type-routed
+    # topic (e.g. orpheus/entities/animal/bird/crow) IN ADDITION to the legacy
+    # orpheus/entities/animal topic (which always fires). Additive MQTT.
+    publish_entity_type_topics: bool = False
+    # Off-by-default: as each EntityEvent is finalised, record its
+    # (entity_type, hour-of-day) into the persisted state-space memory so the
+    # system learns temporal patterns ("coyotes at 02:00"). Pure enrichment —
+    # a write to a separate DB; correlation behaviour is unchanged when off.
+    state_space_memory_enabled: bool = False
+    # Off-by-default: fold late-arriving detections into the recently-emitted
+    # Entity for the same acoustic moment instead of spawning a duplicate.
+    late_enrichment: LateEnrichmentConfig = field(default_factory=LateEnrichmentConfig)
+    # Auto-discovery worker config (Layer 3).
+    auto_discovery: AutoDiscoveryConfig = field(default_factory=AutoDiscoveryConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EventCorrelationConfig:
+        # `or {}`: an empty `correlation:` yaml key parses as None.
+        data = data or {}
         topics = data.get("input_topics")
+        input_topics: list[str]
         if topics is not None:
             if not isinstance(topics, list):
                 raise ConfigError("correlation.input_topics must be a list")
-            return cls(input_topics=[str(t) for t in topics])
-        return cls()
+            input_topics = [str(t) for t in topics]
+        else:
+            input_topics = [
+                "orpheus/detection/bird/events",
+                "orpheus/detection/crow/events",
+                "orpheus/detection/audio/events",
+            ]
+        return cls(
+            input_topics=input_topics,
+            window_seconds=float(data.get("window_seconds", 3.0)),
+            max_cluster_duration_seconds=float(
+                data.get("max_cluster_duration_seconds", 30.0)
+            ),
+            publish_entity_type_topics=bool(
+                data.get("publish_entity_type_topics", False)
+            ),
+            state_space_memory_enabled=bool(
+                data.get("state_space_memory_enabled", False)
+            ),
+            late_enrichment=LateEnrichmentConfig.from_dict(
+                # `or {}`: an empty `late_enrichment:` yaml key parses as None.
+                data.get("late_enrichment") or {}
+            ),
+            auto_discovery=AutoDiscoveryConfig.from_dict(
+                # `or {}`: an empty `auto_discovery:` yaml key parses as None.
+                data.get("auto_discovery") or {}
+            ),
+        )
 
 
 @dataclass
@@ -1209,6 +1607,299 @@ def _load_dotenv_file(path: Path) -> None:
         logger.warning("Failed to read dotenv file", path=path, error=str(exc))
 
 
+@dataclass
+class CircuitBreakerLimit:
+    """One action's hard rate limit (a single fuse in the ``circuit_breakers``
+    fuse-box — see the [SAFETY] backlog item / ``orpheus_common.safety``)."""
+
+    limit: int
+    window_seconds: int
+
+    @classmethod
+    def from_dict(cls, action: str, data: dict[str, Any]) -> CircuitBreakerLimit:
+        try:
+            limit = int(data["limit"])
+            window_seconds = int(data["window_seconds"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"circuit_breakers.{action} requires integer 'limit' and "
+                f"'window_seconds' ({exc})"
+            ) from exc
+        if limit < 0 or window_seconds <= 0:
+            raise ConfigError(
+                f"circuit_breakers.{action}: limit must be >= 0 and "
+                f"window_seconds > 0 (got limit={limit}, window_seconds={window_seconds})"
+            )
+        return cls(limit=limit, window_seconds=window_seconds)
+
+
+def _parse_circuit_breakers(data: Any) -> dict[str, CircuitBreakerLimit]:
+    """Parse the ``circuit_breakers`` section: ``{action: {limit, window_seconds}}``.
+
+    Empty/absent → no fuses configured (nothing is throttled until an operator
+    opts an action in). Kept as a flat dict so ``to_dict`` round-trips the same
+    shape the yaml uses.
+    """
+    if not data:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError("circuit_breakers must be a mapping of action -> {limit, window_seconds}")
+    return {action: CircuitBreakerLimit.from_dict(action, spec) for action, spec in data.items()}
+
+
+def _parse_agents(data: Any) -> dict[str, AgentTickConfig]:
+    """Parse the ``agents`` section: ``{agent-name: {heartbeat_seconds, ...}}``.
+
+    Empty/absent → no per-agent overrides (every agent keeps the 30s default).
+    A non-mapping section or entry (e.g. ``agents: {audio-motion: fast}``) is a
+    config mistake — fail loud with the offending key rather than an
+    ``AttributeError`` deep inside ``from_dict``.
+    """
+    if not data:
+        return {}
+    if not isinstance(data, dict):
+        raise ConfigError("agents must be a mapping of agent name -> settings")
+    agents: dict[str, AgentTickConfig] = {}
+    for agent_name, agent_data in data.items():
+        if agent_data is not None and not isinstance(agent_data, dict):
+            raise ConfigError(
+                f"agents.{agent_name} must be a mapping "
+                f"(e.g. heartbeat_seconds: 30); got {type(agent_data).__name__}"
+            )
+        # `or {}`: an empty `agents.<name>:` yaml key parses as None.
+        agents[str(agent_name)] = AgentTickConfig.from_dict(agent_data or {})
+    return agents
+
+
+def _unflatten_dotted(flat: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild a nested config dict from dotted leaf keys (``audio.gain`` ->
+    ``{audio: {gain: ...}}``) — the inverse of ``config_push.flatten_config``. A key
+    whose prefix collides with an existing leaf is skipped (config trees don't
+    produce such collisions; this just keeps a malformed KV from raising)."""
+    out: dict[str, Any] = {}
+    for dotted, value in flat.items():
+        parts = str(dotted).split(".")
+        node = out
+        ok = True
+        for part in parts[:-1]:
+            if part not in node:
+                node[part] = {}
+            elif not isinstance(node[part], dict):
+                ok = False  # an ancestor is already a leaf (incl. a None leaf)
+                break
+            node = node[part]
+        if ok and isinstance(node.get(parts[-1]), dict):
+            ok = False  # a leaf key colliding with an already-built subtree
+        if ok:
+            node[parts[-1]] = value
+        else:
+            # Unreachable from a well-formed flatten round-trip; log rather than
+            # silently drop (or clobber a subtree) so a malformed KV is diagnosable.
+            logger.warning("config KV: skipped colliding dotted key", key=dotted)
+    return out
+
+
+def _deep_merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge ``override`` onto ``base`` (override wins); nested dicts merge
+    recursively, scalars/lists replace. Neither input is mutated."""
+    result = dict(base)
+    for key, value in override.items():
+        existing = result.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            result[key] = _deep_merge_config(existing, value)
+        else:
+            result[key] = value
+    return result
+
+
+@dataclass
+class TelemetryConfig:
+    """OpenTelemetry tracing ([REFACTOR] OTel Migration, foundation). Off by
+    default with no hard dependency — real tracing needs the optional
+    ``[telemetry]`` extra installed AND ``enabled`` here. ``sample_rate`` keeps
+    CPU overhead low (the ASR's <5% budget). Additive + defaulted; an old config
+    with no ``telemetry:`` section yields disabled."""
+
+    enabled: bool = False
+    backend: str = "console"  # "console" | "otlp" | "jaeger" | "tempo"
+    sample_rate: float = 0.1  # 10% of traces sampled
+    endpoint: str = ""  # OTLP/HTTP URL for jaeger/tempo (operator-provided)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TelemetryConfig:
+        if not data:
+            return cls()
+        # Clamp to [0, 1] — a fat-fingered rate shouldn't yield undefined sampling.
+        rate = max(0.0, min(1.0, float(data.get("sample_rate", 0.1))))
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            backend=str(data.get("backend", "console")),
+            sample_rate=rate,
+            endpoint=str(data.get("endpoint", "")),
+        )
+
+
+@dataclass
+class WeatherConfig:
+    """Weather-station ingestion ([FEATURE] Ecowitt Weather Station Integration).
+    ``enabled`` gates the long-running ingestor service (the ``orpheus-weather``
+    CLI can still be run on demand); ``url`` is the station's full local-API
+    endpoint (operator-provided, no default — nothing is guessed). Additive +
+    defaulted; an old config with no ``weather:`` section yields disabled."""
+
+    enabled: bool = False
+    url: str = ""
+    poll_interval_seconds: float = 300.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WeatherConfig:
+        if not data:
+            return cls()
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            url=str(data.get("url", "")),
+            poll_interval_seconds=float(data.get("poll_interval_seconds", 300.0)),
+        )
+
+
+@dataclass
+class CorollaryDischargeConfig:
+    """Corollary discharge ("echo problem"): the event-correlator tags
+    detections that overlap our own audio playback so the system doesn't count
+    hearing itself as wildlife. ``buffer_seconds`` pads each playback window's
+    tail to catch reverb / late triggers. Additive + defaulted; an old config
+    with no ``corollary_discharge:`` section yields the default buffer."""
+
+    # Off by default per the Reversibility Contract:
+    # tagging is NEW default-on behavior vs main — the correlator subscribes to
+    # playback windows + tags is_self_generated only when enabled. Flip it on
+    # early (the what's-new tour lists it); rollback is the flag.
+    enabled: bool = False
+    buffer_seconds: float = 2.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CorollaryDischargeConfig:
+        if not data:
+            return cls()
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            buffer_seconds=float(data.get("buffer_seconds", 2.0)),
+        )
+
+
+@dataclass
+class MirrorConfig:
+    """Read-only data mirror — push-only DB snapshot to a separate read host that
+    serves every read-only consumer (UI/viz, MCP, citizen-science export) so they
+    never touch the live Jetson DB. ``enabled`` gates the long-running
+    ``orpheus-mirror`` service (the CLI can still run ``--once`` on demand).
+    ``transport`` is ``"local"`` (copy into a directory — same-host serving /
+    tests) or ``"ssh"`` (rsync-over-ssh, push-only). Additive + defaulted; an old
+    config with no ``mirror:`` section yields disabled. Paths default to ``""`` and
+    are resolved against the data root by the agent (kept out of config to avoid an
+    import cycle)."""
+
+    enabled: bool = False
+    source_db: str = ""  # "" -> <data_root>/detections/orpheus.db
+    staging_path: str = ""  # "" -> <data_root>/mirror/orpheus.db (local snapshot)
+    interval_seconds: float = 900.0
+    transport: str = "local"  # "local" | "ssh"
+    dest: str = ""  # local: a directory; ssh: "user@host:/path"
+    ssh_options: str = ""  # extra ssh options for the rsync -e transport
+    # Bound the rsync push so a half-open SSH can't hang the whole mirror loop (which
+    # then can't observe the stop flag or advance to the next cycle). Generous default.
+    push_timeout_seconds: float = 300.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MirrorConfig:
+        if not data:
+            return cls()
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            source_db=str(data.get("source_db", "")),
+            staging_path=str(data.get("staging_path", "")),
+            interval_seconds=float(data.get("interval_seconds", 900.0)),
+            transport=str(data.get("transport", "local")),
+            dest=str(data.get("dest", "")),
+            ssh_options=str(data.get("ssh_options", "")),
+            push_timeout_seconds=float(data.get("push_timeout_seconds", 300.0)),
+        )
+
+
+@dataclass
+class UIConfig:
+    """Dashboard runtime knobs. ``read_from_replica`` points the UI's DB reads at
+    the read-only mirror replica (``MirrorConfig.staging_path``) instead of the
+    live DB — the off-Jetson read-only portal / contention relief. Additive +
+    defaulted; an old config with no ``ui:`` section reads the live DB (today)."""
+
+    read_from_replica: bool = False
+    # Where the UI reads operational health from during the non-regressive migration
+    # off the domain bus (docs/designs/observability-and-event-sourcing.md §11):
+    # "bus" = today's bus subscriptions (default), "kv" = the orpheus_health KV plane,
+    # "both" = read KV but keep serving from bus (the shadow/diff phase). A backend
+    # without KV is forced back to "bus" at boot, so a misconfig can't blank the view.
+    health_source: str = "bus"
+    # Portal prerequisite N2 (read-only-portal chain), both OFF by default:
+    # per-client API rate limiting (CircuitBreaker-backed sliding window; 429 when
+    # tripped) and a per-query SQLite time budget for the UI's DB reads (a runaway
+    # portal/LLM query gets interrupted instead of starving the box). The numbers
+    # only apply once rate_limit_enabled / a positive timeout is set.
+    rate_limit_enabled: bool = False
+    rate_limit_requests: int = 300
+    rate_limit_window_seconds: int = 60
+    query_timeout_seconds: float = 0.0  # 0 = no budget (today's behavior)
+    # One-click sign-in as the seeded read-only guest account. While this is on,
+    # anyone who can reach the port can view the dashboard without a password —
+    # convenient on a home LAN, wrong for an instance reachable by strangers.
+    # Turning it off removes the button AND refuses the endpoint.
+    guest_quick_login: bool = True
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> UIConfig:
+        if not data:
+            return cls()
+        return cls(
+            read_from_replica=bool(data.get("read_from_replica", False)),
+            health_source=str(data.get("health_source", "bus")),
+            rate_limit_enabled=bool(data.get("rate_limit_enabled", False)),
+            rate_limit_requests=int(data.get("rate_limit_requests", 300)),
+            rate_limit_window_seconds=int(data.get("rate_limit_window_seconds", 60)),
+            query_timeout_seconds=float(data.get("query_timeout_seconds", 0.0)),
+            guest_quick_login=bool(data.get("guest_quick_login", True)),
+        )
+
+
+@dataclass
+class PublicProjectionConfig:
+    """Public read-only site projection — the privacy chokepoint's config
+    (docs/designs/read-only-portal.md §2). Disabled + fail-closed by default: an old
+    config with no ``public:`` section yields a DISABLED projection that, if ever
+    used, buckets time to the day and renders a placeholder location (never a real
+    coordinate). Grid-mode location is NOT shipped in v1 (it would need a hard
+    minimum grid size); ``confidence_bands`` unset → the band is omitted, never
+    guessed; ``site_label`` unset → fail-closed placeholder."""
+
+    enabled: bool = False
+    time_granularity: str = "day"  # "day" | "hour"
+    location_mode: str = "site_label"
+    site_label: str = ""
+    confidence_bands: dict[str, float] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PublicProjectionConfig:
+        if not data:
+            return cls()
+        bands = data.get("confidence_bands", {}) or {}
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            time_granularity=str(data.get("time_granularity", "day")),
+            location_mode=str(data.get("location_mode", "site_label")),
+            site_label=str(data.get("site_label", "")),
+            confidence_bands={str(k): float(v) for k, v in bands.items()},
+        )
+
+
 class OrpheusConfig:
     """Unified, typed configuration for all Orpheus components."""
 
@@ -1249,6 +1940,10 @@ class OrpheusConfig:
             raw_data = data
             source = config_source or "<memory>"
 
+        # ADR 0018: optionally merge the base config distributed over the backplane
+        # KV OVER the local YAML, BEFORE _normalize so env still wins. Off by default
+        # -> raw_data unchanged (byte-identical); broker-unreachable -> local YAML.
+        raw_data = self._maybe_merge_kv_layer(raw_data)
         normalized = self._normalize(raw_data)
         self._raw = normalized
         self._config_source = source
@@ -1272,6 +1967,32 @@ class OrpheusConfig:
         self.hardware = HardwareConfig.from_dict(normalized.get("hardware", {}))
         self.site = SiteConfig.from_dict(normalized.get("site", {}))
         self.correlation = EventCorrelationConfig.from_dict(normalized.get("correlation", {}))
+        self.event_bus = EventBusConfig.from_dict(normalized.get("event_bus", {}))
+        # Distributed config over the backplane KV (ADR 0018); default off.
+        self.config_service = ConfigServiceConfig.from_dict(normalized.get("config_service", {}))
+        # Domain event-sourcing shadow (durable-stream first-writer); default off.
+        self.event_sourcing = EventSourcingConfig.from_dict(normalized.get("event_sourcing", {}))
+        # Corollary discharge — playback-overlap tagging window for the
+        # event-correlator (the "echo problem": tags is_self_generated,
+        # never drops). Additive + defaulted.
+        self.corollary_discharge = CorollaryDischargeConfig.from_dict(
+            normalized.get("corollary_discharge", {})
+        )
+        self.weather = WeatherConfig.from_dict(normalized.get("weather", {}))
+        self.telemetry = TelemetryConfig.from_dict(normalized.get("telemetry", {}))
+        # Read-only data mirror — push-only snapshot to a separate read host.
+        # Additive + defaulted; absent section -> disabled.
+        self.mirror = MirrorConfig.from_dict(normalized.get("mirror", {}))
+        # Dashboard knobs (e.g. read the UI off the read-only replica).
+        self.ui = UIConfig.from_dict(normalized.get("ui", {}))
+        # Public read-only site projection (privacy chokepoint; disabled default).
+        self.public = PublicProjectionConfig.from_dict(normalized.get("public", {}))
+        # Per-action hard rate limits enforced at the actuation boundary (the
+        # safety fuse-box). Flat dict action -> CircuitBreakerLimit; empty unless
+        # an operator configures a fuse. Consumed by orpheus_common.safety.
+        self.circuit_breakers = _parse_circuit_breakers(normalized.get("circuit_breakers", {}))
+        # Per-agent tick knobs: agents.<name>.heartbeat_seconds (default 30s each).
+        self.agents = _parse_agents(normalized.get("agents"))
 
         self._camera_registry: Optional[Any] = None
         self._camera_registry_source = "uninitialized"
@@ -1400,6 +2121,63 @@ class OrpheusConfig:
         copied = copy.deepcopy(raw_data)
         substituted = _substitute_env_vars(copied)
         return _apply_env_overrides(substituted, special_keys=cls._SPECIAL_ENV_KEYS)
+
+    # ------------------------------------------------------------------
+    # Distributed config (ADR 0018) — opt-in KV base-config layer
+    # ------------------------------------------------------------------
+    def _maybe_merge_kv_layer(self, raw_data: dict[str, Any]) -> dict[str, Any]:
+        """When ``config_service.enabled``, merge the base config distributed over
+        the backplane KV (seeded by ``orpheus-config push``) OVER the local YAML.
+        Off by default -> ``raw_data`` unchanged (byte-identical). Any failure
+        (broker down, KV/decode error) -> local YAML, logged."""
+        cs = raw_data.get("config_service") or {}
+        if not (isinstance(cs, dict) and cs.get("enabled", False)):
+            return raw_data
+        bucket = str(cs.get("kv_bucket", "orpheus_config"))
+        try:
+            kv_config = self._read_kv_config(raw_data, bucket)
+        except Exception as exc:  # noqa: BLE001 — never fail config load on a KV hiccup
+            logger.warning(
+                "config_service: KV read failed; falling back to local config",
+                error=str(exc),
+            )
+            return raw_data
+        if not kv_config:
+            return raw_data
+        logger.info("config_service: merged base config from backplane KV", bucket=bucket)
+        return _deep_merge_config(raw_data, kv_config)  # KV wins over local YAML
+
+    @staticmethod
+    def _read_kv_config(raw_data: dict[str, Any], bucket: str) -> dict[str, Any]:
+        """Read every config leaf from the KV bucket and rebuild the nested dict.
+        Bootstrap is local: the backend + ``nats_url`` come from env
+        (``ORPHEUS_EVENT_BUS__*``) or the local ``event_bus`` section. Requires the
+        nats backend (KV distribution has no mqtt analogue)."""
+        eb = raw_data.get("event_bus") or {}
+        backend = os.environ.get("ORPHEUS_EVENT_BUS__BACKEND") or eb.get("backend", "nats")
+        if backend != "nats":
+            return {}
+        nats_url = (
+            os.environ.get("ORPHEUS_EVENT_BUS__NATS_URL")
+            or eb.get("nats_url")
+            or "nats://127.0.0.1:4222"
+        )
+        from orpheus_common.event_bus_nats import NatsBus  # lazy: keep config import cheap
+
+        bus = NatsBus(str(nats_url), client_id="orpheus-config-read", connect_timeout=3.0)
+        bus.connect()
+        try:
+            raw = bus.kv_list(bucket)
+        finally:
+            bus.disconnect()
+        # Drop entries without a real value (missing "value" key or explicit
+        # null): merging None over a local YAML scalar/section would erase it.
+        flat = {
+            k: v.get("value")
+            for k, v in raw.items()
+            if isinstance(v, dict) and v.get("value") is not None
+        }
+        return _unflatten_dotted(flat)
 
     # ------------------------------------------------------------------
     # Typed helpers
@@ -1538,18 +2316,32 @@ class OrpheusConfig:
             else:
                 return obj
 
-        # Build config dict, excluding camera registry to avoid circular refs
+        # Derive the section list from the config's own dataclass-valued attributes
+        # instead of hand-maintaining it (the explicit list drifted 4x — a new config
+        # section silently missed serialization). Every PUBLIC attribute that is a
+        # config dataclass is a section, keyed by its attribute name; private state
+        # (``_raw``, the lazily-built ``_camera_registry`` — the circular-ref hazard the
+        # old comment guarded against — ``_config_source``) is skipped by the leading
+        # underscore, so a future ``self.newthing = NewConfig(...)`` auto-includes.
         result = {
-            "mqtt": _asdict_recursive(self.mqtt),
-            "audio": _asdict_recursive(self.audio),
-            "video": _asdict_recursive(self.video),
-            "storage": _asdict_recursive(self.storage),
-            "detection": _asdict_recursive(self.detection),
-            "dashboard": _asdict_recursive(self.dashboard),
-            "logging": _asdict_recursive(self.logging),
-            "hardware": _asdict_recursive(self.hardware),
+            name: _asdict_recursive(value)
+            for name, value in vars(self).items()
+            if not name.startswith("_") and dataclasses.is_dataclass(value)
+        }
+        # circuit_breakers is a flat {action: {limit, window_seconds}} dict (not a
+        # dataclass attribute), same shape as the yaml — add it explicitly.
+        result["circuit_breakers"] = {
+            action: _asdict_recursive(lim) for action, lim in self.circuit_breakers.items()
+        }
+        # agents is a {name: AgentTickConfig} dict — same special case.
+        result["agents"] = {
+            agent_name: _asdict_recursive(tick) for agent_name, tick in self.agents.items()
         }
         return result
+
+    def agent_tick(self, name: str) -> AgentTickConfig:
+        """The tick knobs for agent ``name`` (defaults when unconfigured)."""
+        return self.agents.get(name, AgentTickConfig())
 
     def get_debug_safe_values(self) -> dict[str, dict[str, str]]:
         def sanitize_value(key: str, value: Any) -> str:
@@ -1557,8 +2349,15 @@ class OrpheusConfig:
                 return ""
             value_str = str(value)
             lower = key.lower()
-            if any(token in lower for token in ("password", "secret", "token")):
+            if any(token in lower for token in ("password", "secret", "token", "credential")):
                 return self._mask_value(value_str)
+            # Connection URLs carry credentials in their userinfo (and
+            # occasionally in a query string), but the host is the whole point
+            # of showing them here — strip the secrets, keep the address.
+            if any(token in lower for token in ("url", "uri", "dsn")):
+                redacted = redact_url_credentials(value_str)
+                head, sep, _query = redacted.partition("?")
+                return f"{head}?***" if sep else head
             return value_str
 
         # Use to_dict() to get runtime config with all defaults, then flatten it
@@ -1632,4 +2431,10 @@ class OrpheusConfig:
 
     @staticmethod
     def _mask_value(value: str) -> str:
-        return "***" + value[-4:] if len(value) > 4 else "***"
+        """Fully mask a secret.
+
+        No suffix is preserved: four characters is enough to confirm a guess
+        against a known credential, and nothing downstream needs to tell two
+        masked secrets apart.
+        """
+        return "***"

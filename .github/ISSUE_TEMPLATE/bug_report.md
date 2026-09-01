@@ -12,7 +12,7 @@ A clear and concise description of the bug.
 ## Environment
 - **Platform**: (e.g., Jetson Orin NX, MacBook Pro M1, Ubuntu 22.04)
 - **Python Version**: (e.g., 3.9.5)
-- **Component**: (e.g., orpheus-common, orpheus-dashboard, orpheus-agent-audio-motion)
+- **Component**: (e.g., orpheus-common, orpheus_ui, orpheus-agent-audio-motion)
 - **Component Version/Commit**: (e.g., v0.1.0 or commit hash)
 
 ## Steps to Reproduce

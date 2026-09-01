@@ -3,6 +3,23 @@
 from pathlib import Path
 
 import pytest
+from orpheus_common.config import OrpheusConfig
+
+
+@pytest.fixture(autouse=True)
+def reset_orpheus_config_singleton() -> None:
+    """Reset OrpheusConfig singleton between tests.
+
+    Prevents cross-test config pollution. See
+    docs/agent-instructions/99-gotchas.md.
+    """
+    original_instance = OrpheusConfig._instance
+    original_dotenv = OrpheusConfig._DOTENV_LOADED
+    OrpheusConfig._instance = None
+    OrpheusConfig._DOTENV_LOADED = False
+    yield
+    OrpheusConfig._instance = original_instance
+    OrpheusConfig._DOTENV_LOADED = original_dotenv
 
 
 @pytest.fixture

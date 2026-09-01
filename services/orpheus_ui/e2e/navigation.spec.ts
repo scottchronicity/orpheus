@@ -58,7 +58,7 @@ test.describe('Complete Navigation Flow', () => {
     await expect(page.getByText(/no cameras configured/i)).toBeVisible()
     
     // === AUDIO ===
-    await navigateTo(page, /audio/i)
+    await navigateTo(page, /^audio$/i)
     await expect(page).toHaveURL('/audio')
     await expect(page.getByRole('heading', { name: /audio detection/i })).toBeVisible()
     await expect(page.getByText(/system status/i)).toBeVisible()
@@ -124,7 +124,7 @@ test.describe('Individual Page Content', () => {
   })
 
   test('Audio page shows channel status', async ({ page }) => {
-    await navigateTo(page, /audio/i)
+    await navigateTo(page, /^audio$/i)
     
     await expect(page.getByText(/system status/i)).toBeVisible()
     await expect(page.getByText(/active channels/i)).toBeVisible()
@@ -238,7 +238,7 @@ test.describe('Mobile Navigation', () => {
       { link: /^birds$/i, content: /bird detections/i },
       { link: /crows/i, content: /crow analysis/i },
       { link: /cameras/i, content: /cameras/i },
-      { link: /audio/i, content: /audio detection/i },
+      { link: /^audio$/i, content: /audio detection/i },
       { link: /video/i, content: /video detection/i },
       { link: /settings/i, content: /settings/i },
     ]

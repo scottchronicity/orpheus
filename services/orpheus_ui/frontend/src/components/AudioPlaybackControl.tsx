@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Play, Volume2, RefreshCw } from 'lucide-react'
 import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
 import { Card, CardHeader } from './ui'
 
 interface SoundsResponse {
@@ -34,10 +35,7 @@ export function AudioPlaybackControl() {
   // Fetch available sounds
   const { data: soundsData, isLoading, error, refetch } = useQuery<SoundsResponse>({
     queryKey: ['playback-sounds'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/audio/playback/sounds')
-      return res.json()
-    },
+    queryFn: () => fetchJson<SoundsResponse>('/api/audio/playback/sounds'),
   })
 
   // Playback mutation

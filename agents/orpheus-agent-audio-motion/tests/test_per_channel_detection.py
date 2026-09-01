@@ -74,7 +74,7 @@ logging:
 
     try:
         with patch("orpheus_agent_audio_motion.main.setup_logging"):
-            with patch("orpheus_agent_audio_motion.main.MQTTClient") as mock_mqtt:
+            with patch("orpheus_agent_audio_motion.main.create_event_bus") as mock_mqtt:
                 with patch("orpheus_agent_audio_motion.main.ClipSaver") as mock_saver:
                     with patch(
                         "orpheus_agent_audio_motion.main.create_audio_source"
@@ -191,7 +191,7 @@ logging:
         # but we won't fight the .env file loading.
         with patch.dict(os.environ, {}, clear=True):
             with patch("orpheus_agent_audio_motion.main.setup_logging"):
-                with patch("orpheus_agent_audio_motion.main.MQTTClient") as mock_mqtt:
+                with patch("orpheus_agent_audio_motion.main.create_event_bus") as mock_mqtt:
                     with patch("orpheus_agent_audio_motion.main.ClipSaver") as mock_saver:
                         with patch(
                             "orpheus_agent_audio_motion.main.create_audio_source"
@@ -278,7 +278,7 @@ logging:
 
     try:
         with patch("orpheus_agent_audio_motion.main.setup_logging"):
-            with patch("orpheus_agent_audio_motion.main.MQTTClient") as mock_mqtt:
+            with patch("orpheus_agent_audio_motion.main.create_event_bus") as mock_mqtt:
                 with patch("orpheus_agent_audio_motion.main.ClipSaver") as mock_saver:
                     with patch(
                         "orpheus_agent_audio_motion.main.create_audio_source"

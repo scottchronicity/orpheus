@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchWithAuth } from '../lib/utils'
+import { fetchJson } from '../lib/api'
+import { formatDateTime } from '../lib/utils'
 import { POLLING_INTERVALS } from '../config'
 import {
   Cpu,
@@ -13,6 +14,7 @@ import {
   Activity,
   Server,
   Database,
+  CloudSun,
 } from 'lucide-react'
 import {
   LoadingSpinner,
@@ -64,6 +66,93 @@ interface VideoDiagnostics {
   running: boolean
   camera_count?: number
   message?: string
+}
+
+interface WeatherData {
+  available: boolean
+  temperature_c?: number | null
+  humidity_pct?: number | null
+  pressure_hpa?: number | null
+  wind_speed_mps?: number | null
+  wind_direction_deg?: number | null
+  rainfall_mm?: number | null
+  timestamp?: string
+}
+
+/**
+ * Format an optional numeric reading with a unit, or '--' when the sensor
+ * didn't report it (WeatherReading fields are all optional).
+ */
+function formatReading(value: number | null | undefined, unit: string, digits = 1): string {
+  if (value === null || value === undefined) return '--'
+  return `${value.toFixed(digits)}${unit}`
+}
+
+/**
+ * A reading older than this is flagged stale instead of being presented as
+ * current conditions. 15 minutes = 3x the weather ingestor's default 300s
+ * poll interval — the same "3x the heartbeat" convention presence uses. If
+ * the station or the orpheus-weather ingestor dies, the backend keeps serving
+ * its last row indefinitely, so the tell has to be client-side.
+ */
+const WEATHER_STALE_MS = 15 * 60 * 1000
+
+/**
+ * Compact current-conditions card fed by the weather-station ingestor.
+ *
+ * Polls GET /api/weather/latest at the HEALTH tier and renders nothing at all
+ * when the backend reports `available: false` — most deploys have no weather
+ * station configured, so the card only appears once readings exist. On those
+ * deploys the poll also backs off to 60s so the absent feature isn't hammered
+ * at the HEALTH tier forever. A reading older than WEATHER_STALE_MS renders a
+ * muted stale note rather than posing as live conditions.
+ */
+export function WeatherCard() {
+  const { data } = useQuery<WeatherData>({
+    queryKey: ['weather-latest'],
+    queryFn: () => fetchJson<WeatherData>('/api/weather/latest'),
+    refetchInterval: (query) =>
+      query.state.data && !query.state.data.available ? 60_000 : POLLING_INTERVALS.HEALTH,
+  })
+
+  if (!data?.available) {
+    return null
+  }
+
+  // An unparseable timestamp gives NaN → not flagged (matches formatDateTime's
+  // fall-back-to-raw-string behavior rather than crying wolf).
+  const readingAgeMs = data.timestamp ? Date.now() - new Date(data.timestamp).getTime() : NaN
+  const isStale = Number.isFinite(readingAgeMs) && readingAgeMs > WEATHER_STALE_MS
+
+  return (
+    <Card>
+      <CardHeader title="Weather" icon={CloudSun} iconColor="blue" />
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <p className="text-xs text-slate-500">Temperature</p>
+          <p className="text-lg text-slate-200">{formatReading(data.temperature_c, ' °C')}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Humidity</p>
+          <p className="text-lg text-slate-200">{formatReading(data.humidity_pct, ' %', 0)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500">Wind</p>
+          <p className="text-lg text-slate-200">{formatReading(data.wind_speed_mps, ' m/s')}</p>
+        </div>
+      </div>
+      {data.timestamp &&
+        (isStale ? (
+          <p className="text-xs text-amber-400 mt-3">
+            Stale — last reading {formatDateTime(data.timestamp)}
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500 mt-3">
+            Reading from {formatDateTime(data.timestamp)}
+          </p>
+        ))}
+    </Card>
+  )
 }
 
 /**
@@ -155,47 +244,37 @@ function getUsageColor(percent: number): 'blue' | 'green' | 'amber' | 'red' {
 }
 
 /**
- * Convert bytes to gigabytes with one decimal place.
+ * Convert bytes to gibibytes with one decimal place — the same unit and label
+ * as formatBytes and orpheus-storage-sweep, so free space reads the same
+ * wherever it appears.
  */
-function bytesToGB(bytes: number | undefined): string {
+function bytesToGiB(bytes: number | undefined): string {
   if (bytes === undefined) return 'Size unknown'
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GiB`
 }
 
 export default function Dashboard() {
   const { data: health, isLoading: healthLoading } = useQuery<HealthData>({
     queryKey: ['health'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/health')
-      return res.json()
-    },
+    queryFn: () => fetchJson<HealthData>('/api/health'),
     refetchInterval: POLLING_INTERVALS.HEALTH,
   })
 
   const { data: services, isLoading: servicesLoading } = useQuery<ServicesData>({
     queryKey: ['services'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/services/status')
-      return res.json()
-    },
+    queryFn: () => fetchJson<ServicesData>('/api/services/status'),
     refetchInterval: POLLING_INTERVALS.HEALTH,
   })
 
   const { data: audioDiag } = useQuery<AudioDiagnostics>({
     queryKey: ['audio-diagnostics'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/audio')
-      return res.json()
-    },
+    queryFn: () => fetchJson<AudioDiagnostics>('/api/diagnostics/audio'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 
   const { data: videoDiag } = useQuery<VideoDiagnostics>({
     queryKey: ['video-diagnostics'],
-    queryFn: async () => {
-      const res = await fetchWithAuth('/api/diagnostics/video')
-      return res.json()
-    },
+    queryFn: () => fetchJson<VideoDiagnostics>('/api/diagnostics/video'),
     refetchInterval: POLLING_INTERVALS.REALTIME,
   })
 
@@ -238,6 +317,9 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Current conditions — hidden entirely unless a weather station reports */}
+      <WeatherCard />
+
       {/* Data Storage Card */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
@@ -270,7 +352,7 @@ export default function Dashboard() {
                 />
               </div>
               <p className="text-xs text-slate-500 mt-2">
-                {health.disk_data.free ? `${bytesToGB(health.disk_data.free)} free` : 'Size unknown'}
+                {health.disk_data.free ? `${bytesToGiB(health.disk_data.free)} free` : 'Size unknown'}
               </p>
             </>
           ) : (
@@ -303,7 +385,7 @@ export default function Dashboard() {
             />
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            {health?.disk_system?.free ? `${bytesToGB(health.disk_system.free)} free` : 'Size unknown'}
+            {health?.disk_system?.free ? `${bytesToGiB(health.disk_system.free)} free` : 'Size unknown'}
           </p>
         </Card>
       </div>

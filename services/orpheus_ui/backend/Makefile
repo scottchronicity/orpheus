@@ -44,7 +44,7 @@ run: check-deps
 	@if [ -z "$$ORPHEUS_CONFIG_PATH" ] && [ ! -f "/opt/orpheus/config/orpheus.yaml" ]; then \
 		export ORPHEUS_CONFIG_PATH="../../../config/orpheus.yaml"; \
 	fi; \
-	$(UVICORN) orpheus_ui.main:app --host 0.0.0.0 --port 8082 --reload
+	$(UVICORN) orpheus_ui.main:app --host 0.0.0.0 --port 8082 --reload --no-access-log
 
 test: check-deps
 	@echo "Running tests..."

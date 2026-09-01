@@ -2,6 +2,10 @@
 
 **Status:** Accepted
 
+Component inventory below is as of the decision. `orpheus-dashboard` has since
+been retired in favour of `orpheus_ui`, and a ninth agent (event-correlator) was
+added.
+
 **Date:** 2026-03-22
 
 **Deciders:** Scott, Development Team

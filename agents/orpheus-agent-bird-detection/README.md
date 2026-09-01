@@ -21,7 +21,7 @@ Subscribes to audio motion events from `orpheus-agent-audio-motion` and performs
 make install
 
 # Install systemd service
-sudo make install-service
+make install-service
 ```
 
 ## Model Management

@@ -28,6 +28,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<boolean>
+  loginAsGuest: () => Promise<boolean>
   logout: () => void
   checkAuth: () => Promise<void>
 }
@@ -103,6 +104,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Sign in as the seeded read-only guest.
+   *
+   * The password stays on the server: this posts to an endpoint that
+   * authenticates the guest account and returns a normal token, so no
+   * credential ships in the bundle and the flow survives a password rotation.
+   * The server refuses when ``ui.guest_quick_login`` is off.
+   */
+  const loginAsGuest = async (): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_BASE}/auth/guest-login`, { method: 'POST' })
+      if (response.ok) {
+        const data = await response.json()
+        setToken(data.access_token)
+        await checkAuth()
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+
   const logout = useCallback(() => {
     removeToken()
     setUser(null)
@@ -116,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated,
         isLoading,
         login,
+        loginAsGuest,
         logout,
         checkAuth,
       }}

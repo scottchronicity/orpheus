@@ -1,0 +1,193 @@
+# Orpheus Simulacrum — run the collective under test, no Jetson/hardware needed.
+#
+# Stands up the messaging backplane (NATS+JetStream — the real default transport)
+# + the cognitive collective (event-correlator) + a sim-source that emits
+# synthetic detections, so you can watch detections -> correlation -> EntityEvents
+# end-to-end in containers. Sensor agents (audio/video-motion) need hardware, so
+# they're replaced by the sim-source.
+#
+#   make sim-up | sim-down | sim-logs | sim-status
+#
+# Cross-platform (macOS/Linux, arm/x86).
+#
+# Two profiles:
+#   demo  (make sim-up)        backplane + correlator + synthetic sim-source
+#   fleet (make sim-fleet-up)  backplane + correlator + the REAL detection agents
+#                              (bird/crow/audio-events) with models + clips mounted,
+#                              for real-audio end-to-end validation. Inject one
+#                              audio.motion event (with a clip path) and watch the
+#                              full cascade -> EntityEvent. No sim-source noise.
+# backplane + correlator carry no profile, so they run under both.
+
+name: orpheus-simulacrum
+
+# Shared healthcheck for the python-agent containers. PID 1 *is* the agent
+# process (the container dies with it), so the meaningful cheap in-container
+# check is "can this container still reach the backplane" (DNS + TCP from the
+# agent's own netns — catches network partitions and a downed broker). Under the
+# distributed overlay orpheus-backplane stays resolvable (backbone-nuc is an
+# alias of the same service). Informational only — nothing gates startup
+# ordering on it beyond the existing depends_on.
+x-agent-healthcheck: &agent-healthcheck
+  test: ["CMD", "python", "-c", "import socket; socket.create_connection(('orpheus-backplane', 4222), 3).close()"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+# Shared config for the real detection-agent services (fleet profile). Each agent
+# resolves its model from $ORPHEUS_DATA_ROOT/models/<file> (the mounted artifacts),
+# so no per-agent config is needed; enabled defaults to true. Clips are mounted
+# read-only so an injected audio.motion's audio_clip_path resolves in-container.
+x-detection-agent: &detection-agent
+  environment:
+    ORPHEUS_CONFIG_PATH: /opt/orpheus/config/orpheus.yaml
+    ORPHEUS_DATA_ROOT: /data/orpheus
+  volumes:
+    - ./docker/orpheus.sim.yaml:/opt/orpheus/config/orpheus.yaml:ro
+    - ./artifacts/models:/data/orpheus/models:ro
+    - ./artifacts/audio-samples:/data/orpheus/clips:ro
+    - orpheus-data:/data/orpheus
+  depends_on:
+    orpheus-backplane:
+      condition: service_healthy
+  healthcheck: *agent-healthcheck
+  profiles: ["fleet"]
+  restart: unless-stopped
+
+# Container log bounds. Docker's default json-file driver is UNBOUNDED: a
+# container stuck in a log loop grows /var/lib/docker until the host disk is
+# gone. 20 MB x 3 files caps each container at 60 MB, which is generous for a
+# demo run and finite by construction.
+x-log-bounds: &log-bounds
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  orpheus-backplane:
+    logging: *log-bounds
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring (/healthz, /varz)
+    volumes:
+      - backplane-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  orpheus-correlator:
+    logging: *log-bounds
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+      args:
+        AGENT_PATH: agents/orpheus-agent-event-correlator
+        AGENT_MODULE: orpheus_agent_event_correlator.main
+    environment:
+      ORPHEUS_CONFIG_PATH: /opt/orpheus/config/orpheus.yaml
+      ORPHEUS_DATA_ROOT: /data/orpheus
+    volumes:
+      - ./docker/orpheus.sim.yaml:/opt/orpheus/config/orpheus.yaml:ro
+      - orpheus-data:/data/orpheus
+    depends_on:
+      orpheus-backplane:
+        condition: service_healthy
+    healthcheck: *agent-healthcheck
+    restart: unless-stopped
+
+  orpheus-sim-source:
+    logging: *log-bounds
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.sim
+    environment:
+      ORPHEUS_CONFIG_PATH: /opt/orpheus/config/orpheus.yaml
+      ORPHEUS_DATA_ROOT: /data/orpheus
+      # synthetic (default) = self-contained species.detected bursts (today's
+      # behavior); replay = REAL-shaped audio.motion events referencing the
+      # mounted clips, e.g.  SIM_MODE=replay make sim-up
+      SIM_MODE: ${SIM_MODE:-synthetic}
+      SIM_INTERVAL_SECONDS: "4"
+      SIM_BURST: "2"
+    volumes:
+      - ./docker/orpheus.sim.yaml:/opt/orpheus/config/orpheus.yaml:ro
+      # Real clips for SIM_MODE=replay — the SAME mount point as the fleet
+      # classifiers, so a replayed audio_clip_path resolves in their containers.
+      - ./artifacts/audio-samples:/data/orpheus/clips:ro
+    depends_on:
+      orpheus-backplane:
+        condition: service_healthy
+    healthcheck: *agent-healthcheck
+    profiles: ["demo"]
+    restart: unless-stopped
+
+  # --- fleet profile: the real detection collective (real models) --------------
+  orpheus-bird-detection:
+    logging: *log-bounds
+    <<: *detection-agent
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+      args:
+        AGENT_PATH: agents/orpheus-agent-bird-detection
+        AGENT_MODULE: orpheus_agent_bird_detection.main
+
+  orpheus-crow-detection:
+    logging: *log-bounds
+    <<: *detection-agent
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+      args:
+        AGENT_PATH: agents/orpheus-agent-crow-detection
+        AGENT_MODULE: orpheus_agent_crow_detection.main
+
+  orpheus-audio-events:
+    logging: *log-bounds
+    <<: *detection-agent
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+      args:
+        AGENT_PATH: agents/orpheus-agent-audio-events
+        AGENT_MODULE: orpheus_agent_audio_events.main
+
+  # The dashboards' API — reads the entity DB the correlator writes, so the e2e
+  # validation can assert the dashboard reflects the produced entity.
+  orpheus-ui:
+    logging: *log-bounds
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ui
+    environment:
+      ORPHEUS_CONFIG_PATH: /opt/orpheus/config/orpheus.yaml
+      ORPHEUS_DATA_ROOT: /data/orpheus
+      ORPHEUS_UI_JWT_SECRET: e2e-simulacrum-secret
+    volumes:
+      - ./docker/orpheus.sim.yaml:/opt/orpheus/config/orpheus.yaml:ro
+      - orpheus-data:/data/orpheus
+    ports:
+      - "8082:8082"
+    depends_on:
+      orpheus-backplane:
+        condition: service_healthy
+    healthcheck:
+      # /api/config is the UI's public (unauthenticated) endpoint — a 200 proves
+      # the FastAPI loop is actually serving, not just that uvicorn's PID exists.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/api/config', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    profiles: ["fleet"]
+    restart: unless-stopped
+
+volumes:
+  backplane-data:
+  orpheus-data:

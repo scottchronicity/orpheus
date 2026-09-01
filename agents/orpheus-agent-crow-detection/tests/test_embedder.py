@@ -117,3 +117,19 @@ class TestAVESEmbedder:
 
         embedder = AVESEmbedder("/path/to/model.pt")
         assert embedder.device.type == "cuda"
+
+    @patch("orpheus_agent_crow_detection.embedder.torch.cuda.is_available")
+    @patch(
+        "orpheus_agent_crow_detection.embedder.fairseq.checkpoint_utils.load_model_ensemble_and_task"
+    )
+    @patch("orpheus_agent_crow_detection.embedder.Path.exists")
+    def test_explicit_cpu_device_overrides_available_cuda(
+        self, mock_exists: MagicMock, mock_load_ensemble: MagicMock, mock_cuda: MagicMock
+    ) -> None:
+        """An explicit device="cpu" pins CPU even when CUDA is available (config knob)."""
+        mock_exists.return_value = True
+        mock_cuda.return_value = True
+        mock_load_ensemble.return_value = ([MagicMock()], None, None)
+
+        embedder = AVESEmbedder("/path/to/model.pt", device="cpu")
+        assert embedder.device.type == "cpu"

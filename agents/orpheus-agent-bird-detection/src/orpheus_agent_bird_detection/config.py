@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from orpheus_common.config import OrpheusConfig
@@ -20,6 +20,14 @@ class BirdDetectionConfig:
     confidence_threshold: float
     location_lat: Optional[float]
     location_lon: Optional[float]
+    # Geographic-filter tuning (see BirdNETModel docstring for semantics).
+    # Defaults match the historical hard ``min_prob=0.03`` cut.
+    geo_filter_min_prob: float = 0.03
+    geo_filter_weak_admit_prob: float = 0.0005
+    geo_filter_weak_admit_conf: float = 0.85
+    # Scientific names or full BirdNET labels for species personally confirmed
+    # at this site; these bypass the geo filter. See _resolve_whitelist.
+    site_species_whitelist: list[str] = field(default_factory=list)
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> BirdDetectionConfig:
@@ -53,11 +61,29 @@ class BirdDetectionConfig:
         site = getattr(config, "site", None)
         default_lat = site.lat if site is not None and site.lat is not None else 43.965542
         default_lon = site.lon if site is not None and site.lon is not None else -84.943588
+
+        whitelist_raw = bird_config.get("site_species_whitelist", []) or []
+        if not isinstance(whitelist_raw, list):
+            logger.warning(
+                "bird_detection.site_species_whitelist must be a list; ignoring",
+                got_type=type(whitelist_raw).__name__,
+            )
+            whitelist_raw = []
+        whitelist = [str(x) for x in whitelist_raw]
+
         return cls(
             model_path=model_path,
             confidence_threshold=float(bird_config.get("confidence_threshold", 0.5)),
             location_lat=float(bird_config.get("location_lat", default_lat)),
             location_lon=float(bird_config.get("location_lon", default_lon)),
+            geo_filter_min_prob=float(bird_config.get("geo_filter_min_prob", 0.03)),
+            geo_filter_weak_admit_prob=float(
+                bird_config.get("geo_filter_weak_admit_prob", 0.0005)
+            ),
+            geo_filter_weak_admit_conf=float(
+                bird_config.get("geo_filter_weak_admit_conf", 0.85)
+            ),
+            site_species_whitelist=whitelist,
         )
 
 

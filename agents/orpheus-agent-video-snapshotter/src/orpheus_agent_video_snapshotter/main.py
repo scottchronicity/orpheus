@@ -11,8 +11,8 @@ from typing import Optional
 import cv2
 import numpy as np
 from orpheus_common.logging import get_logger, setup_logging
-from orpheus_common.storage.cleanup import cleanup_old_files_by_age
 from orpheus_common.utils.time import parse_duration_string, utc_now_iso
+from orpheus_common.utils.urls import redact_url_credentials
 
 from .config import CameraSnapshotConfig, load_app_config
 
@@ -31,7 +31,6 @@ class VideoSnapshotter:
         self._log_level_override = log_level_override
         self._running = False
         self._last_snapshot_times = {}
-        self._last_cleanup_time = 0.0
 
     def start(self) -> None:
         """Start the agent and block until shutdown is requested."""
@@ -77,6 +76,18 @@ class VideoSnapshotter:
                         interval=camera.interval,
                         error=str(e),
                     )
+
+        # This agent used to delete its own snapshots on an age window. It no
+        # longer deletes anything; orpheus-storage-sweep owns every deletion
+        # under the data root. Saying so at startup means an operator who set
+        # video_snapshotter.retention_days finds out that it is inert here,
+        # rather than discovering it from a directory that never shrinks.
+        logger.info(
+            "Snapshot retention is enforced by orpheus-storage-sweep "
+            "(video_snapshotter.retention_days is no longer applied; set "
+            "storage.retention.categories.snapshots instead)",
+            retention_days=self._config.retention_days,
+        )
 
         self._running = True
         logger.info("Entering main snapshot loop")
@@ -136,21 +147,9 @@ class VideoSnapshotter:
                 except Exception:
                     logger.exception("Failed to capture snapshot", camera_name=camera.name)
 
-            # Run retention cleanup every 6 hours
-            cleanup_interval_seconds = 6 * 3600
-            if current_time - self._last_cleanup_time >= cleanup_interval_seconds:
-                snapshot_dir = self._config.storage_base_path / "video" / "snapshots"
-                logger.info(
-                    "Running snapshot retention cleanup",
-                    path=str(snapshot_dir),
-                    retention_days=self._config.retention_days,
-                )
-                cleanup_old_files_by_age(
-                    path=snapshot_dir,
-                    max_age_days=self._config.retention_days,
-                    dry_run=False,
-                )
-                self._last_cleanup_time = current_time
+            # This agent captures; it does not delete. Snapshots are trimmed by
+            # orpheus-storage-sweep, which is the only component that deletes
+            # under the data root — see docs/designs/storage-retention.md.
 
             # Sleep briefly to avoid tight loop
             time.sleep(1.0)
@@ -158,7 +157,11 @@ class VideoSnapshotter:
     def _capture_snapshot(self, camera: CameraSnapshotConfig) -> None:
         """Capture a single snapshot from camera and save to disk."""
 
-        logger.debug("Opening RTSP stream", camera_name=camera.name, rtsp_url=camera.rtsp_url)
+        logger.debug(
+            "Opening RTSP stream",
+            camera_name=camera.name,
+            rtsp_url=redact_url_credentials(camera.rtsp_url),
+        )
 
         # Open RTSP stream with minimal timeout
         cap = cv2.VideoCapture(camera.rtsp_url)

@@ -30,9 +30,8 @@ We take security seriously. If you discover a security vulnerability, please rep
 
 This security policy applies to:
 - `orpheus-common` - Core platform library
-- `orpheus-dashboard` - Web dashboard (FastAPI backend)
 - `orpheus_ui` - Web UI (FastAPI backend + React frontend)
-- `orpheus-mqtt` - MQTT broker service
+- `orpheus-backplane` - messaging backplane (NATS default, mosquitto fallback)
 - `orpheus-gps` - GPS service
 - `orpheus-bluetooth-autoconnect` - Bluetooth autoconnect service
 - `orpheus-agent-audio-motion` - Audio motion detection agent

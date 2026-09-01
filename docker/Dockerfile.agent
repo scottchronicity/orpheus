@@ -1,0 +1,29 @@
+# Generic Orpheus agent image for the Simulacrum (build context = repo root).
+# AGENT_PATH selects which agent; AGENT_MODULE is its python -m entrypoint.
+# Single-stage for now (dev sim); multi-stage slimming is a follow-up.
+FROM python:3.9-slim
+
+ARG AGENT_PATH
+ARG AGENT_MODULE
+
+WORKDIR /opt/orpheus
+ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 ORPHEUS_AGENT_MODULE=${AGENT_MODULE}
+
+# Build + audio deps for the detection agents (torch/fairseq native builds;
+# libsndfile for soundfile incl. OGG; ffmpeg for librosa decode). The correlator
+# doesn't need these but the shared image stays single-Dockerfile (KISS); apt
+# layer is cached across agent builds.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git libsndfile1 ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# orpheus-common first (the agent depends on it), then the agent.
+COPY platform/orpheus-common ./platform/orpheus-common
+RUN pip install ./platform/orpheus-common
+COPY ${AGENT_PATH} ./agent
+RUN pip install ./agent
+
+# Shell form so ORPHEUS_AGENT_MODULE expands at runtime; explicit `exec` so
+# python is PID 1 and receives SIGTERM directly (dash's tail-call exec
+# optimization would usually do this, but don't rely on it).
+CMD exec python -m ${ORPHEUS_AGENT_MODULE}

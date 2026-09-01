@@ -134,7 +134,7 @@ deploy-config:
 
 update: install-service force-update-config
 	@echo "Restarting services to pick up new configuration..."
-	@sudo systemctl restart orpheus-dashboard 2>/dev/null || echo "⚠ orpheus-dashboard not running"
+	@sudo systemctl restart orpheus-ui 2>/dev/null || echo "⚠ orpheus-ui not running"
 	@sudo systemctl restart orpheus-agent-audio-motion 2>/dev/null || echo "⚠ orpheus-agent-audio-motion not running"
 	@echo "✓ Services restarted"
 

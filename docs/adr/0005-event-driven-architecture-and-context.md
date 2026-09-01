@@ -2,6 +2,10 @@
 
 **Status:** Accepted
 
+**Superseded in part by** [ADR 0006](0006-event-hierarchy-and-taxonomy.md): the
+`InferenceEvent` layer described here is now an alias. The JSON sidecar and the
+migration path remain live.
+
 **Date:** 2026-02-13
 
 **Deciders:** Development Team

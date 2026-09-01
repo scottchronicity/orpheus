@@ -4,9 +4,9 @@ applyTo: "platform/orpheus-common/**"
 
 # orpheus-common Library Instructions
 
-**See [`/CODING_AGENT_CONTEXT.md`](../../CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains orpheus-common specific implementation details.
+**See [`/CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains orpheus-common specific implementation details.
 
-**See [`/platform/orpheus-common/README.md`](../../platform/orpheus-common/README.md) for library overview and usage.**
+**See [`/platform/orpheus-common/README.md`](https://github.com/scottchronicity/orpheus/blob/main/platform/orpheus-common/README.md) for library overview and usage.**
 
 ---
 
@@ -21,7 +21,8 @@ This is the shared library imported by ALL agents and services. Changes here aff
 - `config.py` - OrpheusConfig singleton, YAML loading, dataclasses
 - `mqtt.py` - MQTTClient wrapper with auto-reconnect, JSON serialization
 - `logging.py` - Centralized logging setup with consistent format
-- `storage/` - Path management for /data/orpheus, cleanup policies
+- `storage/` - Path management for /data/orpheus, usage survey, and `sweep.py` —
+  the one component that deletes recordings (no agent does)
 - `detection/` - Detection models and SQLite database (DetectionDB)
 - `hardware/` - Camera and audio abstractions
 - `diagnostics/` - Health monitoring for audio/video subsystems
@@ -32,7 +33,7 @@ This is the shared library imported by ALL agents and services. Changes here aff
 2. Add type hints and docstrings
 3. Add unit tests (tests/ directory)
 4. Export from `__init__.py` if it's a public API
-5. Update the library version in pyproject.toml
+5. Bump the version with `scripts/bump-version.sh platform/orpheus-common <major|minor|patch>` — the `VERSION` file is the source of truth and `pyproject.toml` reads it dynamically (ADR 0014)
 
 ## Key Classes
 

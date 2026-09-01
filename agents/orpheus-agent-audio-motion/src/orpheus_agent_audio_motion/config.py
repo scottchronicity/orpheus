@@ -62,6 +62,10 @@ class StorageSettings:
     category: str
     retain_days: int
     write_format: str
+    # Cleanup-sweep cadence. The audio agent's historical behavior is HOURLY
+    # (the shared StorageRetention default is 6h) — see load_app_config for the
+    # resolution rules. Kept here so main._periodic_cleanup has one seam to read.
+    check_interval_hours: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -139,10 +143,23 @@ def load_app_config(config_path: Optional[Path] = None) -> AppConfig:
                 )
             )
 
+    # Cleanup cadence: HOURLY by default — the audio agent's historical behavior.
+    # The shared StorageRetention default is 6h, and the parsed dataclass can't
+    # distinguish "operator set 6" from "unset", so falling through to it would
+    # silently 6x the gap between cleanup passes on an unchanged yaml
+    # (reversibility: defaults preserve today's behavior). An explicit
+    # storage.retention.check_interval_hours still wins — presence is checked
+    # against the raw parsed yaml (OrpheusConfig has no public "was it set"
+    # accessor yet; the getattr fallback keeps a config without _raw on hourly).
+    raw_storage = (getattr(orpheus_config, "_raw", None) or {}).get("storage") or {}
+    raw_cadence = (raw_storage.get("retention") or {}).get("check_interval_hours")
+    check_interval_hours = float(raw_cadence) if raw_cadence is not None else 1.0
+
     storage = StorageSettings(
         category="audio_motion",
         retain_days=orpheus_config.storage.retention.raw_audio_days,
         write_format=orpheus_config.storage.format.audio,
+        check_interval_hours=check_interval_hours,
     )
 
     logging_settings = LoggingSettings(

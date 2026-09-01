@@ -20,6 +20,11 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
+# Returned to the client in place of an exception message. The detail still goes
+# to the service log; putting it in the response body hands a signed-in account
+# filesystem paths and library internals it has no use for.
+ERROR_OPAQUE = "unavailable - see the service log for detail"
+
 
 @router.get("/snapshots/{camera_name}")
 def get_camera_snapshots(
@@ -51,9 +56,12 @@ def get_camera_snapshots(
         if not date:
             date = datetime.now(timezone.utc).strftime("%Y.%m.%d")
 
-        # Validate date format
+        # Validate date format. The length/dot-count pair alone admits "../XXXXXXX",
+        # so reject separators and parent refs explicitly, as the serving routes do.
         if not date or len(date) != 10 or date.count(".") != 2:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY.MM.DD")
+        if ".." in date or "/" in date or "\\" in date:
+            raise HTTPException(status_code=400, detail="Invalid date")
 
         snapshot_dir = storage_base / "video" / "snapshots" / date
 
@@ -107,7 +115,7 @@ def get_camera_snapshots(
         raise
     except Exception as e:
         logger.error("Failed to get snapshots", camera=camera_name, error=str(e))
-        return {"snapshots": [], "error": str(e)}
+        return {"snapshots": [], "error": ERROR_OPAQUE}
 
 
 @router.get("/snapshots/{camera_name}/{date}/{filename:path}")
@@ -177,6 +185,11 @@ def get_camera_timelapses(
         # Validate camera name to prevent path traversal
         if ".." in camera_name or "/" in camera_name:
             raise HTTPException(status_code=400, detail="Invalid camera name")
+
+        # The listing route builds a directory from ``date`` the same way the
+        # serving route does, so it needs the same guard.
+        if date is not None and (".." in date or "/" in date or "\\" in date):
+            raise HTTPException(status_code=400, detail="Invalid date")
 
         config = OrpheusConfig.get_instance()
         storage_base = Path(config.storage.base_path)
@@ -254,7 +267,7 @@ def get_camera_timelapses(
         raise
     except Exception as e:
         logger.error("Failed to get timelapses", camera=camera_name, error=str(e))
-        return {"timelapses": [], "error": str(e)}
+        return {"timelapses": [], "error": ERROR_OPAQUE}
 
 
 @router.get("/timelapses/{camera_name}/{date}/{filename:path}")
