@@ -8,7 +8,7 @@ For a reader-facing tour of what changed and how to turn each thing on, see
 `CHANGELOG.md` and `VERSION` alongside their `pyproject.toml`; this file is the
 repository-wide record.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-01
 
 The summer update. Everything here is additive and backwards compatible: a
 previous release reads a database this one has opened, and a configuration file
