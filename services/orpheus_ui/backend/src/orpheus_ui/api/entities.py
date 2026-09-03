@@ -999,11 +999,26 @@ def get_entities(
         # Bump to the paginated cap (100k) when species expansion is in
         # play, regardless of pagination mode.
         has_species_expansion = bool(legacy_terms or taxa_pairs)
+        # A plain date-range page — no species/exclude filter, no time-of-day
+        # window — can be paged in SQL, so only the 50 rows being rendered are
+        # built as Entity objects. The broad fetch below stays for the filters
+        # that must be applied in Python after loading (species equivalence
+        # expansion, time-of-day windows): those genuinely need the candidate
+        # set. Paging in SQL is what takes a 30-day page from ~20s (up to
+        # 100,000 objects materialised to show 50) to near-instant.
+        page_in_sql = (
+            paginating
+            and not has_species_expansion
+            and not species
+            and not exclude_species
+            and not apply_time_window
+        )
         fetch_limit = (
             100_000
             if (paginating or has_species_expansion)
             else (limit if isinstance(limit, int) else 2000)
         )
+        sql_paged_total = 0
 
         if has_species_expansion:
             # Skip DB-level species filter; we'll apply the broader
@@ -1024,6 +1039,15 @@ def get_entities(
                     ent_common_name=e.common_name,
                 )
             ]
+        elif page_in_sql:
+            # Exactly the requested page, skipped in SQL.
+            entities = db.get_entities(
+                start_time=start_dt,
+                end_time=end_dt,
+                limit=page_size,
+                offset=(max(1, page) - 1) * page_size,
+            )
+            sql_paged_total = db.count_entities(start_time=start_dt, end_time=end_dt)
         else:
             entities = db.get_entities(
                 exclude_species=exclude_species,
@@ -1056,7 +1080,9 @@ def get_entities(
                 filtered_entities.append(ent)
             entities = filtered_entities
 
-        total_count = len(entities)
+        # When SQL did the paging, ``entities`` is already the page, so the
+        # range total comes from the COUNT rather than the fetched length.
+        total_count = sql_paged_total if page_in_sql else len(entities)
         # Capture the full filtered set's entity_ids BEFORE pagination
         # slices ``entities`` below. Stats must reflect every entity that
         # passed the equivalence-expanded predicate, not just the page
@@ -1071,7 +1097,10 @@ def get_entities(
         # page+page_size, return everything we fetched (legacy
         # behaviour).
         total_pages: Optional[int] = None
-        if paginating:
+        if paginating and page_in_sql:
+            # Already the right rows; only the page count is still owed.
+            total_pages = max(1, (total_count + page_size - 1) // page_size)
+        elif paginating:
             entities, _, _, total_pages = paginate(entities, page, page_size)
 
         # Collect event_ids only for the entities we'll actually return.
