@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { formatDateTime } from '../lib/utils'
 import { fetchJson } from '../lib/api'
@@ -337,7 +337,7 @@ function SpeciesExternalLinks({
 }
 
 
-function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () => void }) {
+function EntityDetail({ entity, onClose, displayTz }: { entity: EntityEvent; onClose: () => void; displayTz?: string }) {
   const [showJson, setShowJson] = useState(false)
 
   return (
@@ -380,7 +380,7 @@ function EntityDetail({ entity, onClose }: { entity: EntityEvent; onClose: () =>
                   {scientific && (
                     <p className="text-xs text-slate-500 italic">{scientific}</p>
                   )}
-                  <p className="text-sm text-slate-400">{formatDateTime(entity.timestamp)}</p>
+                  <p className="text-sm text-slate-400">{formatDateTime(entity.timestamp, displayTz)}</p>
                   <SpeciesExternalLinks
                     scientificName={scientific}
                     commonName={entity.common_name}
@@ -613,8 +613,23 @@ export default function EntitiesPage() {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' }
   }, [])
 
+  // Timezone the page reads in. Default = the viewer's local zone (what people
+  // almost always want); the toggle at the bottom switches to UTC. Persisted so
+  // the choice sticks. The zone drives BOTH the chart bucketing (sent to the
+  // API as `tz`) and how timestamps are rendered, so they can never disagree.
+  const [tzMode, setTzMode] = useState<'local' | 'utc'>(() => {
+    try { return localStorage.getItem('orpheus.tzMode') === 'utc' ? 'utc' : 'local' } catch { return 'local' }
+  })
+  const changeTzMode = useCallback((mode: 'local' | 'utc') => {
+    setTzMode(mode)
+    try { localStorage.setItem('orpheus.tzMode', mode) } catch { /* private mode: in-memory only */ }
+  }, [])
+  const queryTz = tzMode === 'utc' ? 'UTC' : browserTz
+  // Intl timeZone: undefined renders in the browser's local zone; "UTC" forces UTC.
+  const displayTz = tzMode === 'utc' ? 'UTC' : undefined
+
   const { data, isLoading, isFetching, error, isPlaceholderData } = useQuery<EntitiesResponse>({
-    queryKey: ['entities', startDate, endDate, startTime, endTime, speciesCsv, page],
+    queryKey: ['entities', startDate, endDate, startTime, endTime, speciesCsv, page, queryTz],
     queryFn: async () => {
       const params = new URLSearchParams({
         start_date: startDate,
@@ -623,12 +638,14 @@ export default function EntitiesPage() {
         // slicing over a capped fetch silently truncates big filter results.
         page: String(page),
         page_size: String(ITEMS_PER_PAGE),
+        // Always sent so the hour-of-day / daily charts bucket in the SAME zone
+        // the times are displayed in (fixes evening-local data piling on hour 0).
+        tz: queryTz,
       })
       if (speciesCsv) params.set('species', speciesCsv)
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)
-        params.set('tz', browserTz)
       }
       return fetchJson<EntitiesResponse>(`/api/entities?${params.toString()}`)
     },
@@ -739,7 +756,7 @@ export default function EntitiesPage() {
             <Card>
               <h2 className="text-lg font-medium text-white mb-4">Entity Confidence Over Time</h2>
               <p className="text-xs text-slate-500 mb-3">Sample of up to 500 entities evenly distributed across range</p>
-              <EntityScatterChart data={data.scatter_sample || []} startDate={startDate} endDate={endDate} />
+              <EntityScatterChart data={data.scatter_sample || []} startDate={startDate} endDate={endDate} displayTz={displayTz} />
             </Card>
 
             <Card>
@@ -785,7 +802,7 @@ export default function EntitiesPage() {
                       onClick={() => setSelectedEntity(entity)}
                     >
                       <td className="py-3 pr-4 text-slate-300">
-                        {formatDateTime(entity.timestamp)}
+                        {formatDateTime(entity.timestamp, displayTz)}
                       </td>
                       <td className="py-3 pr-4 text-white">
                         {entity.common_name}
@@ -826,8 +843,35 @@ export default function EntitiesPage() {
 
       {/* Detail Drawer */}
       {selectedEntity && (
-        <EntityDetail entity={selectedEntity} onClose={() => setSelectedEntity(null)} />
+        <EntityDetail entity={selectedEntity} onClose={() => setSelectedEntity(null)} displayTz={displayTz} />
       )}
+
+      {/* Timezone toggle — controls both how times are shown AND how the
+          charts bucket, so they always agree. Defaults to the viewer's local
+          zone; switch to UTC if you want raw stored time. */}
+      <div className="flex items-center justify-center gap-3 pt-2 text-sm text-slate-400">
+        <span>Times shown in:</span>
+        <div className="inline-flex rounded overflow-hidden border border-slate-600">
+          <button
+            onClick={() => changeTzMode('local')}
+            className={tzMode === 'local'
+              ? 'px-3 py-1 bg-blue-600 text-white'
+              : 'px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300'}
+            title={`Your local timezone (${browserTz})`}
+          >
+            Local ({browserTz})
+          </button>
+          <button
+            onClick={() => changeTzMode('utc')}
+            className={tzMode === 'utc'
+              ? 'px-3 py-1 bg-blue-600 text-white'
+              : 'px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300'}
+            title="Coordinated Universal Time (how timestamps are stored)"
+          >
+            UTC
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

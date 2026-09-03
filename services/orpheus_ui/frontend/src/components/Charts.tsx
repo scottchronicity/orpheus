@@ -260,11 +260,14 @@ export function EntityScatterChart({
   maxPoints = 500,
   startDate,
   endDate,
+  displayTz,
 }: {
   data: Array<{ timestamp: string; common_name: string; species_code: string; confidence: number }>
   maxPoints?: number
   startDate?: string
   endDate?: string
+  /** Intl timeZone for the tooltip: undefined = browser-local, "UTC" = UTC. */
+  displayTz?: string
 }) {
   if (!data || data.length === 0) {
     return <div className="text-slate-500 text-center py-8">No entity data available</div>
@@ -336,7 +339,7 @@ export function EntityScatterChart({
               >
                 <p style={{ fontWeight: 600, marginBottom: '4px' }}>{data.species}</p>
                 <p style={{ fontSize: '12px', color: '#94a3b8' }}>
-                  {new Date(data.x).toLocaleString()}
+                  {new Date(data.x).toLocaleString(undefined, displayTz ? { timeZone: displayTz } : undefined)}
                 </p>
                 <p style={{ fontSize: '14px', marginTop: '4px' }}>
                   Confidence: {data.y.toFixed(1)}%
