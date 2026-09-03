@@ -193,6 +193,40 @@ def _equivalence_db_or_none() -> Optional[TaxonomyEquivalenceDB]:
         return None
 
 
+def _tz_sql_offset(tz: Optional[str]) -> Optional[str]:
+    """A SQLite ``strftime()`` modifier (e.g. ``'-240 minutes'``) that shifts the
+    UTC-stored timestamp into ``tz`` before the hour/day is taken, so the
+    hour-of-day and daily charts bucket in the viewer's zone rather than UTC.
+    Without it an evening-local filter (20:00 EDT == 00:00 UTC) piled onto hour
+    0 on the left of the chart. ``None`` (UTC or an unknown zone) leaves the
+    timestamp in UTC. The current offset is applied across the whole range; a
+    DST change mid-range shifts a couple of boundary rows, immaterial by-hour."""
+    if not tz or tz.upper() == "UTC":
+        return None
+    try:
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+        offset = datetime.now(ZoneInfo(tz)).utcoffset()
+    except Exception:
+        return None
+    if offset is None:
+        return None
+    return f"{int(offset.total_seconds() // 60)} minutes"
+
+
+def _to_zone(ts: datetime, tz: Optional[str]) -> datetime:
+    """Convert a tz-aware UTC datetime into ``tz`` for Python-side bucketing.
+    Falls back to the original on any error or when tz is UTC/unset."""
+    if not tz or tz.upper() == "UTC":
+        return ts
+    try:
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+        return ts.astimezone(ZoneInfo(tz))
+    except Exception:
+        return ts
+
+
 def _compute_entity_stats(
     db: DetectionDB,
     start_time: Optional[datetime] = None,
@@ -287,11 +321,20 @@ def _compute_entity_stats(
         row = cursor.fetchone()
         total = row["total"] if row else 0
 
-        cursor.execute(
-            f"SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count "
-            f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
-            params,
-        )
+        # Bucket the hour-of-day chart in the viewer's zone (tz_offset), not UTC.
+        tz_offset = _tz_sql_offset(tz)
+        if tz_offset:
+            cursor.execute(
+                f"SELECT CAST(strftime('%H', timestamp, ?) AS INTEGER) as hour, COUNT(*) as count "
+                f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
+                [tz_offset, *params],
+            )
+        else:
+            cursor.execute(
+                f"SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count "
+                f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
+                params,
+            )
         hourly = {r["hour"]: r["count"] for r in cursor.fetchall()}
         hourly_activity = [{"hour": h, "count": hourly.get(h, 0)} for h in range(24)]
 
@@ -311,11 +354,18 @@ def _compute_entity_stats(
             species_dist[r["name"]] = species_dist.get(r["name"], 0) + r["count"]
             unique_species.add(r["name"])
 
-        cursor.execute(
-            f"SELECT strftime('%Y-%m-%d', timestamp) as day, COUNT(*) as count "
-            f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
-            params,
-        )
+        if tz_offset:
+            cursor.execute(
+                f"SELECT strftime('%Y-%m-%d', timestamp, ?) as day, COUNT(*) as count "
+                f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
+                [tz_offset, *params],
+            )
+        else:
+            cursor.execute(
+                f"SELECT strftime('%Y-%m-%d', timestamp) as day, COUNT(*) as count "
+                f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
+                params,
+            )
         daily_activity = [{"date": r["day"], "count": r["count"]} for r in cursor.fetchall()]
 
         # Evenly-distributed scatter sample spanning the full date range.
@@ -379,10 +429,11 @@ def _compute_entity_stats(
                 if not timestamp_in_window(ts, start_hhmm, end_hhmm, tz):
                     continue
                 filtered_rows.append(r)
-                # For hourly activity we use the timestamp's own hour field
-                # (same semantics as the legacy SQL GROUP BY, which used UTC).
-                hourly_counts[ts.hour] += 1
-                daily_counts[ts.date().isoformat()] += 1
+                # Bucket in the viewer's zone so the hour-of-day / daily charts
+                # match the (also-local) time-of-day filter and the table.
+                local_ts = _to_zone(ts, tz)
+                hourly_counts[local_ts.hour] += 1
+                daily_counts[local_ts.date().isoformat()] += 1
                 species_counts[r["name"]] += 1
             total = len(filtered_rows)
             hourly_activity = [{"hour": h, "count": hourly_counts[h]} for h in range(24)]
@@ -1086,7 +1137,9 @@ def get_entities(
                 exclude_species=exclude_species,
                 start_hhmm=start_hhmm if apply_time_window else None,
                 end_hhmm=end_hhmm if apply_time_window else None,
-                tz=tz if apply_time_window else None,
+                # Always pass tz so the hour-of-day / daily charts bucket in the
+                # viewer's zone even with no time-of-day window (the default view).
+                tz=tz,
                 matched_entity_ids=matched_entity_ids,
             )
         except Exception as stats_err:
