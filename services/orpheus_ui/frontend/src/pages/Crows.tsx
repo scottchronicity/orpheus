@@ -233,10 +233,12 @@ export default function CrowsPage() {
         page_size: String(ITEMS_PER_PAGE),
       })
       if (callTypesCsv) params.set('call_types', callTypesCsv)
+      // Always sent: the hour-of-day chart must bucket in the same zone the
+      // timestamps are displayed in, filter or no filter.
+      params.set('tz', browserTz)
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)
-        params.set('tz', browserTz)
       }
       const res = await fetchWithAuth(`/api/data/crows/stats?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)

@@ -32,7 +32,13 @@ from orpheus_common.detection import (
 )
 from orpheus_common.logging import get_logger
 from orpheus_common.storage import get_audio_clip_path
-from orpheus_common.utils.time import is_full_day, parse_hhmm, timestamp_in_window
+from orpheus_common.utils.time import (
+    is_full_day,
+    parse_hhmm,
+    sqlite_tz_offset,
+    timestamp_in_window,
+    to_zone,
+)
 
 from orpheus_ui.api._date_range import resolve_date_range
 from orpheus_ui.api._responses import even_sample, paginate, set_cache_control
@@ -193,40 +199,6 @@ def _equivalence_db_or_none() -> Optional[TaxonomyEquivalenceDB]:
         return None
 
 
-def _tz_sql_offset(tz: Optional[str]) -> Optional[str]:
-    """A SQLite ``strftime()`` modifier (e.g. ``'-240 minutes'``) that shifts the
-    UTC-stored timestamp into ``tz`` before the hour/day is taken, so the
-    hour-of-day and daily charts bucket in the viewer's zone rather than UTC.
-    Without it an evening-local filter (20:00 EDT == 00:00 UTC) piled onto hour
-    0 on the left of the chart. ``None`` (UTC or an unknown zone) leaves the
-    timestamp in UTC. The current offset is applied across the whole range; a
-    DST change mid-range shifts a couple of boundary rows, immaterial by-hour."""
-    if not tz or tz.upper() == "UTC":
-        return None
-    try:
-        from zoneinfo import ZoneInfo  # noqa: PLC0415
-
-        offset = datetime.now(ZoneInfo(tz)).utcoffset()
-    except Exception:
-        return None
-    if offset is None:
-        return None
-    return f"{int(offset.total_seconds() // 60)} minutes"
-
-
-def _to_zone(ts: datetime, tz: Optional[str]) -> datetime:
-    """Convert a tz-aware UTC datetime into ``tz`` for Python-side bucketing.
-    Falls back to the original on any error or when tz is UTC/unset."""
-    if not tz or tz.upper() == "UTC":
-        return ts
-    try:
-        from zoneinfo import ZoneInfo  # noqa: PLC0415
-
-        return ts.astimezone(ZoneInfo(tz))
-    except Exception:
-        return ts
-
-
 def _compute_entity_stats(
     db: DetectionDB,
     start_time: Optional[datetime] = None,
@@ -322,7 +294,7 @@ def _compute_entity_stats(
         total = row["total"] if row else 0
 
         # Bucket the hour-of-day chart in the viewer's zone (tz_offset), not UTC.
-        tz_offset = _tz_sql_offset(tz)
+        tz_offset = sqlite_tz_offset(tz)
         if tz_offset:
             cursor.execute(
                 f"SELECT CAST(strftime('%H', timestamp, ?) AS INTEGER) as hour, COUNT(*) as count "
@@ -431,7 +403,7 @@ def _compute_entity_stats(
                 filtered_rows.append(r)
                 # Bucket in the viewer's zone so the hour-of-day / daily charts
                 # match the (also-local) time-of-day filter and the table.
-                local_ts = _to_zone(ts, tz)
+                local_ts = to_zone(ts, tz)
                 hourly_counts[local_ts.hour] += 1
                 daily_counts[local_ts.date().isoformat()] += 1
                 species_counts[r["name"]] += 1
@@ -1216,7 +1188,10 @@ def get_entities(
 
         # scatter_sample comes from _compute_entity_stats which queries the full
         # date range without the per-request row cap, so it spans all dates.
-        scatter_sample = stats.get("scatter_sample", [])
+        # Popped, not read: it is returned at the top level (where the frontend
+        # reads it) and leaving the copy inside ``stats`` shipped the same 500
+        # points twice — ~72 KB of the payload, on every 30-second poll.
+        scatter_sample = stats.pop("scatter_sample", [])
 
         result: Dict[str, Any] = {
             "entities": entity_dicts,
