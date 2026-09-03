@@ -233,6 +233,48 @@ def sqlite_tz_offset(tz_name: Optional[str] = None) -> Optional[str]:
     return f"{int(offset.total_seconds() // 60)} minutes"
 
 
+def sqlite_time_window_sql(
+    column: str,
+    start_hhmm: Tuple[int, int],
+    end_hhmm: Tuple[int, int],
+    tz_name: Optional[str] = None,
+) -> Tuple[str, list]:
+    """SQL predicate + params restricting ``column`` to an HH:MM window in ``tz_name``.
+
+    The SQL counterpart of :func:`timestamp_in_window`, with the same semantics
+    including the midnight wrap (``start > end`` keeps the evening of each day
+    plus the early morning of the next). Returns ``("", [])`` for a full day, so
+    a caller can append unconditionally.
+
+    This exists because filtering in Python meant LOADING the range to filter it:
+    a 30-day page with an hour-long window built every row in the range as an
+    object and then threw almost all of them away (~45s). In SQL the window is
+    just part of the WHERE, so the database returns the page directly.
+
+    ``column`` is interpolated into the SQL and must be a trusted identifier
+    supplied by the caller, never user input.
+    """
+    if is_full_day(start_hhmm, end_hhmm):
+        return "", []
+    offset = sqlite_tz_offset(tz_name)
+    expr = f"strftime('%H:%M', {column}, ?)" if offset else f"strftime('%H:%M', {column})"
+    start_str = f"{start_hhmm[0]:02d}:{start_hhmm[1]:02d}"
+    end_str = f"{end_hhmm[0]:02d}:{end_hhmm[1]:02d}"
+    params: list = []
+    if start_hhmm <= end_hhmm:
+        # Params in placeholder order: the modifier sits inside the expression.
+        if offset:
+            params.append(offset)
+        params.extend([start_str, end_str])
+        return f"({expr} BETWEEN ? AND ?)", params
+    # Wrapping window: the expression appears twice, so its modifier does too.
+    if offset:
+        params.extend([offset, start_str, offset, end_str])
+    else:
+        params.extend([start_str, end_str])
+    return f"({expr} >= ? OR {expr} <= ?)", params
+
+
 def timestamp_in_window(
     ts: datetime,
     start_hhmm: Tuple[int, int],
