@@ -197,6 +197,42 @@ def is_full_day(start_hhmm: Tuple[int, int], end_hhmm: Tuple[int, int]) -> bool:
     return start_hhmm == (0, 0) and end_hhmm == (23, 59)
 
 
+def to_zone(ts: datetime, tz_name: Optional[str] = None) -> datetime:
+    """``ts`` converted into ``tz_name``; unchanged if the zone is missing or bad.
+
+    The companion to :func:`timestamp_in_window` for the aggregate side: a chart
+    that groups by hour or day must bucket in the SAME zone the window filter
+    used, or an evening-local selection lands on a different hour than the one
+    the viewer asked for.
+    """
+    if not tz_name or ZoneInfo is None:
+        return ts
+    try:
+        return ts.astimezone(ZoneInfo(tz_name))
+    except Exception:
+        return ts
+
+
+def sqlite_tz_offset(tz_name: Optional[str] = None) -> Optional[str]:
+    """A SQLite ``strftime()`` modifier (e.g. ``'-240 minutes'``) shifting a
+    UTC-stored timestamp into ``tz_name``, or ``None`` for UTC/unknown zones.
+
+    Lets an SQL ``GROUP BY hour`` bucket in the viewer's zone without pulling
+    rows into Python: ``strftime('%H', timestamp, ?)``. The offset is the one in
+    effect now and is applied across the whole range, so a DST change mid-range
+    shifts a couple of boundary rows — immaterial for a by-hour chart.
+    """
+    if not tz_name or tz_name.upper() == "UTC" or ZoneInfo is None:
+        return None
+    try:
+        offset = datetime.now(ZoneInfo(tz_name)).utcoffset()
+    except Exception:
+        return None
+    if offset is None:
+        return None
+    return f"{int(offset.total_seconds() // 60)} minutes"
+
+
 def timestamp_in_window(
     ts: datetime,
     start_hhmm: Tuple[int, int],
