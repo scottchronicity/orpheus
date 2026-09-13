@@ -411,7 +411,13 @@ export default function BirdsPage() {
                       <td className="py-3 pr-4 text-slate-300">
                         {formatDateTime(det.timestamp)}
                       </td>
-                      <td className="py-3 pr-4 text-white">{det.species_common}</td>
+                      <td className="py-3 pr-4 text-white">
+                        {det.species_common}
+                        <SpeciesExternalLinks
+                          scientificName={det.species_scientific}
+                          commonName={det.species_common}
+                        />
+                      </td>
                       <td className="py-3 pr-4">
                         <span className={getConfidenceColor(det.confidence)}>
                           {(det.confidence * 100).toFixed(0)}%

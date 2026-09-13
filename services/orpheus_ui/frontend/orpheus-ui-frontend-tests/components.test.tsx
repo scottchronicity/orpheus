@@ -206,6 +206,57 @@ describe('Birds page', () => {
       expect(screen.getByRole('heading', { name: /bird detections/i })).toBeInTheDocument()
     })
   })
+
+  it('renders species links inline in detection rows', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/api/entities')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          entities: [],
+          count: 0,
+        })))
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        detections: [{
+          event_id: 'test-det-1',
+          timestamp: '2025-01-01T12:00:00Z',
+          species_code: 'amecro',
+          species_common: 'American Crow',
+          species_scientific: 'Corvus brachyrhynchos',
+          confidence: 0.92,
+          channel: '1',
+        }],
+        scatter_sample: [],
+        count: 1,
+        filtered_count: 0,
+        start_date: '2025-01-01',
+        end_date: '2025-01-07',
+        stats: {
+          total_count: 1,
+          unique_species_count: 1,
+          hourly_activity: [],
+          daily_activity: [],
+          species_distribution: { 'American Crow': 1 },
+        },
+        total_pages: 1,
+        page: 1,
+        page_size: 25,
+      })))
+    })
+
+    const { default: Birds } = await import('../src/pages/Birds')
+    renderWithProviders(<Birds />)
+
+    await waitFor(() => {
+      expect(screen.getByText('American Crow')).toBeInTheDocument()
+    })
+
+    const links = screen.getAllByRole('link')
+    const speciesLinks = links.filter(
+      (a) => a.getAttribute('target') === '_blank' &&
+        ['iNaturalist', 'Wikipedia', 'GBIF'].some((label) => a.textContent?.includes(label))
+    )
+    expect(speciesLinks.length).toBeGreaterThanOrEqual(3)
+  })
 })
 
 describe('Crows page', () => {
