@@ -107,14 +107,14 @@ All guides are self-contained — pick the one for your hardware and go.
 
 Our working philosophy — protect the live field station, earn your domain, hold opinions loosely — is in [CONTRIBUTING](CONTRIBUTING.md#how-we-work-together), and the reasoning behind specific architectural choices lives in the [ADRs](docs/adr/).
 
-Our roadmap lives in [`docs/backlog.json`](https://github.com/scottchronicity/orpheus/blob/main/docs/backlog.json), which seeds the labels, milestones, and issues on [GitHub Issues](https://github.com/scottchronicity/orpheus/issues). It holds outstanding work only — 44 open stories, grouped into eight themes, each theme a milestone:
+Our roadmap lives in [`docs/backlog.json`](https://github.com/scottchronicity/orpheus/blob/main/docs/backlog.json), which seeds the labels, milestones, and issues on [GitHub Issues](https://github.com/scottchronicity/orpheus/issues). It holds outstanding work only — 43 open stories, grouped into eight themes, each theme a milestone:
 
 | Theme | What it covers | Open items |
 | ------ | ----------------- | --- |
 | **Detection & Identity** | Recognizing what is out there and naming it consistently across classifiers | 6 |
 | **Actuation & Response** | Playing sound back into the world, safely, and acting on what the system has learned | 4 |
 | **Event Bus** | The transport between agents and the durable stream of what happened | 3 |
-| **Dashboard & Interfaces** | What a person looks at, filters, and asks questions through | 7 |
+| **Dashboard & Interfaces** | What a person looks at, filters, and asks questions through | 6 |
 | **Observability** | Knowing what the system itself is doing, and what the weather was while it did it | 3 |
 | **Data & Sharing** | Getting recordings and detections out of the station, deliberately and privately | 5 |
 | **Infrastructure & Testing** | Build, deploy, configure, simulate, and prove the thing still works | 10 |
