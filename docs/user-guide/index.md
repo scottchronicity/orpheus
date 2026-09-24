@@ -111,9 +111,11 @@ simply isn't applied. Reviewing them makes the Entities page tidier over time.
 
 ## External species links
 
-Bird/entity detail views link the species out to external references (iNaturalist,
-Wikipedia, GBIF; AudioSet for audio-event labels), preferring the scientific name so
-the link lands on the right taxon.
+Each detection row in the Birds table links the species to external references
+(iNaturalist, Wikipedia, GBIF), shown compactly beneath the species name. The
+same links appear in the detail view and on the Entities page. AudioSet labels
+link to the AudioSet ontology. Links prefer the scientific name so they land on
+the right taxon; legacy detections without one fall back to a common-name search.
 
 ## Weather
 

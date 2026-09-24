@@ -583,16 +583,6 @@
       "milestone": "Detection & Identity"
     },
     {
-      "title": "[FEATURE] Species links on each row of the bird detections table",
-      "body": "### Context\n\nOpening a detection shows external reference links for the species (iNaturalist, Wikipedia, GBIF) in the detail panel \u2014 `SpeciesExternalLinks` in `Birds.tsx`. The table rows themselves do not, so someone scanning a list of detections has to open each one to reach a reference.\n\n### ASRs\n\n- Each row offers the same links the detail panel builds, compact enough not to crowd the table.\n- No new network calls: `buildSpeciesLinks` derives them from the scientific and common names already on the row.\n- Rows whose species has no resolved reference simply omit the links.\n\n### Definition of Done\n\nA reader can jump from any row of the bird detections table to a species reference without opening the row, and the table still reads cleanly at a narrow width.",
-      "labels": [
-        "type: feature",
-        "component: ui-dash",
-        "good first issue"
-      ],
-      "milestone": "Dashboard & Interfaces"
-    },
-    {
       "title": "[FEATURE] Collapse hierarchical audio labels in the Audio Events view",
       "body": "### Context\n\nThe general-purpose audio classifier emits hierarchical labels, so one cricket can light up several rows at once \u2014 the specific label and every ancestor. The view shows all of them, which reads as several events rather than one.\n\n### ASRs\n\n- An option to collapse a parent label when a more specific child fired in the same window.\n- Off by default so the raw classifier output stays visible for anyone comparing against it.\n- The counts stay honest \u2014 collapsing changes presentation, not the underlying data.\n\n### Definition of Done\n\n- An off-by-default option collapses a parent label when a more specific child fired in the same window.\n- With it off, the view shows exactly what it shows today.\n- Collapsing changes presentation only: the underlying counts and stored rows are untouched, and a test asserts the totals match before and after.",
       "labels": [
