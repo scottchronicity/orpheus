@@ -162,6 +162,8 @@ class WorkerClient:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             close_fds=True,
+            # Let the agent handle terminal Ctrl-C and reap the child itself.
+            start_new_session=True,
             bufsize=0,
         )
         self._update(pid=self._proc.pid)

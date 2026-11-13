@@ -129,6 +129,17 @@ def test_spawn_from_short_lived_thread_survives_thread_exit(clients):
     assert client.request({"type": "ping"})[0]["type"] == "pong"
 
 
+def test_foreground_interrupt_targets_agent_group_only(clients):
+    client = clients()
+    ready = wait_for(client, lambda s: s["ready"])
+    # Ctrl-C signals the foreground process group. The worker owns a
+    # different group, and the supervisor still reaps it on close.
+    assert os.getpgid(ready["pid"]) != os.getpgrp()
+    client.close()
+    assert client.snapshot()["state"] == "stopped"
+    assert client.snapshot()["pid"] is None
+
+
 def test_close_interrupts_startup_and_is_idempotent(clients):
     client = clients("startup_hang", startup_timeout=30)
     wait_for(client, lambda s: s["pid"] is not None)

@@ -4,7 +4,8 @@ This page covers installing and running PANNs in a separate GPU environment on a
 Jetson Orin NX 16 GB with JetPack 5.1.3 (L4T R35.5), CUDA 11.4 and Python 3.8.
 The audio-events agent stays in Python 3.9. Its existing in-process backend is
 the default; no GPU worker is installed or started by a normal CPU installation.
-This backend still needs on-device validation before production use.
+A short side-by-side Jetson trial passed. Complete the validation below before
+enabling the GPU backend for production.
 
 ## Install the optional environment
 
@@ -75,10 +76,10 @@ Python 3.8 worker from [the optional install](#install-the-optional-environment)
 The launcher installs nothing and does not start, stop, restart or alter services.
 
 Run from that checkout's root. These commands assume your station data root is
-already exported as `ORPHEUS_DATA_ROOT`, the live YAML is
-`/opt/orpheus/config/orpheus.yaml`, and the CPU service uses
-`/opt/orpheus/config/.env`. If it uses different paths, use those same existing
-files. Do not copy credentials into the checkout or create a modified live YAML.
+already exported as `ORPHEUS_DATA_ROOT` and the live YAML is
+`/opt/orpheus/config/orpheus.yaml`. The command also points to the CPU
+service's optional environment file. Use the service's paths if they differ.
+If the environment file is absent, the loader skips it.
 
 ```bash
 PANN_GPU_RUN="gpu-test-$(date -u +%Y%m%dT%H%M%S | tr '[:upper:]' '[:lower:]')"
@@ -181,8 +182,7 @@ CPU and GPU share the Jetson's physical RAM. This test adds a roughly 4,702 MiB
 startup footprint while the CPU model remains resident. The existing 8,704 MiB
 start gate and 3,800 MiB running floor remain in force (or stricter live settings).
 If the station lacks that headroom, the experiment stays memory-blocked; do not
-lower the protections to force it to load. No station experiment has been run as
-part of the laptop implementation/tests.
+lower the protections to force it to load.
 
 ## Budget memory and overload
 
@@ -241,10 +241,8 @@ needed. The optional environment may remain installed.
 
 ## Validation still required on the Jetson
 
-Run the existing acoustic regression dataset against direct GPU and IPC outputs,
-then compare CPU labels/intervals with the prototype's tolerance (maximum observed
-absolute score difference 1.5e-6). Confirm the pinned Python 3.8 wheel installation,
-caches/permissions, maximum-length warm-up, full-station peak memory, native
-memory-pressure stops, process-parent death during native inference, restart
-recovery and a prolonged traffic/thermal soak. Local fake-worker tests do not
-establish any of those hardware results. Multi-model scheduling is deferred.
+Run the acoustic regression dataset through direct GPU inference and the worker.
+Compare labels, intervals and confidence scores with CPU results. Check the
+longest supported clips, worker recovery during native inference and the host
+memory-pressure stop. Run a longer soak that includes peak station activity
+and scheduled transcodes.
