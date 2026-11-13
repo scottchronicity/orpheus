@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -27,6 +28,7 @@ from .audioset_ontology import AudioSetLabel
 from .config import AudioEventsConfig, load_config
 from .model import SEDModel, build_model
 from .post_processing import ClassifiedClip, post_process
+from .worker_model import WorkerSEDModel, auto_worker_available
 
 logger = get_logger(__name__)
 
@@ -52,6 +54,7 @@ class AudioEventsAgent(Actor):
         model: SEDModel | None = None,
         labels: dict[int, AudioSetLabel] | None = None,
         detection_db: DetectionDB | None = None,
+        orpheus_config: OrpheusConfig | None = None,
     ) -> None:
         """Initialise the agent.
 
@@ -62,11 +65,18 @@ class AudioEventsAgent(Actor):
                 ``on_setup()``.
             labels: Inject the AudioSet labels dict (loaded from CSV by default).
             detection_db: Inject a ``DetectionDB`` (in-memory in tests).
+            orpheus_config: Inject an already-resolved configuration (e.g. an isolated experiment).
         """
-        self.config: AudioEventsConfig = load_config(config_path)
+        self.config: AudioEventsConfig = (
+            AudioEventsConfig.from_orpheus_config(orpheus_config)
+            if orpheus_config is not None
+            else load_config(config_path)
+        )
         super().__init__(
             "audio-events",
-            OrpheusConfig.get_instance(config_path=config_path),
+            orpheus_config
+            if orpheus_config is not None
+            else OrpheusConfig.get_instance(config_path=config_path),
         )
 
         self.model: SEDModel | None = model
@@ -95,6 +105,24 @@ class AudioEventsAgent(Actor):
         self.last_error: str | None = None
         self.last_inference_at: str | None = None
         self.started_at: str | None = None
+        self._worker_backend = self.config.backend == "gpu_worker"
+        if self.config.backend == "auto":
+            self._worker_backend = auto_worker_available(self.config.gpu_worker)
+        self._accepting = True
+        self._pending_deadlines: set[float] = set()
+        self.clips_rejected = {
+            "overload": 0,
+            "expired": 0,
+            "unavailable": 0,
+            "memory": 0,
+            "too_long": 0,
+            "shutdown": 0,
+        }
+        self._admission = (
+            threading.BoundedSemaphore(1 + self.config.gpu_worker.max_pending_clips)
+            if self._worker_backend
+            else None
+        )
 
         # Bounded concurrent clip processing. A new audio.motion tick submits a new
         # clip WITHOUT cancelling an in-flight one — older instances run to
@@ -102,7 +130,7 @@ class AudioEventsAgent(Actor):
         # can't thrash the Jetson's shared RAM/GPU; excess ticks queue. _stats_lock
         # guards the counters/window mutated from these worker threads.
         self._executor = ThreadPoolExecutor(
-            max_workers=max(1, self.config.max_concurrent_clips),
+            max_workers=1 if self._worker_backend else max(1, self.config.max_concurrent_clips),
             thread_name_prefix="audio-events-sed",
         )
         self._inflight: set[Future] = set()
@@ -134,16 +162,30 @@ class AudioEventsAgent(Actor):
     def _build_health_payload(self) -> dict[str, Any]:
         """The startup + heartbeat payload: uptime, model load status, processed
         counts, rolling latency percentiles, recent error info. Cheap to compute."""
+        worker = self.model.health() if isinstance(self.model, WorkerSEDModel) else None
+        with self._stats_lock:
+            pending = len(self._pending_deadlines)
+            oldest = min(self._pending_deadlines, default=None)
+        queue_age = (
+            max(0.0, time.monotonic() - oldest + self.config.gpu_worker.clip_ttl_seconds)
+            if oldest is not None
+            else 0.0
+        )
         return {
             "status": "online",
-            "model_loaded": self.model is not None,
+            "model_loaded": worker["ready"] if worker is not None else self.model is not None,
+            "backend": "gpu_worker" if self._worker_backend else "inprocess",
+            "worker": worker,
+            "clips_rejected": dict(self.clips_rejected),
+            "pending_clips": pending,
+            "oldest_pending_age_seconds": round(queue_age, 3),
             "model_variant": self.config.model_variant,
             "started_at": self.started_at,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "events_processed": self.events_processed,
             "detections_emitted": self.detections_emitted,
-            "errors_count": self.errors_count,
-            "last_error": self.last_error,
+            "errors_count": self.errors_count + (worker["failures"] if worker else 0),
+            "last_error": self.last_error or (worker["last_error"] if worker else None),
             # Whether the event-sourcing shadow is actually recording (off by default;
             # a silent self-disable on mqtt / stream_ensure error is otherwise invisible).
             "event_sourcing_shadow": self._shadow_publish,
@@ -158,9 +200,7 @@ class AudioEventsAgent(Actor):
                 "p50": round(self._percentile(self._inference_latencies_ms, 0.5), 1),
                 "p95": round(self._percentile(self._inference_latencies_ms, 0.95), 1),
                 "max": round(
-                    max(self._inference_latencies_ms)
-                    if self._inference_latencies_ms
-                    else 0.0,
+                    max(self._inference_latencies_ms) if self._inference_latencies_ms else 0.0,
                     1,
                 ),
             },
@@ -177,12 +217,20 @@ class AudioEventsAgent(Actor):
         logger.info("Starting Audio Events Detection Agent")
 
         # Load model (skip if injected by tests).
+        if self.model is None and self._worker_backend:
+            if self.config.model_variant != "cnn14_sed":
+                raise ValueError("GPU worker supports only cnn14_sed")
+            # No parent torch import or CUDA probe; readiness belongs to the child.
+            self.model = WorkerSEDModel(Path(self.config.model_path), self.config.gpu_worker)
+            self._resolved_device = "cuda"
         if self.model is None:
             # Resolve "auto" → cuda-if-available-else-cpu (survivable); an
             # explicit device="cuda" with no GPU fails loud here with a clear
             # message instead of crashing deep inside the model constructor.
             # Kept on self so health surfaces a silent CPU fallback.
-            resolved_device = select_torch_device(self.config.device)
+            resolved_device = select_torch_device(
+                "cpu" if self.config.backend == "auto" else self.config.device
+            )
             self._resolved_device = resolved_device
             logger.info(
                 "Loading SED model",
@@ -253,6 +301,10 @@ class AudioEventsAgent(Actor):
         return self._build_health_payload()
 
     async def on_stopping(self) -> None:
+        self._accepting = False
+        if isinstance(self.model, WorkerSEDModel):
+            # Interrupt a load/exchange and disable recovery before draining threads.
+            await asyncio.get_running_loop().run_in_executor(None, self.model.close)
         # Drain in-flight clip processing BEFORE the bus disconnects: older
         # instances finish AND publish their detections (the base runs on_stopping
         # pre-disconnect). shutdown(wait=True) also rejects new submits, and
@@ -294,16 +346,12 @@ class AudioEventsAgent(Actor):
             event_id = source_detection.event_id
             audio_clip_path = source_detection.audio_clip_path
             if not audio_clip_path:
-                logger.warning(
-                    "audio.motion event missing audio_clip_path", event_id=event_id
-                )
+                logger.warning("audio.motion event missing audio_clip_path", event_id=event_id)
                 return
 
             audio_path = Path(audio_clip_path)
             if not audio_path.exists():
-                logger.error(
-                    "Audio file not found", path=str(audio_path), event_id=event_id
-                )
+                logger.error("Audio file not found", path=str(audio_path), event_id=event_id)
                 return
 
             self._submit_processing(audio_path, source_detection)
@@ -323,13 +371,102 @@ class AudioEventsAgent(Actor):
             self.last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
 
     def _submit_processing(self, audio_path: Path, source: Detection) -> None:
-        """Dispatch one clip to the bounded executor. The tick returns immediately;
-        an already-running clip is NOT cancelled (older instances finish). When the
-        pool is saturated the task queues rather than dropping."""
-        future = self._executor.submit(self._process_safely, audio_path, source)
+        """Dispatch without blocking the bus callback.
+
+        The optional worker bounds accepted work before decode. The existing
+        in-process executor retains its concurrency and queueing behavior.
+        """
+        if not self._accepting:
+            self._reject_clip("shutdown")
+            return
+        if self._admission is None:
+            future = self._executor.submit(self._process_safely, audio_path, source)
+        else:
+            deadline = self._clip_deadline(source)
+            if time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
+            if not self._worker_admissible():
+                return
+            if not self._admission.acquire(blocking=False):
+                self._reject_clip("overload")
+                return
+            with self._stats_lock:
+                self._pending_deadlines.add(deadline)
+            try:
+                future = self._executor.submit(
+                    self._process_worker_clip, audio_path, source, deadline
+                )
+            except RuntimeError:
+                self._forget_pending(deadline)
+                self._admission.release()
+                self._reject_clip("shutdown")
+                return
+            future.add_done_callback(lambda _future: self._admission.release())
+            future.add_done_callback(lambda _future: self._forget_pending(deadline))
         with self._stats_lock:
             self._inflight.add(future)
         future.add_done_callback(self._on_processing_done)
+
+    def _reject_clip(self, reason: str) -> None:
+        with self._stats_lock:
+            self.clips_rejected[reason] += 1
+
+    def _forget_pending(self, deadline: float) -> None:
+        with self._stats_lock:
+            self._pending_deadlines.discard(deadline)
+
+    def _clip_deadline(self, source: Detection) -> float:
+        # Motion timestamp marks clip START. Include its recorded duration so
+        # a 35 s clip gets a full TTL, while stale broker deliveries still expire.
+        duration = float((source.metadata or {}).get("duration_seconds", 0.0))
+        if (
+            not math.isfinite(duration)
+            or not 0 <= duration <= self.config.gpu_worker.max_clip_seconds
+        ):
+            return time.monotonic()
+        age = max(0.0, (datetime.now(timezone.utc) - source.timestamp).total_seconds() - duration)
+        return time.monotonic() + self.config.gpu_worker.clip_ttl_seconds - age
+
+    def _worker_admissible(self) -> bool:
+        if not isinstance(self.model, WorkerSEDModel) or not self.model.health()["ready"]:
+            self._reject_clip("unavailable")
+            return False
+        from orpheus_inference.resources import mem_available_mib  # noqa: PLC0415
+
+        available = mem_available_mib()
+        if available is None or available < self.config.gpu_worker.floor_memory_mib:
+            self._reject_clip("memory")
+            return False
+        return True
+
+    def _process_worker_clip(self, path: Path, source: Detection, deadline: float) -> None:
+        """Check admission again before decoding, then honor the clip deadline."""
+        self._forget_pending(deadline)
+        try:
+            if not self._accepting:
+                self._reject_clip("shutdown")
+                return
+            if time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
+            if not self._worker_admissible():
+                return
+            # Read only the audio header before allocating decoded/resampled arrays.
+            info = sf.info(path)
+            if info.duration > self.config.gpu_worker.max_clip_seconds:
+                self._reject_clip("too_long")
+                return
+            self._process_audio_file(path, source, deadline=deadline)
+        except Exception as exc:
+            if not self._accepting:
+                self._reject_clip("shutdown")
+                return
+            if time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
+            self._record_error(exc)
+            logger.exception("GPU clip failed", error=str(exc), clip=str(path))
 
     def _process_safely(self, audio_path: Path, source: Detection) -> None:
         """Worker-thread wrapper: run the pipeline, capturing errors as stats so a
@@ -361,7 +498,9 @@ class AudioEventsAgent(Actor):
     # ------------------------------------------------------------------
     # Inference pipeline
     # ------------------------------------------------------------------
-    def _process_audio_file(self, audio_path: Path, source: Detection) -> None:
+    def _process_audio_file(
+        self, audio_path: Path, source: Detection, *, deadline: float | None = None
+    ) -> None:
         """Run SED on a clip and emit one Detection per surviving class."""
         if self.model is None or self.labels is None:
             logger.error("Agent not fully initialised — model or labels missing")
@@ -372,7 +511,16 @@ class AudioEventsAgent(Actor):
         if audio is None:
             return
 
-        framewise_output = self.model.predict(audio)
+        if deadline is not None and isinstance(self.model, WorkerSEDModel):
+            if time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
+            framewise_output = self.model.predict_before(audio, deadline)
+            if time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
+        else:
+            framewise_output = self.model.predict(audio)
         classified_clips = post_process(
             framewise_output,
             frame_duration_seconds=self.model.frame_duration_seconds,
@@ -397,6 +545,9 @@ class AudioEventsAgent(Actor):
         )
 
         for clip in classified_clips:
+            if deadline is not None and time.monotonic() >= deadline:
+                self._reject_clip("expired")
+                return
             self._emit_detection(clip, audio_path, source, inference_time_ms)
 
     def _load_and_preprocess(self, audio_path: Path) -> np.ndarray | None:

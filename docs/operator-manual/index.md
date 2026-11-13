@@ -48,6 +48,9 @@ Everything is driven by `make` targets (never raw `pip`/`systemctl`) — see
 
 ## 2. Configuration
 
+For optional isolated PANNs GPU inference, including automatic backend selection,
+memory requirements, health and CPU rollback, see [PANNs GPU worker](panns-gpu.md).
+
 - The single source of truth is `orpheus.yaml` (runtime config lives at
   `/opt/orpheus/config/orpheus.yaml` on a deployed box; `config/orpheus.example.yaml`
   documents every knob with comments).
