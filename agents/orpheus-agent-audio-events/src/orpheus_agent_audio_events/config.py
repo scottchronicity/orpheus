@@ -2,11 +2,53 @@
 
 from __future__ import annotations
 
+import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from orpheus_common.config import OrpheusConfig
+
+
+@dataclass(frozen=True)
+class GPUWorkerConfig:
+    """Opt-in worker policy, independent from CPU concurrency/device selection."""
+
+    python: str = ""
+    startup_timeout_seconds: float = 60.0
+    request_timeout_seconds: float = 5.0
+    clip_ttl_seconds: float = 3.0
+    max_clip_seconds: float = 40.0
+    max_pending_clips: int = 2
+    start_memory_mib: int = 8704
+    floor_memory_mib: int = 3800
+    restart_backoff_seconds: float = 2.0
+    max_starts: int = 3
+    restart_window_seconds: float = 300.0
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.max_pending_clips,
+            self.start_memory_mib,
+            self.floor_memory_mib,
+            self.max_starts,
+        ):
+            if type(value) is not int:
+                raise ValueError("GPU counts and memory limits must be integers")
+        for value in (
+            self.startup_timeout_seconds,
+            self.request_timeout_seconds,
+            self.clip_ttl_seconds,
+            self.max_clip_seconds,
+            self.restart_backoff_seconds,
+            self.restart_window_seconds,
+        ):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("GPU worker timeouts/lengths must be positive and finite")
+        if self.max_clip_seconds > 120 or self.max_pending_clips < 0 or self.max_starts < 1:
+            raise ValueError("invalid GPU clip length, pending limit or restart budget")
+        if self.floor_memory_mib < 3800 or self.start_memory_mib < self.floor_memory_mib + 4702:
+            raise ValueError("GPU start memory must cover the >=3800 MiB floor plus 4702 MiB load")
 
 
 @dataclass
@@ -33,6 +75,12 @@ class AudioEventsConfig:
     # without cancelling an in-flight one (older instances finish); bounded so SED
     # inference can't thrash the Jetson's unified RAM/GPU. Default small.
     max_concurrent_clips: int
+    backend: str = "inprocess"
+    gpu_worker: GPUWorkerConfig = field(default_factory=GPUWorkerConfig)
+
+    def __post_init__(self) -> None:
+        if self.backend not in {"inprocess", "gpu_worker", "auto"}:
+            raise ValueError("audio_events.backend must be inprocess, gpu_worker or auto")
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> AudioEventsConfig:
@@ -41,6 +89,8 @@ class AudioEventsConfig:
 
         data_root = os.environ.get("ORPHEUS_DATA_ROOT", "/data/orpheus")
         default_model_path = f"{data_root}/models/panns_cnn14_decision_level_max.pth"
+        worker_raw = dict(agent_config.get("gpu_worker", {}))
+        worker_raw.setdefault("python", f"{data_root}/venvs/panns-gpu/bin/python")
 
         topics = config._raw.get("mqtt", {}).get("topics", {})
         default_input_topic = topics.get("audio_motion_events", "orpheus/audio/motion/events")
@@ -62,6 +112,8 @@ class AudioEventsConfig:
             input_topic=str(agent_config.get("input_topic", default_input_topic)),
             output_topic=str(agent_config.get("output_topic", default_output_topic)),
             max_concurrent_clips=int(agent_config.get("max_concurrent_clips", 2)),
+            backend=str(agent_config.get("backend", "inprocess")),
+            gpu_worker=GPUWorkerConfig(**worker_raw),
         )
 
 

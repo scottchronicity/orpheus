@@ -1,0 +1,57 @@
+# Exact pins for the PANNs stack in the isolated Python 3.8 sandbox venv.
+# Resolved from index metadata by 06_pypi_resolve.py (cp38 / aarch64 / glibc 2.31 wheels).
+# Versions identical to production are marked [=prod].
+
+# --- must not change: validated framework layer ---
+torch==2.1.0a0+41361538.nv23.06
+numpy==1.24.4
+filelock==3.16.1
+typing-extensions==4.13.2
+sympy==1.13.3
+mpmath==1.3.0
+networkx==3.1
+jinja2==3.1.6
+MarkupSafe==2.1.5
+fsspec==2025.3.0
+
+# --- PANNs and audio stack ---
+panns-inference==0.1.1      # [=prod]
+torchlibrosa==0.1.0         # [=prod]
+librosa==0.11.0             # [=prod]
+resampy==0.4.3              # [=prod]
+soundfile==0.13.1           # [=prod]
+numba==0.58.1               # prod 0.60.0 needs Python >= 3.9
+llvmlite==0.41.1            # prod 0.43.0
+scipy==1.10.1               # prod 1.13.1
+scikit-learn==1.3.2         # prod 1.6.1
+joblib==1.4.2
+threadpoolctl==3.5.0
+soxr==0.3.7                 # prod 1.1.0
+cffi==1.17.1
+pycparser==2.23             # [=prod]
+audioread==3.0.1
+decorator==5.3.1            # [=prod]
+lazy-loader==0.4
+msgpack==1.1.1
+pooch==1.8.2
+platformdirs==4.3.6
+requests==2.32.4
+urllib3==2.2.3
+idna==3.15
+certifi==2026.7.22          # [=prod]
+charset-normalizer==3.5.1   # [=prod]
+packaging==26.2
+
+# --- matplotlib (imported by panns_inference at module level) ---
+matplotlib==3.7.5           # prod 3.9.4
+contourpy==1.1.1
+cycler==0.12.1              # [=prod]
+fonttools==4.57.0
+kiwisolver==1.4.7           # [=prod]
+pyparsing==3.1.4
+python-dateutil==2.9.0.post0  # [=prod]
+six==1.17.0                 # [=prod]
+pillow==10.4.0              # prod 11.3.0 needs Python >= 3.9
+importlib-resources==6.4.5
+importlib-metadata==8.5.0
+zipp==3.20.2

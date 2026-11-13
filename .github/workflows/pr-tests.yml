@@ -97,6 +97,8 @@ jobs:
               - 'agents/orpheus-agent-audio-playback/**'
             audio-events:
               - 'agents/orpheus-agent-audio-events/**'
+              - 'platform/orpheus-inference/**'
+              - 'workers/orpheus-worker-panns/**'
             video-motion:
               - 'agents/orpheus-agent-video-motion/**'
             video-snapshotter:
@@ -508,6 +510,9 @@ jobs:
 
       - name: Run linting
         run: make lint-audio-events
+
+      - name: Check isolated inference infrastructure and worker
+        run: make lint-inference coverage-inference
 
       - name: Run tests with coverage
         env:

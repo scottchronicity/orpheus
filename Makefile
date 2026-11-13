@@ -143,7 +143,7 @@ install-audio-playback: install-common
 	@$(MAKE) -C agents/orpheus-agent-audio-playback install
 	@echo "✅ orpheus-agent-audio-playback installed"
 
-install-audio-events: install-common
+install-audio-events: install-common install-inference
 	@echo "Installing orpheus-agent-audio-events..."
 	@$(MAKE) -C agents/orpheus-agent-audio-events install
 	@echo "✅ orpheus-agent-audio-events installed"
@@ -366,6 +366,24 @@ test-audio-events:
 	@echo "Testing orpheus-agent-audio-events..."
 	@$(MAKE) -C agents/orpheus-agent-audio-events test
 	@echo "✅ orpheus-agent-audio-events tests passed"
+
+# Local inference workers are libraries/children, never independently installed services.
+.PHONY: install-inference test-inference lint-inference format-inference coverage-inference install-panns-gpu
+install-inference:
+	$(MAKE) -C platform/orpheus-inference install
+test-inference:
+	$(MAKE) -C platform/orpheus-inference test
+lint-inference:
+	$(MAKE) -C platform/orpheus-inference lint
+format-inference:
+	$(MAKE) -C platform/orpheus-inference format
+coverage-inference:
+	$(MAKE) -C platform/orpheus-inference coverage
+install-panns-gpu:
+	$(MAKE) -C workers/orpheus-worker-panns install
+
+test-all: test-inference
+lint: lint-inference
 
 test-video-motion:
 	@echo "Testing orpheus-agent-video-motion..."

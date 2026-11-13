@@ -454,7 +454,8 @@ the bus publish). The agent fills in the hooks:
 - `on_shutdown()` — final log line with the processed/emitted counters.
 
 Behavioral notes where the shipped code differs from the original draft of
-this section:
+this section (for the default in-process backend; the optional worker warms
+before readiness and uses bounded admission instead of an unbounded backlog):
 
 - **No synthetic-clip warm-up at startup.** The draft planned one; the code
   loads the model in `on_setup()` and serves the first real clip cold
@@ -762,10 +763,18 @@ issue.
 
 ## 8. Performance & Resource Budget
 
+The opt-in isolated GPU backend uses shared pipe IPC/supervision with a Python
+3.8 NVIDIA Torch worker; the agent and default in-process backend stay on Python
+3.9. Backend selection, installation, bounded admission, expiry, recovery and host
+memory guards are documented in the [operator guide](../operator-manual/panns-gpu.md).
+Its prototype measured 15.2 ms median IPC overhead and 12–15 s reload; recovery
+runs independently of clip requests because it exceeds their default lifetime.
+Repository integration still needs the on-device validation listed in that guide.
+
 | Resource | Budget | Notes |
 |---|---|---|
 | Inference latency (Cnn14 SED, 3-s clip) | ≤ 200 ms on Orin NX GPU | Estimated; benchmark in Commit 3. Cnn10 fallback target: ≤ 50 ms. |
-| Steady-state GPU memory | ≤ 1.5 GB for the new agent | BirdNET ~400 MB, AVES ~400 MB, crow-tools ~200 MB; ~6 GB headroom typical. |
+| GPU worker host memory | 4,702 MiB MemAvailable drop measured at startup | Replaces the unverified ≤1.5 GB estimate. Cgroup charge was only 1,734 MiB; MemoryHigh was ineffective on the prototype station. Measure full-station peak demand before enabling. |
 | Steady-state CPU | ≤ 5% extra on idle | Audio-motion duty cycle determines real load. |
 | DB row growth | ~2-5× current detection rate | We now emit multiple audio.classified per clip; budget storage and the existing rotation/cleanup policy. |
 | Thermal | No regression in `jtop` CPU/GPU temps after 24h soak | If we see regression, drop to Cnn10. |

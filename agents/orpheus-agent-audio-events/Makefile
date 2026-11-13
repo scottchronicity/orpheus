@@ -9,7 +9,7 @@ include ../../make/common_service.mk
 include ../../make/common_deploy.mk
 
 .PHONY: help venv install reinstall run test coverage clean update dry-run \
-        download-models check-models
+        download-models check-models run-gpu-experiment compare-gpu-experiment
 
 help:
 	@echo "Orpheus Audio Events Detection"
@@ -18,6 +18,8 @@ help:
 	@echo "  make install          Create venv and install dependencies"
 	@echo "  make reinstall        Recreate venv from scratch"
 	@echo "  make run [ARGS=...]   Run agent locally (pass extra args via ARGS)"
+	@echo "  make run-gpu-experiment ARGS='...'  Isolated foreground live-traffic experiment"
+	@echo "  make compare-gpu-experiment ARGS='--scratch-root ...'  Compare captured CPU/GPU results"
 	@echo "  make test             Execute pytest suite"
 	@echo "  make coverage         Run pytest with coverage report"
 	@echo "  make format           Format source with ruff"
@@ -67,6 +69,13 @@ run: check-deps
 	else \
 		PYTHONPATH=$(SRC_DIR) $(PYTHON) -m orpheus_agent_audio_events.main $(ARGS); \
 	fi
+
+# Foreground only: never source a deployment shell env or touch services.
+run-gpu-experiment: check-deps
+	@PYTHONPATH=$(SRC_DIR) $(PYTHON) -m orpheus_agent_audio_events.experiment run $(ARGS)
+
+compare-gpu-experiment: check-deps
+	@PYTHONPATH=$(SRC_DIR) $(PYTHON) -m orpheus_agent_audio_events.experiment compare $(ARGS)
 
 test: check-deps
 	@echo "Running pytest..."

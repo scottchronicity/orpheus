@@ -1,4 +1,16 @@
 # Orpheus Observe Stack Configuration
+# PANNs GPU is opt-in; omitted settings retain the existing in-process backend.
+# See docs/operator-manual/panns-gpu.md for installation and host-memory budgets.
+# audio_events:
+#   backend: auto            # inprocess (default), auto, or gpu_worker (required GPU)
+#   device: cpu              # CPU rollback for inprocess; worker always uses CUDA
+#   gpu_worker:
+#     python: /data/orpheus/venvs/panns-gpu/bin/python # default follows ORPHEUS_DATA_ROOT
+#     clip_ttl_seconds: 3.0
+#     max_pending_clips: 2
+#     max_clip_seconds: 40.0
+#     start_memory_mib: 8704
+#     floor_memory_mib: 3800
 # =========================================
 # Canonical configuration for the Orpheus Observe stack.
 # Used on Jetson in production; macOS overrides go in config/.env.orpheus.
