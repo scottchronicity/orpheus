@@ -72,15 +72,15 @@ run: check-deps
 
 test: check-deps
 	@echo "Running pytest (unit; e2e excluded — see test-e2e)..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e"
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m "not e2e"
 
 coverage: check-deps
 	@echo "Running pytest with coverage..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_event_correlator --cov-report=term-missing
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_event_correlator --cov-report=term-missing
 
 test-e2e: check-deps
 	@echo "Running e2e bus-contract oracle (needs a broker; pair with 'make sim-up')..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m e2e
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m e2e
 
 clean:
 	@echo "Cleaning project..."

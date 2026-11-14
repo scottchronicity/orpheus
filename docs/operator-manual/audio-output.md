@@ -6,6 +6,13 @@ to read its health, and what to do when nothing plays. Choosing and playing
 sounds (the request API, corollary-discharge windows) belongs to the
 [audio playback agent](https://github.com/scottchronicity/orpheus/tree/main/agents/orpheus-agent-audio-playback).
 
+`orpheus-audio-output` is the Linux systemd manager for the Jetson Bluetooth /
+PulseAudio setup. It is optional and is not required by the playback agent on
+macOS. A Mac can use CoreAudio through `audio.playback_command: afplay`; no
+PulseAudio, ALSA, `bluetoothctl`, systemd, or CUDA configuration is needed for
+that path. See the [laptop verification runbook](../runbooks/laptop-verification.md#macos-audio-boundary)
+for the silent native-backend check and real-broker integration command.
+
 ## What the service does
 
 `orpheus-audio-output` keeps the output ready for the playback agent. It
@@ -81,8 +88,10 @@ service exits with code 78 on one and is not restarted.
 
 The playback agent publishes a `started` event on
 `orpheus/actuation/audio/playback` once the player reports that output has
-started, followed by a `finished` event with the measured elapsed duration.
-Both carry the same `playback_id`, `start_time`, source and sound identity. The
+started, followed by a `finished` event with the measured elapsed duration (also
+published for interrupted playback). Both carry the same `playback_id`,
+`start_time`, source and sound identity. A backend failure before audio starts
+does not publish a playback window. The
 event correlator subscribes only when `corollary_discharge.enabled` is true
 (default `false`). Its `buffer_seconds` pads the end of playback, and
 `max_playback_seconds` bounds a start whose finish event is lost (default

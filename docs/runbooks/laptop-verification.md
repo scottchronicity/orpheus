@@ -28,9 +28,69 @@ make guardrails                         # agent wiring / manifest catalog / docs
 make docs-build                         # docs site builds strict
 ```
 
+If GPS or the event correlator was installed into a custom virtualenv directory,
+pass that directory to the root aggregate targets (for example,
+`make lint GPS_VENV=venv-uv312 CORRELATOR_VENV=venv-uv312`). Each override is
+scoped to its component; it does not redirect every component to one runtime.
+
 Everything must be green. Known local-env exception: `orpheus-agent-bird-detection`'s
 local venv may be broken (cross-repo editable + dead dylib — see 99-gotchas); its
 suite runs in CI. If anything ELSE is red, stop and fix before proceeding.
+
+### macOS audio boundary
+
+The playback agent can use macOS CoreAudio through `afplay`; it does not need
+PulseAudio, ALSA, Bluetooth tools, systemd, or CUDA. The playback command is an
+agent setting. For a laptop run, select the native backend without editing the
+shared deployment YAML:
+
+```bash
+ORPHEUS_AUDIO__PLAYBACK_COMMAND=afplay make -C agents/orpheus-agent-audio-playback run
+```
+
+That starts the agent and waits for requests on the configured event bus. It
+does not play a sound by itself. The managed `orpheus-audio-output` service is a
+Linux systemd service for the Jetson's Bluetooth/PulseAudio path; keep
+`audio_output.enabled: false` on a Mac. The playback agent can still run
+independently through CoreAudio. `afplay` supports ordinary file playback;
+segment extraction and volume overrides remain `ffplay` capabilities.
+
+The laptop can validate the real CoreAudio process path without an audible test
+using the `native-silent-smoke` target. It synthesizes a short silent WAV in a
+temporary directory and sends it through Orpheus's configured playback code:
+
+```bash
+make -C agents/orpheus-agent-audio-playback native-silent-smoke
+```
+
+This exercises the local audio backend, but does not verify speaker loudness,
+Bluetooth routing, or acoustic capture. Unit tests use a controlled player and
+produce no sound. For bus-level integration, run the event-correlator e2e suite
+against a local, isolated NATS server (never a station broker):
+
+```bash
+nats-server -js -a 127.0.0.1 -p 45222 \
+  -sd "$(mktemp -d /tmp/orpheus-e2e.XXXXXX)"  # stop with Ctrl-C after the test
+# In another terminal, while that local server is running:
+ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:45222 \
+  make -C agents/orpheus-agent-event-correlator test-e2e VENV=venv-uv312
+```
+
+The e2e playback agent uses a controlled, non-audible player. It publishes the
+same `started`/`finished` actuation protocol as normal playback, and the real
+correlator receives those events and the detection events over NATS, publishes
+entities, and persists them in a temporary SQLite database. The `started` and
+`finished` events share `playback_id` and `start_time`; finish duration is
+measured from monotonic elapsed time. Interruption still publishes a measured
+`finished` event, while a backend that fails before start has no actuation
+window. Corollary discharge is disabled by default and only subscribes when
+explicitly enabled. Overlapping wildlife is tagged and retained; unrelated
+detections remain published and untagged.
+
+The service-owned output manager, Bluetooth connection recovery, PulseAudio
+capture isolation, systemd startup, ALSA capture, and CUDA are Linux/Jetson
+capabilities. The Bluetooth/PulseAudio behavior was hardware-validated on the
+Jetson; the macOS smoke and local-broker suite do not repeat that validation.
 
 ## 2. Deploy-health dry run
 

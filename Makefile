@@ -38,6 +38,11 @@ ALL_PROJECTS = $(PYTHON_PROJECTS) services/orpheus-backplane
 # Default Python system interpreter (can be overridden via env or .env)
 PYTHON_SYSTEM ?= python3.9
 
+# The GPS component can use a separately named venv when installed with uv.
+# Keep the component's own default unless a laptop chooses another existing env.
+GPS_VENV ?= venv-py312
+CORRELATOR_VENV ?= venv-py312
+
 # Coverage threshold for CI (percentage)
 COVERAGE_THRESHOLD ?= 80
 
@@ -354,7 +359,7 @@ test-ui:
 
 test-gps:
 	@echo "Testing orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps test
+	@$(MAKE) -C services/orpheus-gps test VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps tests passed"
 
 test-audio-output:
@@ -422,7 +427,7 @@ test-crow-detection:
 
 test-event-correlator:
 	@echo "Testing orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator test
+	@$(MAKE) -C agents/orpheus-agent-event-correlator test VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator tests passed"
 
 #==============================================================================
@@ -608,7 +613,7 @@ lint-ui:
 
 lint-gps:
 	@echo "Linting orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps lint
+	@$(MAKE) -C services/orpheus-gps lint VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps linted"
 
 lint-audio-output:
@@ -658,7 +663,7 @@ lint-crow-detection:
 
 lint-event-correlator:
 	@echo "Linting orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator lint
+	@$(MAKE) -C agents/orpheus-agent-event-correlator lint VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator linted"
 
 lint-backplane:

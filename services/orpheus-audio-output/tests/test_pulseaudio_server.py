@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -101,6 +103,11 @@ def test_other_pulseaudio_processes_holding_sound_devices_are_reported(me, tmp_p
 @pytest.fixture
 def real_server(me, tmp_path, fake_pulse_bins):
     servers = []
+    # macOS limits AF_UNIX paths to roughly 104 bytes. pytest's default
+    # /private/var/folders/.../test_<name>_<n>/ path plus
+    # /<uid>/pulse/native exceeds that limit, so put only the fake server socket
+    # under a short temporary root. Other artifacts remain under tmp_path.
+    socket_root = Path(tempfile.mkdtemp(prefix="orpheus-pa-", dir="/tmp"))
 
     def make(**kw):
         server = PulseAudioServer(
@@ -109,7 +116,7 @@ def real_server(me, tmp_path, fake_pulse_bins):
             CommandRunner(),
             pulseaudio_bin=str(fake_pulse_bins["bin"] / "pulseaudio"),
             pactl_bin=str(fake_pulse_bins["bin"] / "pactl"),
-            runtime_root=tmp_path / "run",
+            runtime_root=socket_root,
             script_dir=tmp_path / "script",
             proc_root=tmp_path / "noproc",
             startup_timeout=kw.pop("startup_timeout", 5.0),
@@ -122,6 +129,7 @@ def real_server(me, tmp_path, fake_pulse_bins):
     yield make
     for s in servers:
         s.stop()
+    shutil.rmtree(socket_root, ignore_errors=True)
 
 
 def test_starts_a_managed_server_with_the_generated_script(real_server, fake_pulse_bins, tmp_path):
@@ -150,17 +158,19 @@ def test_recovers_after_the_server_is_killed(real_server):
     assert server.starts == 2
 
 
-def test_adopts_a_server_already_running_for_the_user(real_server, fake_pulse_bins, me, tmp_path):
-    env = dict(os.environ, XDG_RUNTIME_DIR=str(tmp_path / "run" / str(me.uid)))
-    (tmp_path / "run" / str(me.uid)).mkdir(parents=True)
+def test_adopts_a_server_already_running_for_the_user(real_server, fake_pulse_bins, me):
+    server = real_server()
+    runtime_dir = server.runtime_dir
+    assert runtime_dir is not None
+    env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime_dir))
+    runtime_dir.mkdir(parents=True)
     other = subprocess.Popen([str(fake_pulse_bins["bin"] / "pulseaudio")], env=env)
     try:
-        sock = tmp_path / "run" / str(me.uid) / "pulse" / "native"
+        sock = runtime_dir / "pulse" / "native"
         for _ in range(100):
             if sock.exists():
                 break
             time.sleep(0.05)
-        server = real_server()
         state = server.ensure()
         assert state.state == READY and state.managed is False
         assert server.starts == 0
@@ -187,7 +197,7 @@ def test_a_server_that_never_answers_is_stopped(real_server, fake_pulse_bins):
 
 def test_missing_runtime_directory_is_created(real_server, me, tmp_path):
     server = real_server()
-    assert not (tmp_path / "run" / str(me.uid)).exists()
+    assert server.runtime_dir is not None and not server.runtime_dir.exists()
     assert server.ensure().ready
     assert any("created missing runtime directory" in n for n in server.notes)
 
