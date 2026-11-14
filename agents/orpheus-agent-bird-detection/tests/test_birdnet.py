@@ -19,6 +19,7 @@ class TestBirdNETModel:
         session = Mock()
         session.get_inputs.return_value = [Mock(name="input")]
         session.get_outputs.return_value = [Mock(name="output")]
+        session.get_providers.return_value = ["CPUExecutionProvider"]
         return session
 
     @pytest.fixture(autouse=True)
@@ -110,16 +111,64 @@ class TestBirdNETModel:
         session = Mock()
         session.get_inputs.return_value = [Mock(name="input")]
         session.get_outputs.return_value = [Mock(name="output")]
+        session.get_providers.return_value = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
         session_class.return_value = session
 
         with patch("pathlib.Path.exists", return_value=True):
             model = BirdNETModel("/fake/model.onnx")
 
         assert model.execution_provider == "cuda"
+        assert model.requested_execution_provider == "auto"
+        assert model.registered_execution_providers == [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
         session_class.assert_called_once_with(
             "/fake/model.onnx",
             providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
+        session.get_providers.return_value = ["CPUExecutionProvider"]
+        assert model.execution_provider == "cpu"
+        assert model.registered_execution_providers == ["CPUExecutionProvider"]
+
+    @patch("orpheus_agent_bird_detection.birdnet.ort.get_available_providers")
+    @patch("orpheus_agent_bird_detection.birdnet.ort.InferenceSession")
+    def test_explicit_accelerator_rejects_cpu_only_session_fallback(
+        self, session_class: Mock, available: Mock
+    ) -> None:
+        available.return_value = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        session = Mock()
+        session.get_providers.return_value = ["CPUExecutionProvider"]
+        session_class.return_value = session
+
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            pytest.raises(RuntimeError, match="did not register it"),
+        ):
+            BirdNETModel("/fake/model.onnx", execution_provider="cuda")
+
+    @patch("orpheus_agent_bird_detection.birdnet.ort.get_available_providers")
+    @patch("orpheus_agent_bird_detection.birdnet.ort.InferenceSession")
+    def test_explicit_accelerator_disables_whole_session_run_fallback(
+        self, session_class: Mock, available: Mock
+    ) -> None:
+        available.return_value = ["CPUExecutionProvider", "CUDAExecutionProvider"]
+        session = Mock()
+        session.get_inputs.return_value = [Mock(name="input")]
+        session.get_outputs.return_value = [Mock(name="output")]
+        session.get_providers.return_value = [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+        session_class.return_value = session
+
+        with patch("pathlib.Path.exists", return_value=True):
+            BirdNETModel("/fake/model.onnx", execution_provider="cuda")
+
+        session.disable_fallback.assert_called_once_with()
 
     @patch("orpheus_agent_bird_detection.birdnet.ort.get_available_providers")
     @patch("orpheus_agent_bird_detection.birdnet.ort.InferenceSession")

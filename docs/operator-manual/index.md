@@ -82,9 +82,13 @@ The normal BirdNET installation uses the CPU `onnxruntime` package. CUDA
 requires installing a compatible `onnxruntime-gpu` package in this agent's
 environment instead; ONNX Runtime CPU and GPU packages must not coexist in one
 environment. Orpheus does not install accelerator packages globally or pin a
-CUDA stack for all hosts. Check agent health for `inference_provider` to see
-which provider was selected. `auto` means available according to ONNX Runtime,
-not hardware-validated for a particular deployment.
+CUDA stack for all hosts. Use `make -C agents/orpheus-agent-bird-detection
+install-cuda` to select the CUDA runtime; this removes either existing ORT
+distribution before installing the other. Agent health reports the requested
+provider, `inference_provider_requested`, the registered providers,
+`inference_providers_registered`, and the first registered provider as
+`inference_provider`. `auto` means available according to ONNX Runtime, not
+hardware-validated for a particular deployment.
 
 Everything here is **off unless noted**. Turning one on is a config edit plus a
 restart of the affected component; turning it off is the same edit in reverse.

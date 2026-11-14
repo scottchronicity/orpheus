@@ -126,7 +126,7 @@ class BirdNETModel:
                 f"available providers: {sorted(available)}"
             )
 
-        self.execution_provider = selected
+        self.requested_execution_provider = execution_provider
         provider_names = [self._PROVIDERS[selected]]
         if selected != "cpu" and self._PROVIDERS["cpu"] in available:
             provider_names.append(self._PROVIDERS["cpu"])
@@ -138,6 +138,29 @@ class BirdNETModel:
         )
         self.session = ort.InferenceSession(
             str(self.model_path), providers=provider_names
+        )
+        # ORT can retry session creation with CPU after an EP initialization
+        # error. Verify the resulting session instead of trusting the request.
+        registered_providers = list(self.session.get_providers())
+        if (
+            execution_provider != "auto"
+            and self._PROVIDERS[selected] not in registered_providers
+        ):
+            raise RuntimeError(
+                f"BirdNET requested {self._PROVIDERS[selected]}, but ONNX Runtime "
+                "did not register it; registered providers: "
+                f"{registered_providers}"
+            )
+        if execution_provider in {"cuda", "coreml"}:
+            # Keep ORT's CPU assignment for unsupported individual operators,
+            # while preventing an EP runtime failure from silently retrying the
+            # entire inference call with a CPU-only session.
+            self.session.disable_fallback()
+
+        logger.info(
+            "BirdNET execution providers registered",
+            requested_provider=execution_provider,
+            registered_providers=registered_providers,
         )
 
         # Get model input/output metadata
@@ -158,6 +181,21 @@ class BirdNETModel:
 
         # Initialize geographic filter (optional)
         self.geo_filter = self._init_geo_filter()
+
+    @property
+    def registered_execution_providers(self) -> list[str]:
+        """Return providers currently registered by the live ONNX session."""
+        return list(self.session.get_providers())
+
+    @property
+    def execution_provider(self) -> Optional[str]:
+        """Return the current primary registered provider, in Orpheus terms."""
+        providers = self.registered_execution_providers
+        primary = providers[0] if providers else None
+        return next(
+            (name for name, provider in self._PROVIDERS.items() if provider == primary),
+            primary,
+        )
 
     def _resolve_whitelist(self, whitelist: Optional[list[str]]) -> set[int]:
         """Resolve operator-supplied scientific names / labels to label indices.

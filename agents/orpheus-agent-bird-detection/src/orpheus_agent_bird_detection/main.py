@@ -114,6 +114,12 @@ class BirdDetectionAgent(Actor):
             "status": "online",
             "model_loaded": True if phase == "startup" else self.model is not None,
             "inference_provider": self.model.execution_provider if self.model else None,
+            "inference_provider_requested": (
+                self.model.requested_execution_provider if self.model else None
+            ),
+            "inference_providers_registered": (
+                self.model.registered_execution_providers if self.model else []
+            ),
             "timestamp": now,
             "events_processed": self.events_processed,
             "detections_found": self.detections_found,
