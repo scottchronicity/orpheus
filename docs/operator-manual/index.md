@@ -65,6 +65,8 @@ system Python or the inference workers. See [ADR 0024](../adr/0024-independent-p
 
 For optional isolated PANNs GPU inference, including automatic backend selection,
 memory requirements, health and CPU rollback, see [PANNs GPU worker](panns-gpu.md).
+For the speaker Orpheus plays through (`audio_output`: output device, audio
+server, reconnect policy), see [Audio output](audio-output.md).
 
 - The single source of truth is `orpheus.yaml` (runtime config lives at
   `/opt/orpheus/config/orpheus.yaml` on a deployed box; `config/orpheus.example.yaml`
@@ -469,8 +471,8 @@ it will not refuse to run because you declined.
 ## 9. Troubleshooting
 
 - [Gotchas](../agent-instructions/99-gotchas.md) — the field-tested traps.
-- [Bluetooth speaker](bluetooth-speaker.md) — the speaker never connects,
-  drops, or plays nothing; how the autoconnect service retries.
+- [Audio output](audio-output.md) — the speaker never connects, drops, or
+  plays nothing; capture-interface conflicts.
 - [Version compatibility matrix](../version-compat-matrix.md).
 
 ---

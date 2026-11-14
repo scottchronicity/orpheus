@@ -19,7 +19,7 @@ make dev-stack SVC=backplane            # start NATS first — without a live br
                                         # transport layer this pass exists to verify
 make lint                               # every component, ruff + eslint
 make -C services/orpheus-backplane test  # test-all skips the backplane and
-                                         # bluetooth-autoconnect; run them yourself
+                                         # audio-output; run them yourself
 make test-all                           # every component's suite (continues on error,
                                         # exits red at the end if any suite failed)
 make test-bash                          # bats shell-script tests

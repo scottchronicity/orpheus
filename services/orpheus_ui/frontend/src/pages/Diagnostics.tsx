@@ -21,7 +21,7 @@ const ORPHEUS_SERVICES = [
   'orpheus-ui',
   'orpheus-backplane',
   'orpheus-gps',
-  'orpheus-bluetooth-autoconnect',
+  'orpheus-audio-output',
 ] as const
 
 // ---------------------------------------------------------------------------

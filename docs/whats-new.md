@@ -61,6 +61,7 @@ JetStream.
 
 | What | Detail |
 |---|---|
+| **Audio output service** | `orpheus-audio-output` replaces `orpheus-bluetooth-autoconnect`. It keeps the speaker connected, runs its own PulseAudio that never touches the recording interface, routes playback to the speaker, and reports health. Configure it under `audio_output` (output device, audio server and reconnect policy, each set separately). See [Audio output](operator-manual/audio-output.md). |
 | **Post-upgrade verification** | `make verify-deploy` checks every component's install, service state, models, and that the database still reads. |
 | **Safer upgrades** | `make update-services` now stops on the first failure instead of reporting success; the [rollout runbook](runbooks/jetson-rollout.md) documents the stop-swap-start procedure used in production. |
 | **One component owns retention** | `orpheus-storage-sweep` is now the only thing that deletes a recording — a one-shot on a 15-minute timer, installed with the platform library. No agent trims its own directory any more, which is what lets one component weigh every category against the single filesystem they share. Timelapses, which nothing used to clean at all, are covered like everything else. See [Data & retention](operator-manual/index.md#7-data-retention). |
@@ -105,7 +106,13 @@ JetStream.
    `max_gb` replaced them. `detections_days` is still not applied to database rows.
 3. **The first start after upgrading may pause for seconds to minutes** while the
    database builds indexes over existing detections. It logs that it is doing so.
-4. **Everything else is additive.** New configuration keys have defaults, new
+4. **The speaker service changes name.** Installing `orpheus-audio-output`
+   (part of `make update-all`) retires `orpheus-bluetooth-autoconnect`, keeps
+   using its `/etc/orpheus/bluetooth-autoconnect/config.env` until you add
+   `audio_output` to `orpheus.yaml`, and enables lingering for the PulseAudio
+   user. `make -C services/orpheus-audio-output rollback` restores the old
+   service. See [Audio output](operator-manual/audio-output.md#install-update-roll-back).
+5. **Everything else is additive.** New configuration keys have defaults, new
    database columns are additive, and the previous release can still read the
    upgraded database.
 
