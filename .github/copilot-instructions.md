@@ -5,7 +5,7 @@ for all AI coding agents in this repo (Claude, Copilot, Cursor, etc.).**
 
 `AGENTS.md` is short by design. It contains:
 
-1. The 11 non-negotiable rules (every one tied to a past incident
+1. The non-negotiable rules (every one tied to a past incident
    where a coding agent broke something — read these before doing
    anything else).
 2. A navigation map to themed deep-dive files in
@@ -13,10 +13,14 @@ for all AI coding agents in this repo (Claude, Copilot, Cursor, etc.).**
    (tooling, testing, git, CI/CD, architecture, schema, recipes,
    deployment, gotchas).
 
-A critical hard rule: this project is locked to **Python 3.9.5** for
-Jetson hardware compatibility. Do not suggest Python 3.10+ syntax
-(`match/case`, `X | None` union syntax, etc.). Each component has
-ruff configured with `target-version = "py39"` to back this up.
+Before architecture, configuration, runtime or deployment changes, read the
+[architecture contract](../docs/ARCHITECTURE.md#architecture-contract) and
+[ADR 0020](../docs/adr/0020-portable-capabilities-and-runtime-boundaries.md).
+Python/dependency compatibility belongs to each component: currently most agents
+use 3.9, the isolated Jetson PANNs worker 3.8, and shared IPC supports 3.8+.
+Follow the package metadata and its Ruff target, not a global Python constraint.
+Use the [independent review workflow](../docs/agent-instructions/12-git-and-lfs.md#shared-development-and-independent-review);
+tests and self-review are not independent acceptance.
 
 This file is a plain-text redirect (not a symlink) so it loads
 correctly on Windows checkouts, GitHub's web UI, and Copilot's

@@ -3,14 +3,16 @@
 # See docs/operator-manual/panns-gpu.md for installation and host-memory budgets.
 # audio_events:
 #   backend: auto            # inprocess (default), auto, or gpu_worker (required GPU)
-#   device: cpu              # CPU rollback for inprocess; worker always uses CUDA
+#   device: auto             # auto | cpu | cuda; auto backend respects explicit cpu
 #   gpu_worker:
 #     python: /data/orpheus/venvs/panns-gpu/bin/python # default follows ORPHEUS_DATA_ROOT
 #     clip_ttl_seconds: null # optional classification cutoff after recording ends
 #     max_pending_clips: 2
 #     max_clip_seconds: 40.0
 #     start_memory_mib: 8704 # host MemAvailable before model load
-#     floor_memory_mib: 3800 # host MemAvailable reserved during operation
+#     floor_memory_mib: 3800 # observed host MemAvailable stop/admission line, not a reservation
+# Defaults above come from the tested PANNs workload, not universal minima.
+# A full queue/unavailable worker rejects with health counters; no automatic replay.
 # =========================================
 # Canonical configuration for the Orpheus Observe stack.
 # Used on Jetson in production; macOS overrides go in config/.env.orpheus.

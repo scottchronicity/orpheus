@@ -148,3 +148,15 @@ def test_worker_and_shared_sources_parse_as_python38():
     ):
         for source in directory.rglob("*.py"):
             ast.parse(source.read_text(), feature_version=(3, 8))
+
+
+@pytest.mark.parametrize("seconds", [121, 150, 300])
+def test_clip_capacity_is_not_limited_to_one_station_recording_length(seconds):
+    runtime = PannsRuntime("unused", seconds)
+    assert runtime.max_seconds == seconds
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("nan"), float("inf"), 400, 1e308])
+def test_duration_refuses_invalid_or_untransportable_arrays(seconds):
+    with pytest.raises(ValueError, match="max-seconds"):
+        PannsRuntime("unused", seconds)

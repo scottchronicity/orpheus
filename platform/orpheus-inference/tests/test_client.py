@@ -231,6 +231,34 @@ def test_exchange_can_finish_after_start_deadline(clients, monkeypatch):
     assert client.snapshot()["pid"] == ready["pid"]
 
 
+def test_runtime_imports_are_isolated_from_frameworks_and_agent_dependencies():
+    """A fresh interpreter without site-packages can use every infrastructure module.
+
+    Import blockers make accidental numpy/torch/common/NVIDIA dependencies fail
+    even if those happen to be installed on the test host.
+    """
+    root = Path(__file__).resolve().parents[3]
+    code = """
+import importlib.abc, sys
+class NoFrameworks(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'numpy', 'torch', 'panns_inference',
+                                      'orpheus_common', 'nvidia'}:
+            raise ImportError('runtime isolation violation: ' + fullname)
+sys.meta_path.insert(0, NoFrameworks())
+sys.path[:0] = sys.argv[1:]
+import orpheus_inference.client, orpheus_inference.protocol
+import orpheus_inference.resources, orpheus_inference.worker
+import orpheus_worker_panns.runtime, orpheus_worker_panns.__main__
+"""
+    subprocess.run(
+        [sys.executable, "-I", "-S", "-c", code,
+         str(root / "platform/orpheus-inference/src"),
+         str(root / "workers/orpheus-worker-panns/src")],
+        check=True, capture_output=True, text=True,
+    )
+
+
 @pytest.mark.parametrize("inflight", [False, True])
 def test_worker_exits_when_parent_process_is_killed(tmp_path, inflight):
     pidfile = tmp_path / "child.pid"

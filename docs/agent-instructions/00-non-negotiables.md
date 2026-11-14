@@ -155,6 +155,12 @@ next available number; doesn't imply multiple PRs for the same work.
 
 ## 11. Read this directory at session start
 
+Before architecture, config, runtime or deployment work, read the
+[architecture contract](../ARCHITECTURE.md#architecture-contract),
+[ADR 0020](../adr/0020-portable-capabilities-and-runtime-boundaries.md) and
+the affected component's docs. Capabilities and domain semantics are stable;
+backend/runtime/resource policy belongs to its owning component and deployment.
+
 Don't skim. The user's prior session cost was paid because past
 agents skimmed. If you remember nothing else from this list, at least
 remember to come back to this directory when you're confused.

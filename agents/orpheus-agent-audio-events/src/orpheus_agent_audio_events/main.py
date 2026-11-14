@@ -107,7 +107,11 @@ class AudioEventsAgent(Actor):
         self.started_at: str | None = None
         self._worker_backend = self.config.backend == "gpu_worker"
         if self.config.backend == "auto":
-            self._worker_backend = auto_worker_available(self.config.gpu_worker)
+            self._worker_backend = (
+                self.config.device != "cpu"
+                and self.config.model_variant == "cnn14_sed"
+                and auto_worker_available(self.config.gpu_worker)
+            )
         self._accepting = True
         self._submission_lock = threading.Lock()
         self._queued_at: dict[object, float] = {}
@@ -131,7 +135,7 @@ class AudioEventsAgent(Actor):
         # can't thrash the Jetson's shared RAM/GPU; excess ticks queue. _stats_lock
         # guards the counters/window mutated from these worker threads.
         self._executor = ThreadPoolExecutor(
-            max_workers=1 if self._worker_backend else max(1, self.config.max_concurrent_clips),
+            max_workers=1 if self._worker_backend else self.config.max_concurrent_clips,
             thread_name_prefix="audio-events-sed",
         )
         self._inflight: set[Future] = set()
@@ -226,7 +230,9 @@ class AudioEventsAgent(Actor):
             # message instead of crashing deep inside the model constructor.
             # Kept on self so health surfaces a silent CPU fallback.
             resolved_device = select_torch_device(
-                "cpu" if self.config.backend == "auto" else self.config.device
+                "cpu"
+                if self.config.backend == "auto" and self.config.device == "auto"
+                else self.config.device
             )
             self._resolved_device = resolved_device
             logger.info(
@@ -491,6 +497,8 @@ class AudioEventsAgent(Actor):
 
     def _on_processing_done(self, future: Future) -> None:
         """Drop the finished future from the in-flight set (done-callback thread)."""
+        if future.cancelled():
+            self._reject_clip("shutdown")
         with self._stats_lock:
             self._inflight.discard(future)
 

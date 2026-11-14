@@ -79,7 +79,8 @@ assistant can, see below.
 
 ### ![](assets/glyph-feather.svg)"I want to change how it works"
 
-1. [Architecture](ARCHITECTURE.md) — the agents, the event bus, the correlator.
+1. [Architecture](ARCHITECTURE.md#architecture-contract) — capability and runtime
+   boundaries, domain invariants, the agents, the event bus and the correlator.
 2. [Contributing](contributing.md) — the workflow, the gates, the house style.
 3. [Voice and audience](contributing/voice-and-audience.md) — who we write for,
    before you write documentation.

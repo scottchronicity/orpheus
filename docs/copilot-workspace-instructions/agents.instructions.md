@@ -4,9 +4,12 @@ applyTo: "agents/**"
 
 # Agent Development Instructions
 
-**See [`CODING_AGENT_CONTEXT.md`](https://github.com/scottchronicity/orpheus/blob/main/CODING_AGENT_CONTEXT.md) for core guidelines.** This file contains agent-specific implementation details.
-
-**See [`docs/AGENTS.md`](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md) for agent architecture and design patterns.**
+Read [AGENTS.md](https://github.com/scottchronicity/orpheus/blob/main/AGENTS.md), then the
+[architecture contract](../ARCHITECTURE.md#architecture-contract) and affected
+component docs before changing architecture, configuration, runtime or deployment.
+Use the [shared branch/review workflow](../agent-instructions/12-git-and-lfs.md#shared-development-and-independent-review).
+Python compatibility is per component; preserve detection semantics across
+backends, and keep model/runtime dependencies separate from reusable IPC.
 
 ---
 
@@ -47,32 +50,13 @@ make service-logs     # journalctl -f
 
 ## Main Entry Point Pattern
 
-```python
-from orpheus_common.logging import setup_logging, get_logger
-from orpheus_common.mqtt import MQTTClient
-from orpheus_common import OrpheusConfig
-
-def main():
-    setup_logging("orpheus-agent-{name}", level="INFO")
-    logger = get_logger(__name__)
-    config = OrpheusConfig.get_instance()
-    
-    mqtt_client = MQTTClient(
-        broker_host=config.mqtt.broker_host,
-        broker_port=config.mqtt.broker_port,
-        client_id="orpheus-agent-{name}",
-        will_topic="orpheus/system/{name}/health",
-        will_payload={"status": "offline"}
-    )
-    
-    @mqtt_client.on_message("orpheus/input/topic/#")
-    def handle_input(topic: str, payload: dict):
-        # Process and publish results
-        pass
-    
-    mqtt_client.connect()
-    # Main loop...
-```
+Use the existing `Actor` hooks for new domain agents: `on_setup`,
+`subscriptions`, `on_started`, `health_payload`, `on_stopping` and `on_shutdown`.
+The base owns bus lifecycle and supervision hooks; create the EventBus through
+`create_event_bus`, never directly instantiate a broker client. See audio-events
+for the shared in-process/subprocess detection emission path, and
+[event bus invariants](../agent-instructions/21-event-bus-and-data-flow.md) for
+lineage, error accounting and persistence.
 
 ## Service Registration
 
@@ -87,7 +71,7 @@ This ensures the new agent is included in `make status-all`, `make update-all`, 
 ## Anti-Patterns
 
 - DO NOT create new config files - use OrpheusConfig
-- DO NOT copy MQTT handling code - use MQTTClient
+- DO NOT copy broker handling code - use Actor/EventBus
 - DO NOT hardcode paths - use storage helpers
 - DO NOT use print() - use the logging system
 - DO NOT skip type hints

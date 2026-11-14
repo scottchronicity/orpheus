@@ -61,8 +61,8 @@ one, explain why in the additional-notes section.
       "local ruff vs CI ruff" divergence that has bitten past PRs.
 - [ ] Ran **`make test-all`** (or `make test-<component>` per touched
       component). All green.
-- [ ] For frontend changes: also ran `npx tsc --noEmit` AND `npm run
-      build` from `services/orpheus_ui/frontend/`. `npm test` alone
+- [ ] For frontend changes: also ran `npx tsc --noEmit` AND `make build`
+      from `services/orpheus_ui/frontend/`. `make test` alone
       does not catch missing-file imports (this has burned us — see
       [`docs/agent-instructions/99-gotchas.md`](../docs/agent-instructions/99-gotchas.md)).
 
@@ -81,10 +81,15 @@ one, explain why in the additional-notes section.
       (Makefile, `pr-tests.yml`, `DEFAULT_DASHBOARD_SERVICES`,
       systemd unit, `orpheus.example.yaml`, `AGENTS.md`).
 
-### Platform compatibility
+### Architecture and platform compatibility
 
-- [ ] Compatible with Python 3.9.5 (no `match/case`, no `X | None`).
-- [ ] No new deps incompatible with ARM/Jetson.
+- [ ] Read the architecture contract and affected ADRs; capability/domain,
+      model, backend, IPC and host resource ownership remain explicit.
+- [ ] Compatible with each changed component's declared Python/dependency range;
+      runtime-specific dependencies remain isolated.
+- [ ] Unsupported backend/device choices fail clearly; `auto` respects explicit
+      choices. Backend changes preserve detection publication/persistence/lineage.
+- [ ] Queue/retry/rejection/degradation policies are configured, observable and tested.
 - [ ] Works on macOS dev AND Linux/Jetson production paths
       (`$ORPHEUS_DATA_ROOT` for persistent paths; no hardcoded
       `~/...` or `/data/orpheus`).
@@ -111,3 +116,14 @@ reproduction steps that USED to fail and now don't.
 ## Additional notes for reviewers
 
 <!-- Anything else worth flagging. Risk areas, trade-offs, etc. -->
+
+## Independent review checkpoint
+
+<!-- Keep draft until architecture, implementation and tests are independently accepted.
+Tests and implementation-agent self-review are evidence, not acceptance.
+Record full base/head SHAs and an exact base..head range (full PR and incremental
+checkpoint where relevant), architecture decisions, commands/results, hardware
+evidence with its tested SHA/config, known issues and deferred enhancements.
+Explicitly hand off this PR/range; a separate reviewer conversation is not notified
+by a push. Fix review findings in new commits and present a new checkpoint.
+Merge and production deployment require separate authorization. -->

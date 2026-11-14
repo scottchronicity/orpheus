@@ -4,12 +4,116 @@ This document describes the high-level architecture of the Orpheus wildlife moni
 
 ## Overview
 
-Orpheus is a Python monorepo designed for real-time wildlife monitoring on edge computing hardware (NVIDIA Jetson Orin NX). The platform follows a modular, service-oriented architecture that enables:
+Orpheus is a portable, modular wildlife observation and interaction platform.
+Jetson is one validated deployment, not the definition of the platform. The
+platform follows a modular, service-oriented architecture that enables:
 
 - **Real-time audio/video processing** with low-latency ML inference
 - **Distributed agent communication** via a messaging backplane (NATS + JetStream by default; mosquitto/MQTT as the fallback — see [ADR 0017](adr/0017-actor-model-nats-backplane.md))
 - **Edge deployment** on resource-constrained hardware
-- **Cross-platform development** (macOS for development, ARM Linux for production)
+- **Configurable deployment** across supported hardware and compatible runtimes
+
+## Architecture contract
+
+**Configure the capability, not the machine.** Read this contract before changing
+architecture, configuration, runtime behavior or deployment. The decision and
+tradeoffs are recorded in [ADR 0020](adr/0020-portable-capabilities-and-runtime-boundaries.md).
+The [contribution workflow](contributing.md#making-changes) defines the review gate.
+
+### Capabilities, models and execution
+
+Agents implement domain capabilities. Hardware implementations are replaceable
+backends selected through the owning component's configuration. An agent should
+be portable to ordinary Linux, macOS, Raspberry Pi and other platforms wherever
+its dependencies and hardware interfaces are supported. This is a design
+requirement, not a claim that every backend or installer works everywhere.
+Explicit unsupported selections must fail clearly; automatic selection considers
+only implemented, supported combinations and respects explicit model/device choices.
+
+Keep these responsibilities separate:
+
+| Boundary | Owns | Current example |
+|---|---|---|
+| Agent/domain | Input subscription, admission policy, preprocessing, post-processing, lineage, publication and persistence | audio-events: `audio.motion` → `audio.classified` |
+| Model implementation | Checkpoint, sample/score shapes, labels and model-specific runtime validation | PANNs Cnn14 in audio-events and `orpheus-worker-panns` |
+| Hardware backend | Supported device placement and framework execution | In-process PANNs CPU/CUDA; isolated validated Jetson CUDA runtime |
+| Process/IPC infrastructure | Framing, exchange deadlines, process ownership, reaping, recovery and caller-supplied resource guards | `orpheus-inference` |
+| Host resource coordination | Cross-model admission, fairness and aggregate accelerator capacity | No scheduler ships; deployment budgets remain explicit |
+
+`orpheus-inference` names its reusable inference process infrastructure accurately;
+it contains no PANNs model, event bus, detection policy, NVIDIA dependency or
+host-wide scheduler. Keep the package boundary. BirdNET, crow and video inference
+can reuse suitable IPC/lifecycle parts with separate model processes and runtimes;
+they are not implemented in this milestone. A future implementation need not use
+a subprocess if its compatible in-process backend is sufficient.
+
+### Runtimes and hardware resources
+
+Python versions and dependency pins belong to components. Current agent/service
+packages generally declare Python 3.9; the validated Jetson PANNs CUDA worker
+declares Python 3.8 with its NVIDIA stack. The shared IPC library supports 3.8+.
+Those are implementation constraints, not an Orpheus-wide Python requirement.
+Read each package's metadata, Makefile and constraints before changing it. Shared
+code must support its actual consumers. Modernizing non-GPU agents can proceed
+independently in future work without replacing the CUDA worker runtime.
+
+The owning agent supplies concurrency, queue capacity, device, worker lifecycle,
+timeouts and memory policy through `OrpheusConfig`. Follow
+[ADR 0018](adr/0018-distributed-backplane-and-config-service.md): environment
+(including loaded dotenv values) > optional shared KV > selected local YAML >
+component defaults. YAML path discovery selects a file; it does not merge all
+platform files. Platform/deployment configuration chooses capabilities and
+overrides defaults; measurements from one installation do not establish universal
+minimums. [Configuration](operator-manual/index.md#2-configuration) is the operator entry.
+
+Memory guards are observations, not reservations. On the tested Jetson, CPU and
+GPU share RAM, and cgroup accounting does not capture all driver allocations.
+Host budgets must account for concurrent cold starts, resident models, encodes
+and peak inference. A serial PANNs child is one implementation choice. Sensor
+lists, models, accelerators and hosts have no fixed architectural count. Extra
+capacity may require another backend or deployment topology, not different
+detection semantics. Multiple hosts also need accessible recordings and the
+secured transport/deployment work described in ADR 0018; a changed broker URL
+alone does not share files.
+
+Introduce host-wide accelerator coordination only when representative concurrent
+workloads demonstrate contention: memory failures, starvation, sustained queue
+growth, rejection or missed deployment latency objectives. Record residency,
+load/peak memory, queue age/depth, throughput and competing workload measurements
+first. Prefer the smallest justified mechanism; neither a giant shared process
+nor a common Python version follows from needing coordination.
+
+### Domain semantics survive backend changes
+
+For identical model scores and classification settings, CPU and GPU execution
+must produce the same labels, intervals, taxonomy, source context and lineage on
+the same output topic. Each agent publishes and persists the same Detection
+identity ([ADR 0012](adr/0012-agents-own-their-detection-stream.md)); independent
+runs can mint different event IDs and have different publication times/latencies.
+Numerical model parity remains separately validated on supported hardware.
+
+The correlator owns temporal/source correlation and late enrichment
+([ADR 0013](adr/0013-source-identity-entities.md)). Its inactivity window is **not**
+an audio classification deadline. An old available recording remains valid work
+unless an operator has explicitly selected a documented rejection policy.
+Storage retention is owned by the storage sweep, not an inference worker.
+
+Any queue rejection, expiry, retry, shutdown cancellation or degradation policy
+must name its owner, reason, configuration, defaults and observability, and have
+behavioral tests. IPC exchange timeouts bound a faulty exchange; worker recovery
+does not authorize discarding work by recording age, silently loading another
+model or inventing retries. Current PANNs worker limits and rejection counters are
+documented in the [operator guide](operator-manual/panns-gpu.md#budget-memory-and-overload).
+Its bounded queue can reject clips and does not automatically replay them; selecting
+it requires evaluating that coverage tradeoff. Do not describe it as lossless.
+
+SQLite remains authoritative today. JetStream domain shadowing is optional and
+bounded, core NATS subscriptions are at-most-once, and current replay is not an
+authoritative classifier work queue. Follow the
+[determinism contract](designs/event-sourcing-determinism-contract.md) before
+changing delivery, acknowledgement or replay. Operational health/rejection
+counters stay outside the durable domain log. Tests and self-review establish
+evidence; independent review establishes acceptance.
 
 ## System Architecture
 
@@ -53,8 +157,8 @@ graph TB
     CAM --> SNAP
     SNAP -.->|JPEG files on disk| TIMELAPSE
     AUDIO --> BUS
-    BUS -->|orpheus/detection/audio/events| BIRD
-    BUS -->|orpheus/detection/audio/events| EVENTS
+    BUS -->|orpheus/audio/motion/events| BIRD
+    BUS -->|orpheus/audio/motion/events| EVENTS
     BUS -->|orpheus/detection/bird/events| CROW
     BUS -->|orpheus/detection/audio/events| CROW
     VIDEO --> BUS
@@ -148,9 +252,9 @@ graph LR
 
 | Constraint | Requirement |
 | ------------ | ------------- |
-| **Target Hardware** | NVIDIA Jetson Orin NX (ARM) |
-| **Python Version** | 3.9.5 (locked for Jetson compatibility) |
-| **Development Platforms** | macOS (Apple Silicon), Ubuntu |
+| **Hardware support** | Backend/dependency specific; Jetson and macOS are validated deployments |
+| **Python Version** | Per-component metadata and constraints; see [runtime contract](#runtimes-and-hardware-resources) |
+| **Development Platforms** | macOS, Linux; validate each changed platform path |
 | **ML Framework** | PyTorch + CUDA (crow-detection, audio-events); ONNX Runtime on CPU (bird-detection); TFLite for BirdNET's geo-filter |
 
 ## Audio Processing Pipeline
@@ -453,18 +557,17 @@ orpheus/
 
 ## Configuration
 
-Configuration is managed through a layered system:
-
-1. **Base Config**: `config/orpheus.yaml` (defaults)
-2. **Environment Override**: `ORPHEUS_*` environment variables
-3. **Local Override**: `.env` files (development)
-4. **Instance Config**: `/opt/orpheus/config/orpheus.yaml` (production)
+Configuration is resolved by `OrpheusConfig`, using environment > optional KV >
+selected local YAML > component defaults. Dotenv fills environment values that
+are not already set. See [configuration](operator-manual/index.md#2-configuration)
+and [ADR 0018](adr/0018-distributed-backplane-and-config-service.md).
 
 ```yaml
 # Example orpheus.yaml structure
 audio:
   channels:
-    - id: mic_1
+    - id: 1
+      name: First microphone
       device: alsa://orpheus_umc?channel=1
       enabled: true
       detection:
@@ -474,11 +577,6 @@ audio:
 event_bus:
   backend: "nats"          # nats (default) | mqtt
   nats_url: "nats://127.0.0.1:4222"
-
-audio:
-  channels:
-    - id: 1
-      enabled: true
 
 storage:
   base_path: /data/orpheus
@@ -494,8 +592,8 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
 
 #### Audio Motion Detection (`orpheus-agent-audio-motion`)
 
-- **Purpose:** Detect audio activity above threshold across 4 microphone channels
-- **Input:** Raw audio from Behringer UMC404HD (48kHz, 4 channels)
+- **Purpose:** Detect audio activity above threshold across configured channels
+- **Input:** Raw audio from configured devices (for example a USB audio interface)
 - **Output:** Audio clips + motion events via `orpheus/audio/motion/events`
 - **Algorithm:** Fixed or adaptive threshold detection with pre-buffering
 - **Storage:** FLAC audio clips in `/data/orpheus/audio/audio_motion/{channel}/`
@@ -503,7 +601,7 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
 #### Video Motion Detection (`orpheus-agent-video-motion`)
 
 - **Purpose:** Detect visual motion in camera feeds
-- **Input:** RTSP streams from 4 Amcrest IP cameras
+- **Input:** RTSP streams from configured cameras
 - **Output:** Motion events + video clips via `orpheus/video/motion/events`
 - **Algorithm:** Frame differencing with configurable sensitivity
 - **Storage:** MP4 video clips in `/data/orpheus/video/video_motion/{camera}/`
@@ -653,9 +751,11 @@ graph LR
     end
 
     subgraph CI["🔄 CI/CD"]
-        PR[Pull Request]
+        PR[Draft Pull Request]
         GHA[GitHub Actions]
         COV[Coverage Check]
+        REVIEW[Independent review<br/>exact commit range + evidence]
+        ACCEPT[Architecture, implementation<br/>and tests accepted]
     end
 
     subgraph Prod["🚀 Production (Jetson)"]
@@ -670,7 +770,9 @@ graph LR
     FMT --> PR
     PR --> GHA
     GHA --> COV
-    COV --> DEPLOY
+    COV --> REVIEW
+    REVIEW --> ACCEPT
+    ACCEPT -->|separate explicit deployment approval| DEPLOY
     DEPLOY --> START
     START --> LOGS
 
@@ -720,10 +822,10 @@ graph TB
 
 When contributing, ensure:
 
-1. Changes work on Python 3.9.5 (Jetson constraint)
-2. No dependencies incompatible with ARM architecture
-3. Tests pass with `make test`
-4. Code is linted with `ruff`
-5. Documentation is updated
+1. Changes follow the [architecture contract](#architecture-contract)
+2. Changed components retain their declared runtime/backend compatibility
+3. Tests and lint pass through the relevant `make` targets
+4. Operator/user documentation is updated with behavior changes
+5. The draft PR records evidence and an exact commit range for independent review
 
 See [CONTRIBUTING.md](contributing.md) for detailed guidelines.

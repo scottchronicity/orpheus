@@ -165,6 +165,7 @@ nav:
           - adr/0017-actor-model-nats-backplane.md
           - adr/0018-distributed-backplane-and-config-service.md
           - adr/0019-agent-owned-inference-workers.md
+          - adr/0020-portable-capabilities-and-runtime-boundaries.md
       - Design Docs:
           - designs/README.md
           - designs/actor-model-and-control-plane.md

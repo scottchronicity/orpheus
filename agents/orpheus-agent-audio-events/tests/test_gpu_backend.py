@@ -15,7 +15,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import soundfile as sf
+from orpheus_common import DetectionDB, OrpheusConfig
 from orpheus_common.detection import Detection
+from orpheus_common.events import SpatiotemporalContext
 from orpheus_inference.client import WorkerClient, WorkerOptions
 from orpheus_inference.protocol import ProtocolError
 
@@ -250,6 +252,26 @@ def test_missing_worker_python_fails(tmp_path):
         WorkerSEDModel(tmp_path / "checkpoint", GPUWorkerConfig(python=str(tmp_path / "missing")))
 
 
+def test_nonexecutable_worker_python_fails_before_supervision(tmp_path):
+    worker = tmp_path / "python"
+    worker.write_text("not an executable")
+    with pytest.raises(FileNotFoundError, match="not executable"):
+        WorkerSEDModel(tmp_path / "checkpoint", GPUWorkerConfig(python=str(worker)))
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "memory"),
+    [("Darwin", "arm64", 10000), ("Linux", "x86_64", 10000), ("Linux", "aarch64", None)],
+)
+def test_auto_does_not_discover_unimplemented_runtime_combinations(
+    monkeypatch, system, machine, memory,
+):
+    monkeypatch.setattr("orpheus_agent_audio_events.worker_model.platform.system", lambda: system)
+    monkeypatch.setattr("orpheus_agent_audio_events.worker_model.platform.machine", lambda: machine)
+    monkeypatch.setattr("orpheus_agent_audio_events.worker_model.mem_available_mib", lambda: memory)
+    assert not auto_worker_available(GPUWorkerConfig(python=sys.executable))
+
+
 def test_auto_selection_checks_platform_install_and_host_memory(monkeypatch):
     monkeypatch.setattr("orpheus_agent_audio_events.worker_model.platform.system", lambda: "Linux")
     monkeypatch.setattr(
@@ -282,7 +304,8 @@ async def test_auto_cpu_fallback_uses_cpu(gpu_agent):
         {"floor_memory_mib": 0},
         {"start_memory_mib": 3800},
         {"start_memory_mib": 3799},
-        {"max_clip_seconds": 121},
+        {"max_clip_seconds": 400},
+        {"max_clip_seconds": 1e308},
         {"max_pending_clips": 1.5},
     ],
 )
@@ -301,3 +324,233 @@ def test_backend_is_opt_in_and_paths_follow_data_root(tmp_path, monkeypatch):
         AudioEventsConfig.from_orpheus_config(
             MagicMock(_raw={"audio_events": {"backend": "unknown"}})
         )
+
+
+@pytest.mark.parametrize("backend", ["inprocess", "auto", "gpu_worker"])
+@pytest.mark.parametrize("device", ["mps", "cuda:1", "typo"])
+def test_unsupported_panns_devices_fail_before_model_loading(backend, device):
+    with pytest.raises(ValueError, match="device"):
+        AudioEventsConfig.from_orpheus_config(
+            MagicMock(_raw={"audio_events": {"backend": backend, "device": device}})
+        )
+
+
+def test_explicit_cpu_cannot_select_required_cuda_worker():
+    with pytest.raises(ValueError, match="requires device"):
+        AudioEventsConfig.from_orpheus_config(
+            MagicMock(_raw={"audio_events": {"backend": "gpu_worker", "device": "cpu"}})
+        )
+
+
+@pytest.mark.parametrize("settings", [{"device": "cpu"}, {"model_variant": "fake"}])
+def test_auto_respects_device_and_model_choice(settings, tiny_labels):
+    resolved = OrpheusConfig.from_dict({"audio_events": {"backend": "auto", **settings}})
+    with patch("orpheus_agent_audio_events.main.auto_worker_available", return_value=True):
+        agent = AudioEventsAgent(
+            orpheus_config=resolved, model=DeterministicFakeSED(), labels=tiny_labels,
+            detection_db=MagicMock(),
+        )
+    try:
+        assert agent._worker_backend is False
+        assert agent._executor._max_workers == agent.config.max_concurrent_clips
+    finally:
+        asyncio.run(agent.on_stopping())
+
+
+async def test_auto_preserves_explicit_cuda_requirement(gpu_agent):
+    gpu_agent.config.backend = "auto"
+    gpu_agent.config.device = "cuda"
+    gpu_agent._worker_backend = False
+    gpu_agent.model = None
+    with patch(
+        "orpheus_agent_audio_events.main.select_torch_device",
+        side_effect=RuntimeError("CUDA is not available"),
+    ) as select, pytest.raises(RuntimeError, match="CUDA"):
+        await gpu_agent.on_setup()
+    select.assert_called_once_with("cuda")
+
+
+@pytest.mark.parametrize("age_days", [0, 30])
+def test_cpu_and_pipe_worker_publish_and_store_equivalent_events(
+    gpu_agent, clip_source, tiny_labels, tmp_path, age_days,
+):
+    """Identical model scores must preserve the domain contract across executors.
+
+    Numerical CUDA parity is hardware evidence, not a claim of this CPU-only test.
+    """
+    _path, source = clip_source
+    source.timestamp -= timedelta(days=age_days)
+    source.channel = 19
+    source.context = SpatiotemporalContext(timestamp=source.timestamp, sensor_id="mic19")
+    cpu_model = DeterministicFakeSED(frame_duration_seconds=0.01)
+
+    def reference_scores(audio):
+        scores = np.zeros((audio.size // 320 + 1, 527), dtype=np.float32)
+        scores[:, 0] = 0.9
+        return scores
+
+    cpu_model.predict = reference_scores
+    cpu = AudioEventsAgent(
+        orpheus_config=OrpheusConfig.from_dict({"audio_events": {"device": "cpu"}}),
+        model=cpu_model, labels=tiny_labels,
+        detection_db=DetectionDB(tmp_path / "cpu.db"),
+    )
+    cpu.bus = MagicMock()
+    gpu_agent.detection_db = DetectionDB(tmp_path / "gpu.db")
+    outputs = []
+    try:
+        for agent in (cpu, gpu_agent):
+            topic, callback = agent.subscriptions()[0]
+            callback(topic, source.model_dump(mode="json"))
+            agent.wait_inflight(timeout=5)
+            assert agent.bus.publish.call_count == 1
+            output_topic, payload = agent.bus.publish.call_args.args
+            assert output_topic == "orpheus/detection/audio/events"
+            stored = agent.detection_db.get_by_event_id(payload["event_id"])
+            assert stored is not None
+            assert stored.source_event_id == source.event_id
+            assert stored.root_event_id == source.root_event_id
+            assert stored.intervals == Detection.model_validate(payload).intervals
+            assert stored.taxonomy == Detection.model_validate(payload).taxonomy
+            assert payload["detection_type"] == "audio.classified"
+            assert payload["channel"] == 19
+            assert payload["context"] == source.context.model_dump(mode="json")
+            assert agent.clips_rejected["expired"] == 0
+            payload.pop("event_id")
+            payload.pop("timestamp")
+            payload.pop("event_timestamp")
+            payload["metadata"].pop("inference_time_ms")
+            outputs.append(payload)
+        assert outputs[0] == outputs[1]
+    finally:
+        asyncio.run(cpu.on_stopping())
+
+
+def test_config_precedence_reaches_parent_and_child(tmp_path, monkeypatch):
+    """Use the real YAML -> optional KV -> env -> agent -> IPC path."""
+    config_path = tmp_path / "orpheus.yaml"
+    config_path.write_text(
+        "mqtt:\n  broker_host: localhost\nconfig_service:\n  enabled: true\naudio_events:\n"
+        "  backend: gpu_worker\n  gpu_worker:\n"
+        f"    python: {sys.executable}\n"
+        "    start_memory_mib: 2100\n    floor_memory_mib: 1100\n"
+    )
+    monkeypatch.setenv("ORPHEUS_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__START_MEMORY_MIB", "2300")
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__MAX_PENDING_CLIPS", "11")
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__MAX_CLIP_SECONDS", "150")
+    kv = {"audio_events": {"gpu_worker": {
+        "start_memory_mib": 2200, "floor_memory_mib": 1200,
+        "request_timeout_seconds": 17, "startup_timeout_seconds": 71,
+        "restart_backoff_seconds": 4, "max_starts": 5, "restart_window_seconds": 91,
+    }}}
+    with patch.object(OrpheusConfig, "_read_kv_config", return_value=kv):
+        config = AudioEventsConfig.from_orpheus_config(OrpheusConfig(config_path=config_path))
+    with patch("orpheus_agent_audio_events.worker_model.WorkerClient") as client:
+        model = WorkerSEDModel(tmp_path / "checkpoint", config.gpu_worker)
+        command, _, options = client.call_args.args
+        assert command[command.index("--floor-mib") + 1] == "1200"
+        assert float(command[command.index("--max-seconds") + 1]) == 150
+        assert (options.start_memory_mib, options.floor_memory_mib) == (2300, 1200)
+        assert (options.startup_timeout, options.request_timeout) == (71, 17)
+        assert (options.restart_backoff, options.max_starts, options.restart_window) == (4, 5, 91)
+        assert config.gpu_worker.max_pending_clips == 11
+        model.close()
+
+
+@pytest.mark.parametrize("mode", ["crash", "hang"])
+def test_ipc_failure_does_not_emit_and_old_clip_can_be_resubmitted_after_recovery(
+    gpu_agent, clip_source, mode,
+):
+    path, source = clip_source
+    source.timestamp -= timedelta(days=30)
+    model = gpu_agent.model
+    model.client.close()
+    model.client.command[model.client.command.index("--mode") + 1] = mode
+    # New supervisor for the failure probe; recovery itself must not retry work.
+    model.client = WorkerClient(
+        model.client.command, model.client.env,
+        replace(model.client.options, max_starts=3, restart_backoff=0.5),
+    )
+    model.client.start()
+    wait_ready(model)
+    gpu_agent._submit_processing(path, source)
+    gpu_agent.wait_inflight(timeout=5)
+    gpu_agent.bus.publish.assert_not_called()
+    gpu_agent.detection_db.save.assert_not_called()
+    assert gpu_agent.errors_count == 1
+    assert gpu_agent.clips_rejected["expired"] == 0
+    assert gpu_agent.model is model
+    # The supervisor reloads independently; repairing the fake executable's
+    # launch mode simulates the underlying fault clearing between starts.
+    model.client.command[-1] = "normal"
+    wait_ready(model)
+    assert model.health()["starts"] == 2
+    gpu_agent._submit_processing(path, source)
+    gpu_agent.wait_inflight(timeout=5)
+    assert gpu_agent.detection_db.save.call_args.args[0].source_event_id == source.event_id
+
+
+@pytest.mark.parametrize("source_count", [1, 8, 20])
+def test_configured_queue_can_admit_bursts_beyond_four_sources(
+    worker_factory, tiny_labels, clip_source, source_count,
+):
+    cfg = OrpheusConfig.from_dict({"audio_events": {
+        "backend": "gpu_worker", "gpu_worker": {"max_pending_clips": source_count - 1},
+    }})
+    agent = AudioEventsAgent(
+        orpheus_config=cfg, model=worker_factory(), labels=tiny_labels, detection_db=MagicMock(),
+    )
+    entered, release = threading.Event(), threading.Event()
+    original = agent._process_audio_file
+
+    def gated(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=5)
+        original(*args, **kwargs)
+
+    agent._process_audio_file = gated
+    agent.bus = MagicMock()
+    path, source = clip_source
+    with patch("orpheus_inference.resources.mem_available_mib", return_value=10000):
+        try:
+            for channel in range(source_count):
+                agent._submit_processing(path, source.model_copy(update={"channel": channel + 1}))
+                assert entered.wait(timeout=2)
+            assert len(agent._inflight) == source_count
+            assert agent.clips_rejected["overload"] == 0
+            release.set()
+            agent.wait_inflight(timeout=10)
+            assert agent.detections_emitted == source_count
+        finally:
+            release.set()
+            asyncio.run(agent.on_stopping())
+
+
+async def test_shutdown_accounts_for_running_and_queued_clips(gpu_agent, clip_source):
+    entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+    original = gpu_agent._process_audio_file
+
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=5)
+        original(*args, **kwargs)
+
+    gpu_agent._process_audio_file = blocked
+    gpu_agent._submit_processing(*clip_source)
+    assert entered.wait(timeout=2)
+    for _ in range(2):
+        gpu_agent._submit_processing(*clip_source)
+    queued = [future for future in gpu_agent._inflight if not future.running()]
+    assert len(queued) == 2
+    queued[-1].add_done_callback(lambda _future: cancelled.set())
+    stopping = asyncio.create_task(gpu_agent.on_stopping())
+    try:
+        assert await asyncio.get_running_loop().run_in_executor(None, cancelled.wait, 3)
+    finally:
+        release.set()
+        await stopping
+    assert all(future.cancelled() for future in queued)
+    assert gpu_agent.clips_rejected["shutdown"] == 3
+    assert not gpu_agent._inflight
+    gpu_agent.bus.publish.assert_not_called()

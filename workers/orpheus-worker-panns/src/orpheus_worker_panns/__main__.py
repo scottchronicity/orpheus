@@ -17,9 +17,12 @@ def main() -> None:
     parser.add_argument("--floor-mib", type=int, required=True)
     parser.add_argument("--max-seconds", type=float, default=40)
     args = parser.parse_args()
-    if args.floor_mib <= 0 or not 0 < args.max_seconds <= 120:
-        parser.error("floor-mib must be positive and max-seconds within (0,120]")
-    runtime = PannsRuntime(args.checkpoint, args.max_seconds)
+    if args.floor_mib <= 0:
+        parser.error("floor-mib must be positive")
+    try:
+        runtime = PannsRuntime(args.checkpoint, args.max_seconds)
+    except ValueError as exc:
+        parser.error(str(exc))
     serve(incoming, outgoing, args.parent_pid, args.floor_mib, runtime.load, runtime.infer)
 
 

@@ -56,12 +56,20 @@ audio_events:
   inside Python 3.9. Set `device: cpu` for explicit CPU operation.
 - `auto` selects the isolated GPU worker on Linux aarch64 when the configured
   executable exists and is executable, and host memory passes the start gate.
-  Otherwise it selects CPU. Selection happens once at agent startup. The
+  This applies only to `cnn14_sed` and `device: auto` or `cuda`; `device: cpu`
+  keeps execution in process. Otherwise it uses the in-process model, with CPU
+  for `device: auto`, while an explicit `cuda` still requires available CUDA.
+  Selection happens once at agent startup. The
   worker itself validates Python, Torch, CUDA and checkpoint during loading;
   those later failures remain visible recovery failures, not silent CPU fallback.
 - `gpu_worker` requires the worker. A missing executable is a startup error;
   loading/runtime failures leave worker readiness false while supervision runs.
-  The worker always requires CUDA, independently of `device`.
+  The worker requires CUDA; pairing it with `device: cpu` is a configuration error.
+
+PANNs supports `device: auto`, `cpu` or `cuda`. `mps`, indexed devices such as
+`cuda:1`, and unknown names fail at configuration loading: those placements are
+not implemented by this model wrapper. The agent and worker runtimes are
+independent; other components do not need the worker's Python/NVIDIA stack.
 
 The default worker executable follows `$ORPHEUS_DATA_ROOT/venvs/panns-gpu/bin/python`.
 Override it with `audio_events.gpu_worker.python` if needed. Launch the local
@@ -208,6 +216,18 @@ station's other models and encodes to choose the gap. The worker checks host
 memory during loading, inference and idle time and exits on pressure or an
 unreadable memory source. The parent checks memory before decoding clips.
 
+These defaults describe the tested PANNs workload, not universal hardware
+minimums. A smaller measured deployment budget is valid if it is positive and
+the start gate exceeds the running floor. The configured duration must fit both
+32 kHz float32 audio and 527-class framewise output in the IPC's 64 MiB payload
+limit (including output-frame tolerance); invalid values fail before loading.
+Increasing duration also increases warm-up and peak memory. Revalidate those
+measurements and the request/startup timeouts for longer recordings.
+
+`max_concurrent_clips` is a positive integer controlling the in-process executor
+(default 2); it does not change the isolated worker's serial execution. The
+worker queue is controlled by `max_pending_clips`, not by a microphone count.
+
 The worker processes one clip at a time. A full queue refuses new clips.
 With two waiting slots, a burst of four clips can fill the queue and leave a
 clip unprocessed. More waiting slots let the worker absorb longer bursts and
@@ -226,6 +246,27 @@ The request timeout bounds the exchange with the worker. A worker reload took
 12–15 seconds in the prototype. The agent refuses clips while the worker is
 unavailable and resumes when it is ready. The agent does not automatically
 replay refused clips.
+
+Selecting this optional backend selects bounded, best-effort admission. The
+queue bounds decoded memory and absorbs short bursts; it sacrifices coverage
+when arrivals exceed capacity or the worker is unavailable. Rejections are
+reported by reason in `clips_rejected`: `overload`, `expired` (only with an
+explicit TTL), `unavailable`, `memory`, `too_long` and `shutdown`. Shutdown counts
+both running work interrupted before completion and queued futures cancelled
+while draining. An exchange/model failure increments error counters and worker
+health; it emits no synthetic detection. Valid old clips can be resubmitted once
+the worker is ready. No automatic replay or exactly-once processing is implied.
+If your deployment requires every recording to be classified, do not treat this
+queue as durable storage: durable admission/retry remains future work under the
+existing [replay contract](../designs/event-sourcing-determinism-contract.md).
+
+The agent resolves these settings through normal YAML/KV/environment precedence;
+for example `ORPHEUS_AUDIO_EVENTS__GPU_WORKER__FLOOR_MEMORY_MIB` reaches both the
+parent admission checks and child watchdog. Settings take effect at startup.
+Service `MemoryHigh` is a separate host-level soft limit, configurable with a
+systemd drop-in; it is not a reservation or a replacement for the worker's host
+memory guards, and may be ineffective on cgroup v1. Installing the optional
+worker changes neither the service unit nor its drop-ins.
 
 ## Check health and roll back
 
