@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The unit no longer sets `PULSE_SERVER`/`XDG_RUNTIME_DIR` from `%U`, which resolves to UID 0 in a system unit, so sounds never reached the user's PulseAudio. `orpheus-audio-output` installs a drop-in with the right paths.
 - File-path and detection-ID playback runs to completion on the agent's event loop. It used to be cancelled about 10 ms after it started.
 - Waits for playback to end before publishing the playback window, so `duration_seconds` is the real playback time rather than about 0 s.
 - Player failures after a request was accepted are published as an error response; they used to be logged only.

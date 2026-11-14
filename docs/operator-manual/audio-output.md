@@ -126,17 +126,23 @@ Then, as one transaction:
    for the same speaker, such as an early hand-made
    `bluetooth-speaker-connect.service`. For each, it records whether it was
    enabled and whether it was running.
-5. **Starts the service.** Within 60 s it must report a ready audio server
+5. **Routes the playback agent to the managed server** with the drop-in
+   `orpheus-agent-audio-playback.service.d/50-orpheus-audio-output.conf`
+   (`PULSE_SERVER`, `XDG_RUNTIME_DIR`, and `SDL_AUDIODRIVER=pulseaudio`, so the
+   player fails rather than falling back to ALSA). It restarts the agent if it
+   is running. Preflight already checked that the agent runs as the PulseAudio
+   user.
+6. **Starts the service.** Within 60 s it must report a ready audio server
    with capture isolation intact.
 
-If any step fails, including step 5, the installer stops the new service,
+If any step fails, including step 6, the installer stops the new service,
 puts back the previous deployment and unit file, undoes this run's host
 changes, and returns every service it touched to the enabled and running
 state it had before. An update that fails leaves the previous version running.
 
 Every host change from a successful install is recorded in
 `/var/lib/orpheus-audio-output/changes`. `make rollback` undoes exactly those
-changes (lingering, masks, units) and puts `orpheus-bluetooth-autoconnect`
+changes (lingering, masks, units, the playback drop-in) and puts `orpheus-bluetooth-autoconnect`
 back. Each service ends up enabled and running only if it was before the
 install. `make uninstall-service` does the same but leaves the old service
 retired, still restorable with `make rollback`. A stock PulseAudio the
@@ -201,8 +207,12 @@ session's PulseAudio. The service never starts one that does this.
 
 ### Sounds play from the wrong device, or not at all
 
-Make sure `server.pulseaudio.user` matches the user the playback agent runs
-as. The agent connects to `/run/user/<its uid>/pulse/native`. While the speaker
+Check that the playback drop-in is in place:
+`systemctl cat orpheus-agent-audio-playback` should end with
+`50-orpheus-audio-output.conf` and `PULSE_SERVER=unix:/run/user/<uid>/pulse/native`
+for the PulseAudio user. While the speaker is connected, `pactl list short sinks`,
+run as that user with that `PULSE_SERVER`, shows the speaker's sink as
+`RUNNING` during a sound. While the speaker
 is not routed, the playback agent reports each failed sound on
 `orpheus/audio/playback/response` with `"status": "error"`.
 

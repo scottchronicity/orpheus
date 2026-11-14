@@ -21,6 +21,14 @@ echo "systemctl $*" >> "$MOCK_LOG"
 u="$MOCK/units"
 [ "$1" = --user ] && { echo "unexpected direct --user" >> "$MOCK_LOG"; exit 1; }
 cmd="$1"; shift
+if [ "$cmd" = show ]; then   # show -p <Prop> --value <unit>
+  prop="$2"; name="$4"
+  case "$prop" in
+    LoadState) [ -f "$SYSROOT/etc/systemd/system/$name" ] && echo loaded || echo not-found ;;
+    User) [ "$name" = orpheus-agent-audio-playback.service ] && echo "${FAKE_PLAYBACK_USER:-orpheus}" ;;
+  esac
+  exit 0
+fi
 [ "${1:-}" = --quiet ] && shift
 [ "${1:-}" = --now ] && { now=1; shift; }
 name="${1:-}"
@@ -33,6 +41,7 @@ case "$cmd" in
   disable) rm -f "$u/$name.enabled"; [ -n "${now:-}" ] && rm -f "$u/$name.active" ;;
   start|restart)
     touch "$u/$name.active"
+    [ "$cmd" = restart ] && echo "restarted $name" >> "$MOCK/restarts"
     if [ "$name" = orpheus-audio-output.service ]; then
       if [ -n "${FAKE_UNIT_DIES:-}" ]; then rm -f "$u/$name.active"; exit 0; fi
       if [ -n "${FAKE_HEALTH:-}" ]; then
@@ -41,6 +50,7 @@ case "$cmd" in
       fi
     fi ;;
   stop) rm -f "$u/$name.active" ;;
+  try-restart) [ -f "$u/$name.active" ] && echo "restarted $name" >> "$MOCK/restarts" ;;
 esac
 exit 0
 EOF
@@ -72,7 +82,12 @@ EOF
 #!/bin/bash
 echo "loginctl $*" >> "$MOCK_LOG"
 case "$1" in
-  show-user) [ -f "$MOCK/linger" ] && echo yes || echo no ;;
+  show-user)
+    # Like systemd 245: fails when the user has no session and no lingering.
+    if [ -n "${FAKE_SHOWUSER_FAILS:-}" ] && [ ! -f "$MOCK/linger" ]; then
+      echo "Failed to get user: User ID 1001 is not logged in or lingering" >&2; exit 1
+    fi
+    [ -f "$MOCK/linger" ] && echo yes || echo no ;;
   enable-linger) touch "$MOCK/linger"; [ -n "${FAKE_NO_USER_MANAGER:-}" ] || touch "$MOCK/user-manager" ;;
   disable-linger) rm -f "$MOCK/linger" ;;
 esac
@@ -87,13 +102,15 @@ EOF
 [ -n "${FAKE_NO_USER:-}" ] && exit 1
 case "$1" in -u) echo 1001;; -g) echo 1002;; *) echo "uid=1001";; esac
 EOF
+  # pgrep lists the pids in $MOCK/pulseaudio-pids; each has a fake
+  # $SYSROOT/proc/<pid>/cmdline (see pulseaudio_running).
   cat > "$MOCK/bin/pgrep" <<'EOF'
 #!/bin/bash
-[ -f "$MOCK/stock-pa" ]
+[ -s "$MOCK/pulseaudio-pids" ] && cat "$MOCK/pulseaudio-pids"
 EOF
-  cat > "$MOCK/bin/pkill" <<'EOF'
+  cat > "$MOCK/bin/fakekill" <<'EOF'
 #!/bin/bash
-echo "pkill $*" >> "$MOCK_LOG"; rm -f "$MOCK/stock-pa"
+echo "kill $*" >> "$MOCK_LOG"; sed -i "/^$1\$/d" "$MOCK/pulseaudio-pids"
 EOF
   for tool in bluetoothctl pulseaudio pactl; do
     printf '#!/bin/bash\nexit 0\n' > "$MOCK/bin/$tool"
@@ -131,6 +148,7 @@ EOF
   export PYTHON_BIN="$MOCK/bin/fakepython"
   export COMMON_PATH="$BATS_TEST_TMPDIR"
   export REQUIRE_ROOT=0 HEALTH_WAIT_SECONDS=3 USER_MANAGER_WAIT_SECONDS=1
+  export KILL_CMD="$MOCK/bin/fakekill"
 
   export FAKE_CHECK_JSON="$MOCK/check.json"
   echo '{"valid": true, "config": {"enabled": true, "output": {"type": "bluetooth", "bluetooth": {"address": "FC:58:FA:02:AF:28"}}, "server": {"type": "pulseaudio", "pulseaudio": {"user": "orpheus"}}, "reconnect": {}, "source": "legacy"}}' > "$FAKE_CHECK_JSON"
@@ -154,6 +172,22 @@ legacy_installed() {
   printf '[Service]\nExecStart=/usr/local/bin/orpheus-bluetooth-connect\n' \
     > "$SYSROOT/etc/systemd/system/orpheus-bluetooth-autoconnect.service"
   echo '#!/bin/bash' > "$SYSROOT/usr/local/bin/orpheus-bluetooth-connect"
+}
+
+# pulseaudio_running <pid> stock|managed
+pulseaudio_running() {
+  mkdir -p "$SYSROOT/proc/$1"
+  if [ "$2" = managed ]; then
+    printf 'pulseaudio\0--daemonize=no\0-n\0-F\0/run/orpheus-audio-output/pulseaudio.pa\0' > "$SYSROOT/proc/$1/cmdline"
+  else
+    printf 'pulseaudio\0--start\0' > "$SYSROOT/proc/$1/cmdline"
+  fi
+  echo "$1" >> "$MOCK/pulseaudio-pids"
+}
+
+playback_installed() {
+  printf '[Service]\nUser=orpheus\n' > "$SYSROOT/etc/systemd/system/orpheus-agent-audio-playback.service"
+  unit_on orpheus-agent-audio-playback.service enabled active
 }
 
 competing_unit() {

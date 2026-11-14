@@ -87,7 +87,7 @@ assert_host_untouched() {
 @test "a successful install records prior states and verifies the masks" {
   legacy_installed; unit_on "$LEGACY" enabled active
   competing_unit; unit_on "$COMPETING" enabled
-  touch "$MOCK/stock-pa"
+  pulseaudio_running 4242 stock
   install_new
   assert_success
   [ -f "$DEPLOY/venv/bin/python" ]
@@ -109,6 +109,40 @@ assert_host_untouched() {
   assert_output --partial "stock pulseaudio.socket/.service are masked and inactive"
 }
 
+@test "an update never stops the managed PulseAudio as if it were stock" {
+  pulseaudio_running 5151 managed
+  pulseaudio_running 4242 stock
+  install_new
+  assert_success
+  grep -qx "kill 4242" "$MOCK_LOG"
+  run grep -q "kill 5151" "$MOCK_LOG"
+  assert_failure
+  grep -qx "pulseaudio-stopped:orpheus" "$STATE/changes"
+}
+
+@test "only the managed PulseAudio running means nothing is stopped or recorded" {
+  pulseaudio_running 5151 managed
+  install_new
+  assert_success
+  run grep -q "^kill " "$MOCK_LOG"
+  assert_failure
+  run grep -q "pulseaudio-stopped" "$STATE/changes"
+  assert_failure
+}
+
+@test "failing commands inside \$(...) never trigger a hidden restore" {
+  # No PulseAudio at all (pgrep exits 1) and a user with no session or
+  # lingering (loginctl show-user exits 1): both are normal, not failures.
+  legacy_installed; unit_on "$LEGACY" enabled active
+  export FAKE_SHOWUSER_FAILS=1
+  install_new
+  assert_success
+  refute_output --partial "install failed"
+  refute_output --partial "stopping the stock PulseAudio"
+  grep -qx "linger:orpheus" "$STATE/changes"
+  is_active "$NEW"
+}
+
 @test "an active stock pulseaudio.socket is stopped before verification" {
   touch "$MOCK/user-manager" "$MOCK/user-socket-active"
   install_new
@@ -125,6 +159,28 @@ assert_host_untouched() {
   assert_success
   run grep -rlF ".stage." "$DEPLOY/venv/bin"
   assert_failure
+}
+
+@test "the playback agent is routed to the managed server and restarted" {
+  playback_installed
+  install_new
+  assert_success
+  dropin="$UNITS/orpheus-agent-audio-playback.service.d/50-orpheus-audio-output.conf"
+  grep -qx "Environment=PULSE_SERVER=unix:/run/user/1001/pulse/native" "$dropin"
+  grep -qx "Environment=XDG_RUNTIME_DIR=/run/user/1001" "$dropin"
+  grep -qx "Environment=SDL_AUDIODRIVER=pulseaudio" "$dropin"
+  grep -qx "restarted orpheus-agent-audio-playback.service" "$MOCK/restarts"
+  grep -qx "dropin:$dropin" "$STATE/changes"
+}
+
+@test "a playback agent running as another user fails preflight" {
+  legacy_installed; unit_on "$LEGACY" enabled active
+  playback_installed
+  export FAKE_PLAYBACK_USER=root
+  install_new
+  assert_failure
+  assert_output --partial "the playback agent runs as 'root'"
+  assert_host_untouched
 }
 
 # --- failed install restores the previous installation -------------------------
@@ -236,6 +292,26 @@ assert_host_untouched() {
 }
 
 # --- rollback ------------------------------------------------------------------
+@test "rollback removes the playback drop-in and restarts the agent" {
+  playback_installed
+  install_new
+  assert_success
+  rm -f "$MOCK/restarts"
+  RESTORE_LEGACY=1 run bash "$SVC/uninstall-service.sh"
+  assert_success
+  [ ! -e "$UNITS/orpheus-agent-audio-playback.service.d/50-orpheus-audio-output.conf" ]
+  grep -qx "restarted orpheus-agent-audio-playback.service" "$MOCK/restarts"
+}
+
+@test "a failed install removes the playback drop-in it wrote" {
+  playback_installed
+  echo '{"server": {"state": "failed", "detail": "boom", "consecutive_failures": 2}, "capture_isolation": {"ok": true}}' > "$FAKE_HEALTH"
+  install_new
+  assert_failure
+  [ ! -e "$UNITS/orpheus-agent-audio-playback.service.d/50-orpheus-audio-output.conf" ]
+  is_active orpheus-agent-audio-playback.service
+}
+
 @test "rollback restores each service's enabled and running state" {
   legacy_installed; unit_on "$LEGACY" enabled          # enabled, not running
   competing_unit; unit_on "$COMPETING" enabled active  # enabled and running
