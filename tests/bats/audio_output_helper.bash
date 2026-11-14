@@ -73,7 +73,7 @@ EOF
 echo "loginctl $*" >> "$MOCK_LOG"
 case "$1" in
   show-user) [ -f "$MOCK/linger" ] && echo yes || echo no ;;
-  enable-linger) touch "$MOCK/linger" "$MOCK/user-manager" ;;
+  enable-linger) touch "$MOCK/linger"; [ -n "${FAKE_NO_USER_MANAGER:-}" ] || touch "$MOCK/user-manager" ;;
   disable-linger) rm -f "$MOCK/linger" ;;
 esac
 EOF
@@ -115,7 +115,13 @@ if [ "\$1 \$2 \$3" = "-m orpheus_audio_output.main check" ]; then
 fi
 exec $real_python "\$@"
 PY
-  chmod +x "\$3/bin/pip" "\$3/bin/python"
+  # A generated entry point, as pip writes one: its shebang names the
+  # directory the venv was created in (the staging directory).
+  printf '#!%s/bin/python\nprint("tool ok")\n' "\$3" > "\$3/bin/orpheus-tool"
+  if [ -n "\${FAKE_BROKEN_SCRIPT:-}" ]; then
+    printf '#!/nonexistent/python\n' > "\$3/bin/broken-tool"
+  fi
+  chmod +x "\$3/bin/pip" "\$3/bin/python" "\$3/bin/orpheus-tool" "\$3/bin/"*
   exit 0
 fi
 exec $real_python "\$@"

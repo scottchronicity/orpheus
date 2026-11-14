@@ -108,11 +108,11 @@ setup() {
   assert_output --partial "pulseaudio.socket is not masked"
 }
 
-@test "without a running user manager the on-disk masks are enough" {
+@test "without a running user manager the masks cannot be verified" {
   mask_stock_pulseaudio orpheus
   run reload_and_verify_masks orpheus
-  assert_success
-  assert_output --partial "masks apply when it starts"
+  assert_failure
+  assert_output --partial "cannot verify the masks"
 }
 
 @test "undo restores each unit's prior state, newest change first" {
@@ -165,5 +165,34 @@ setup() {
   run find_pulse_module module-bluetooth-discover
   assert_success
   run find_pulse_module module-alsa-card
+  assert_failure
+}
+
+@test "a real venv renamed into place keeps working scripts" {
+  stage="$BATS_TEST_TMPDIR/opt/svc.stage.a1B2c3"
+  final="$BATS_TEST_TMPDIR/opt/svc"
+  python3 -m venv "$stage/venv"
+  grep -qF "$stage" "$stage/venv/bin/pip"            # pip's shebang names the stage
+  relocate_venv "$stage/venv" "$stage" "$final"
+  mv "$stage" "$final"
+  run verify_venv "$final/venv" "$stage"
+  assert_success
+  run "$final/venv/bin/pip" --version
+  assert_success
+  assert_output --partial "$final/venv"
+  run grep -rlF "$stage" "$final/venv/bin"
+  assert_failure
+}
+
+@test "without relocation the renamed venv's scripts are caught as broken" {
+  stage="$BATS_TEST_TMPDIR/opt/svc.stage.zz9"
+  final="$BATS_TEST_TMPDIR/opt/svc"
+  python3 -m venv "$stage/venv"
+  mv "$stage" "$final"
+  run verify_venv "$final/venv" "$stage"
+  assert_failure
+  assert_output --partial "still references $stage"
+  assert_output --partial "is not executable"
+  run "$final/venv/bin/pip" --version
   assert_failure
 }

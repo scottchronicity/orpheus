@@ -68,7 +68,10 @@ with stdin at `/dev/null` and a hard timeout.
 
 **Preflight** changes nothing on the host. It builds the code and a venv in
 `<deploy>.stage.*`, with non-editable installs so the venv can be renamed into
-place, then runs `main check` and checks the audio user, tools, PulseAudio
+place. `relocate_venv` rewrites the staging path in the venv's generated
+scripts (`pip`, entry points, `activate`), and after the rename `verify_venv`
+and `pip --version` confirm every script still runs. Preflight then runs
+`main check` and checks the audio user, tools, PulseAudio
 modules and mask paths.
 
 **The transaction** runs under an `ERR` trap. It swaps the deployment and then
@@ -76,7 +79,8 @@ runs the steps in `lifecycle.sh`:
 - mask the user's stock PulseAudio units;
 - enable lingering;
 - reload the user's systemd manager and verify the masks (`LoadState=masked`,
-  socket inactive);
+  socket inactive). The manager must be running; if it does not start, the
+  install fails;
 - stop a stock instance;
 - retire the old unit;
 - disable competing units.

@@ -100,7 +100,8 @@ mask_stock_pulseaudio() {
 }
 
 # Masks only take effect once the user's manager reloads. Reload it, stop a
-# socket it may still hold, and prove neither unit can start.
+# socket it may still hold, and prove neither unit can start. The manager must
+# be running (lingering starts it); otherwise verification fails.
 reload_and_verify_masks() {
     local user="$1" home unit state
     home="${SYSROOT}$(user_home "${user}")"
@@ -111,8 +112,9 @@ reload_and_verify_masks() {
         fi
     done
     if ! user_manager_running "${user}"; then
-        say "no systemd user manager running for ${user}; masks apply when it starts"
-        return 0
+        # Without the manager there is nothing to prove the masks are honoured.
+        say "ERROR: no systemd user manager is running for ${user}; cannot verify the masks"
+        return 1
     fi
     user_systemctl "${user}" daemon-reload || { say "ERROR: could not reload ${user}'s systemd manager"; return 1; }
     if [[ "$(user_systemctl "${user}" show -p ActiveState --value pulseaudio.socket 2>/dev/null)" != "inactive" ]]; then
@@ -259,6 +261,44 @@ commit_run_changes() {
         grep -qxF "${line}" "${CHANGES}" 2>/dev/null || echo "${line}" >> "${CHANGES}"
     done < "${RUN_CHANGES}"
     rm -f "${RUN_CHANGES}"
+}
+
+# --- relocating a staged venv ------------------------------------------------------
+# A venv's generated scripts (pip, console entry points, activate) embed the
+# directory it was created in. The installer builds the venv in a staging
+# directory and renames it into place, so rewrite those references first.
+relocate_venv() {
+    local venv="$1" from="$2" to="$3" f from_re
+    from_re="$(printf '%s' "${from}" | sed 's/[][\\.*^$#]/\\&/g')"
+    for f in "${venv}"/bin/*; do
+        [[ -f "${f}" && ! -L "${f}" ]] || continue
+        grep -Iq . "${f}" || continue   # text files only
+        if grep -qF "${from}" "${f}"; then
+            sed -i "s#${from_re}#${to}#g" "${f}"
+        fi
+    done
+}
+
+# verify_venv <venv> <forbidden-prefix>: every script's interpreter exists and
+# nothing still points into the (now gone) staging directory.
+verify_venv() {
+    local venv="$1" forbidden="$2" f interp bad=0
+    for f in "${venv}"/bin/*; do
+        [[ -f "${f}" && ! -L "${f}" ]] || continue
+        grep -Iq . "${f}" || continue
+        if grep -qF "${forbidden}" "${f}"; then
+            say "ERROR: ${f} still references ${forbidden}"
+            bad=1
+        fi
+        if [[ "$(head -c 2 "${f}")" == "#!" ]]; then
+            interp="$(head -n 1 "${f}" | sed 's/^#![[:space:]]*//' | awk '{print $1}')"
+            if [[ ! -x "${interp}" ]]; then
+                say "ERROR: ${f}: interpreter ${interp} is not executable"
+                bad=1
+            fi
+        fi
+    done
+    return "${bad}"
 }
 
 # --- preflight -----------------------------------------------------------------------

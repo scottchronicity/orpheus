@@ -2,7 +2,8 @@
 # Install (or update) orpheus-audio-output. Run as root (make install-service).
 #
 # Preflight (changes nothing on the host):
-#   build the new code and venv in a staging directory beside the deployment,
+#   build the new code and venv in a staging directory beside the deployment
+#   (its scripts rewritten for the final path, verified after the rename),
 #   validate the audio_output configuration with it, and check the audio user,
 #   tools and PulseAudio modules exist.
 # Transaction (any failure restores the previous installation):
@@ -51,6 +52,10 @@ cp "${PROJECT_ROOT}"/{pyproject.toml,requirements.txt,VERSION,README.md} "${STAG
 # Non-editable installs only: the venv is renamed into place after preflight.
 "${STAGE}/venv/bin/pip" install -q "${COMMON_PATH}" || fail_preflight "installing orpheus-common failed"
 "${STAGE}/venv/bin/pip" install -q "PyYAML>=6.0.2" "${STAGE}" || fail_preflight "installing orpheus-audio-output failed"
+# Point generated scripts (pip, entry points, activate) at the final path;
+# from here on only venv/bin/python (a symlink) runs until the swap.
+relocate_venv "${STAGE}/venv" "${STAGE}" "${DEPLOY_ROOT}"
+STAGE_PATH="${STAGE}"
 
 if ! CHECK_JSON="$("${STAGE}/venv/bin/python" -m orpheus_audio_output.main check)"; then
     echo "${CHECK_JSON}" >&2
@@ -140,6 +145,8 @@ fi
 mv "${STAGE}" "${DEPLOY_ROOT}"
 STAGE=""
 SWAPPED=1
+verify_venv "${DEPLOY_ROOT}/venv" "${STAGE_PATH}" || fail "the deployed venv has broken scripts"
+"${DEPLOY_ROOT}/venv/bin/pip" --version >/dev/null 2>&1 || fail "pip does not run from ${DEPLOY_ROOT}/venv"
 if [[ -f "${UNIT_DIR}/${NEW_UNIT}" ]]; then
     cp -p "${UNIT_DIR}/${NEW_UNIT}" "${PREV_UNIT_FILE}"
 fi
@@ -158,7 +165,7 @@ fi
 if [[ "${SERVER_TYPE}" == "pulseaudio" ]]; then
     mask_stock_pulseaudio "${PA_USER}" || fail "could not mask ${PA_USER}'s stock PulseAudio units"
     ensure_linger "${PA_USER}"
-    wait_for_user_manager "${PA_USER}" || say "the user manager for ${PA_USER} did not start yet"
+    wait_for_user_manager "${PA_USER}" || fail "the systemd user manager for ${PA_USER} did not start after enabling lingering; the masks cannot be verified"
     reload_and_verify_masks "${PA_USER}" || fail "stock PulseAudio could still be socket-activated for ${PA_USER}"
     stop_stock_pulseaudio "${PA_USER}"
 fi

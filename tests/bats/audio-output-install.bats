@@ -117,7 +117,45 @@ assert_host_untouched() {
   [ ! -e "$MOCK/user-socket-active" ]
 }
 
+@test "generated scripts in the deployed venv point at the final path" {
+  install_new
+  assert_success
+  [ "$(head -n 1 "$DEPLOY/venv/bin/orpheus-tool")" = "#!$DEPLOY/venv/bin/python" ]
+  run "$DEPLOY/venv/bin/orpheus-tool"
+  assert_success
+  run grep -rlF ".stage." "$DEPLOY/venv/bin"
+  assert_failure
+}
+
 # --- failed install restores the previous installation -------------------------
+@test "a deployed venv with a broken script restores the previous installation" {
+  legacy_installed; unit_on "$LEGACY" enabled active
+  mkdir -p "$DEPLOY"; echo v0.1 > "$DEPLOY/sentinel"
+  export FAKE_BROKEN_SCRIPT=1
+  install_new
+  assert_failure
+  assert_output --partial "interpreter /nonexistent/python is not executable"
+  assert_output --partial "previous installation restored"
+  [ "$(cat "$DEPLOY/sentinel")" = v0.1 ]
+  is_enabled "$LEGACY"
+  is_active "$LEGACY"
+  refute_active "$NEW"
+}
+
+@test "a user manager that never starts fails the install and restores" {
+  legacy_installed; unit_on "$LEGACY" enabled active
+  export FAKE_NO_USER_MANAGER=1
+  install_new
+  assert_failure
+  assert_output --partial "did not start after enabling lingering"
+  [ -f "$UNITS/$LEGACY" ]
+  is_enabled "$LEGACY"
+  is_active "$LEGACY"
+  [ ! -e "$MOCK/linger" ]
+  [ ! -e "$MASKS/pulseaudio.socket" ]
+  [ ! -e "$UNITS/$NEW" ]
+}
+
 @test "masks that the user manager does not honour abort and restore" {
   legacy_installed; unit_on "$LEGACY" enabled active
   export FAKE_USER_LOADSTATE=loaded

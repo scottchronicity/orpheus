@@ -108,17 +108,19 @@ Any problem stops it here, with "nothing on this host was changed".
 Then, as one transaction:
 
 1. **Swaps in the staged deployment,** keeping the previous one and its unit
-   file aside.
+   file aside. The staged venv's scripts, such as `pip`, are rewritten for the
+   final path before the swap and checked after it.
 2. **Masks the PulseAudio user's stock `pulseaudio.socket` and
    `pulseaudio.service`.** Stock PulseAudio loads `module-udev-detect` and takes
    the USB capture interface; the audio-motion setup already masks the service.
    It then **enables lingering** for that user, so `/run/user/<uid>`, where the
    socket lives, exists from boot whether or not anyone is logged in.
-3. **Reloads that user's systemd manager** and stops its `pulseaudio.socket`
-   if it was listening. It then **verifies** that the manager reports both
-   units `masked` and the socket inactive, so a stock PulseAudio cannot be
-   socket-activated. A stock PulseAudio already running for the user is
-   stopped.
+3. **Reloads that user's systemd manager,** which lingering starts, and stops
+   its `pulseaudio.socket` if it was listening. It then **verifies** that the
+   manager reports both units `masked` and the socket inactive, so a stock
+   PulseAudio cannot be socket-activated. If the manager does not start, the
+   masks cannot be verified and the install fails. A stock PulseAudio already
+   running for the user is stopped.
 4. **Retires `orpheus-bluetooth-autoconnect`,** keeping a backup of its unit
    and script, and disables any other unit that runs `bluetoothctl connect`
    for the same speaker, such as an early hand-made
