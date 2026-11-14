@@ -15,6 +15,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -207,6 +208,19 @@ def test_min_file_age_protects_a_clip_still_being_written(tmp_path):
 
     assert fresh.exists()
     assert not old.exists()
+
+
+def test_minimum_age_is_elapsed_time_at_spring_forward(tmp_path):
+    now = datetime(2026, 3, 8, 3, 30, tzinfo=ZoneInfo("America/Detroit"))
+    clip = make_file(tmp_path, "audio_motion", "recent.flac", size=2 * MB, age_days=2)
+    stamp = now.timestamp() - 45 * 60
+    os.utime(clip, (stamp, stamp))
+    retention = Retention(categories={"audio_motion": rule(max_gb=1 / 1024, floor_days=0)})
+
+    result = StorageSweep(tmp_path, retention, disk_space=disk(1000), now=lambda: now).run()
+
+    assert result.files_removed == 0
+    assert clip.exists()
 
 
 # -- pressure ------------------------------------------------------------

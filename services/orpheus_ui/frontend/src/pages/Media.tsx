@@ -317,7 +317,7 @@ export default function Media() {
             <>
               <div className="flex-1 min-w-32">
                 <label className="block text-sm font-medium text-slate-400 mb-2">
-                  Date
+                  Date (UTC)
                 </label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -356,7 +356,7 @@ export default function Media() {
           {activeTab === 'timelapses' && (
             <div className="flex-1 min-w-32">
               <label className="block text-sm font-medium text-slate-400 mb-2">
-                Date (leave blank for all)
+                Schedule date (leave blank for all)
               </label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />

@@ -12,7 +12,7 @@ import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -65,8 +65,8 @@ class FileInfo:
     def from_path(cls, path: Path) -> FileInfo:
         """Create FileInfo from a file path."""
         stat = path.stat()
-        mtime = datetime.fromtimestamp(stat.st_mtime)
-        age = (datetime.now() - mtime).total_seconds() / 3600
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+        age = (datetime.now(timezone.utc) - mtime).total_seconds() / 3600
         return cls(path=path, size_bytes=stat.st_size, mtime=mtime, age_hours=age)
 
 
@@ -614,13 +614,13 @@ def cleanup_old_files_by_age(
         logger.warning("Path does not exist", path=path)
         return 0
 
-    cutoff = datetime.now() - timedelta(days=max_age_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     deleted = 0
 
     for file_path in path.rglob(pattern):
         if file_path.is_file():
             try:
-                mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+                mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
 
                 if mtime < cutoff:
                     if dry_run:

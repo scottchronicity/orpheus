@@ -4,7 +4,7 @@ Storage management utilities for T7 drive.
 Provides cleanup, retention policies, and space monitoring.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from orpheus_common.logging import get_logger
@@ -37,12 +37,12 @@ def cleanup_old_files(
         logger.warning("Path does not exist", base_path=base_path)
         return 0
 
-    cutoff = datetime.now() - timedelta(days=max_age_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     deleted = 0
 
     for file_path in base_path.rglob(pattern):
         if file_path.is_file():
-            mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
 
             if mtime < cutoff:
                 if dry_run:

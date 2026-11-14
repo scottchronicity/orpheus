@@ -109,6 +109,7 @@ class AudioEventsAgent(Actor):
         if self.config.backend == "auto":
             self._worker_backend = auto_worker_available(self.config.gpu_worker)
         self._accepting = True
+        self._submission_lock = threading.Lock()
         self._pending_deadlines: set[float] = set()
         self.clips_rejected = {
             "overload": 0,
@@ -301,7 +302,8 @@ class AudioEventsAgent(Actor):
         return self._build_health_payload()
 
     async def on_stopping(self) -> None:
-        self._accepting = False
+        with self._submission_lock:
+            self._accepting = False
         if isinstance(self.model, WorkerSEDModel):
             # Interrupt a load/exchange and disable recovery before draining threads.
             await asyncio.get_running_loop().run_in_executor(None, self.model.close)
@@ -376,9 +378,13 @@ class AudioEventsAgent(Actor):
         The optional worker bounds accepted work before decode. The existing
         in-process executor retains its concurrency and queueing behavior.
         """
-        if not self._accepting:
-            self._reject_clip("shutdown")
-            return
+        with self._submission_lock:
+            if not self._accepting:
+                self._reject_clip("shutdown")
+                return
+            self._submit_accepted_clip(audio_path, source)
+
+    def _submit_accepted_clip(self, audio_path: Path, source: Detection) -> None:
         if self._admission is None:
             future = self._executor.submit(self._process_safely, audio_path, source)
         else:
@@ -506,7 +512,7 @@ class AudioEventsAgent(Actor):
             logger.error("Agent not fully initialised — model or labels missing")
             return
 
-        start_time = time.time()
+        start_time = time.monotonic()
         audio = self._load_and_preprocess(audio_path)
         if audio is None:
             return
@@ -531,7 +537,7 @@ class AudioEventsAgent(Actor):
             max_labels_per_clip=self.config.max_labels_per_clip,
             allowed_class_indices=list(self.labels.keys()),
         )
-        inference_time_ms = int((time.time() - start_time) * 1000)
+        inference_time_ms = int((time.monotonic() - start_time) * 1000)
         # Layer-3-adjacent health surface: record latency to the rolling
         # window so the health heartbeat can report p50/p95 stats.
         self._record_inference_latency(float(inference_time_ms))

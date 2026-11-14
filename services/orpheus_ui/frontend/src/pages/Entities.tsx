@@ -621,6 +621,7 @@ export default function EntitiesPage() {
         end_date: endDate,
         // Server-side pagination, same shape Birds/Crows use — client-side
         // slicing over a capped fetch silently truncates big filter results.
+        tz: browserTz,
         page: String(page),
         page_size: String(ITEMS_PER_PAGE),
       })
@@ -628,7 +629,6 @@ export default function EntitiesPage() {
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)
-        params.set('tz', browserTz)
       }
       return fetchJson<EntitiesResponse>(`/api/entities?${params.toString()}`)
     },
@@ -723,7 +723,7 @@ export default function EntitiesPage() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
-              <h2 className="text-lg font-medium text-white mb-4">Entities per Day</h2>
+              <h2 className="text-lg font-medium text-white mb-4">Entities per Day (UTC)</h2>
               <p className="text-xs text-slate-500 mb-3">All entities across selected date range</p>
               <DailyActivityChart data={data.stats?.daily_activity ?? []} />
             </Card>
@@ -743,7 +743,7 @@ export default function EntitiesPage() {
             </Card>
 
             <Card>
-              <h2 className="text-lg font-medium text-white mb-4">Hourly Activity</h2>
+              <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
               <p className="text-xs text-slate-500 mb-3">All entities grouped by hour of day</p>
               <HourlyActivityChart data={hourlyData} />
             </Card>

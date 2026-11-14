@@ -111,6 +111,13 @@ export function getSpeciesDisplayName(code: string, commonName?: string): string
   return SPECIES_DISPLAY_NAMES[code] ?? code
 }
 
+/** Calendar date in the browser's timezone, suitable for a date input. */
+export function localDateKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 /**
  * Format an ISO 8601 timestamp to the user's local timezone
  * 

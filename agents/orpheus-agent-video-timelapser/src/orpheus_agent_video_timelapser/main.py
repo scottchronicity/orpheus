@@ -329,50 +329,20 @@ class VideoTimelapser:
         looking back over a time window (lookback_window).
         """
 
-        # Find snapshot directory for the date
-        snapshot_dir = self._config.storage_base_path / "video" / "snapshots" / date_str
-
-        if not snapshot_dir.exists():
-            logger.warning(
-                "Snapshot directory not found, skipping timelapse",
-                camera_name=camera.name,
-                snapshot_dir=str(snapshot_dir),
-                date_str=date_str,
-            )
-            return
-
-        # Find all snapshots for this camera
-        snapshot_pattern = f"*.{camera.name}.jpg"
-        snapshot_files = sorted(snapshot_dir.glob(snapshot_pattern))
-
-        label = tl_config.label
-        logger.info(
-            "Snapshot discovery",
-            camera_name=camera.name,
-            label=label,
-            lookback_window=tl_config.lookback_window,
-            snapshot_dir=str(snapshot_dir),
-            total_snapshots_on_disk=len(snapshot_files),
-        )
-
-        if len(snapshot_files) == 0:
-            logger.warning(
-                "No snapshots found for camera, skipping",
-                camera_name=camera.name,
-                label=label,
-                snapshot_dir=str(snapshot_dir),
-                glob_pattern=snapshot_pattern,
-            )
-            return
-
-        # Parse lookback_window and sampling_interval
         lookback_seconds = self._parse_duration(tl_config.lookback_window)
         sampling_seconds = self._parse_duration(tl_config.sampling_interval)
-
-        # Get current time and calculate lookback start time
         current_time = datetime.now(timezone.utc)
         lookback_start = current_time - timedelta(seconds=lookback_seconds)
 
+        snapshots = self._config.storage_base_path / "video" / "snapshots"
+        utc_day = lookback_start.date()
+        snapshot_files: list[Path] = []
+        while utc_day <= current_time.date():
+            day_dir = snapshots / utc_day.strftime("%Y.%m.%d")
+            snapshot_files.extend(sorted(day_dir.glob(f"*.{camera.name}.jpg")))
+            utc_day += timedelta(days=1)
+
+        label = tl_config.label
         # Sample snapshots using bucket sampling
         selected_snapshots = self._bucket_sample_snapshots(
             snapshot_files, lookback_start, current_time, sampling_seconds

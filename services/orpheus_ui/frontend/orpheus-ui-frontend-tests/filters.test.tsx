@@ -9,6 +9,7 @@ import { render, screen, fireEvent, renderHook, act } from '@testing-library/rea
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { SpeciesFilter } from '../src/components/SpeciesFilter'
+import { localDateKey } from '../src/lib/utils'
 import {
   DateRangeFilter,
   DEFAULT_START_TIME,
@@ -243,11 +244,10 @@ describe('DateRangeFilter', () => {
     const today = new Date()
     const weekAgo = new Date(today)
     weekAgo.setDate(today.getDate() - 7)
-    const fmt = (d: Date) => d.toISOString().split('T')[0]
     render(
       <DateRangeFilter
-        startDate={fmt(weekAgo)}
-        endDate={fmt(today)}
+        startDate={localDateKey(weekAgo)}
+        endDate={localDateKey(today)}
         startTime={DEFAULT_START_TIME}
         endTime={DEFAULT_END_TIME}
         onChange={() => {}}

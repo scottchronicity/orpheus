@@ -893,7 +893,7 @@ def get_bird_history(
       species: comma-separated species codes/common names to keep (case-insensitive).
       start_time, end_time: HH:MM time-of-day window (interpreted in `tz`).
         When start > end the window wraps midnight.
-      tz: IANA timezone name (e.g. "America/Los_Angeles") for interpreting start_time/end_time.
+      tz: IANA timezone for calendar dates and time-of-day filters.
       page, page_size: when both provided, return the given 1-indexed slice instead of
         the legacy 2000-row cap; response adds page/page_size/total_pages.
 
@@ -903,7 +903,7 @@ def get_bird_history(
     try:
         db = get_detection_db()
 
-        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7)
+        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7, tz=tz)
 
         species_allow: Optional[set] = None
         if species:
@@ -1121,7 +1121,7 @@ def get_audio_events_history(
         produces the same encoding. ``"Dog"`` alone (no separator)
         also works because ``"Dog".split("|") == ["Dog"]``.
       start_time, end_time: HH:MM time-of-day window (interpreted in `tz`).
-      tz: IANA timezone name for interpreting start_time/end_time.
+      tz: IANA timezone for calendar dates and time-of-day filters.
       page, page_size: when both provided, return the given 1-indexed slice
         instead of the legacy 2000-row cap; response adds page/page_size/
         total_pages.
@@ -1133,7 +1133,7 @@ def get_audio_events_history(
     try:
         db = get_detection_db()
 
-        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7)
+        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7, tz=tz)
 
         labels_allow: Optional[set] = None
         if labels:
@@ -1304,6 +1304,8 @@ def get_audio_events_bird_correlation(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     user: User = Depends(current_active_user),
+    *,
+    tz: Optional[str] = None,
 ):
     """Bird-detection parity dashboard for the audio-events agent.
 
@@ -1322,7 +1324,7 @@ def get_audio_events_bird_correlation(
     try:
         db = get_detection_db()
 
-        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7)
+        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7, tz=tz)
 
         # Pull all three signal streams in the window (raw rows — this
         # endpoint reads plain columns only, no JSON sidecars at all).
@@ -1508,7 +1510,7 @@ def get_crow_stats(
       call_types: comma-separated call_type values to keep (case-insensitive).
       start_time, end_time: HH:MM time-of-day window (interpreted in `tz`).
         When start > end the window wraps midnight.
-      tz: IANA timezone name for interpreting start_time/end_time.
+      tz: IANA timezone for calendar dates and time-of-day filters.
       page, page_size: when both provided, return the given 1-indexed slice instead of
         the legacy 2000-row cap; response adds page/page_size/total_pages.
 
@@ -1517,7 +1519,7 @@ def get_crow_stats(
     try:
         db = get_detection_db()
 
-        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7)
+        start_dt, end_dt = resolve_date_range(days, start_date, end_date, default_days=7, tz=tz)
 
         call_types_allow: Optional[set] = None
         if call_types:

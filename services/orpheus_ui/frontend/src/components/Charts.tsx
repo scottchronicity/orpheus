@@ -429,7 +429,7 @@ export function DailyActivityChart({
           tick={{ fill: '#64748b', fontSize: 10 }}
           tickFormatter={(value) => {
             const d = new Date(value + 'T12:00:00Z')
-            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
           }}
           interval={Math.max(0, Math.ceil(data.length / 10) - 1)}
           angle={-30}
@@ -445,7 +445,7 @@ export function DailyActivityChart({
           }}
           labelFormatter={(value) => {
             const d = new Date(value + 'T12:00:00Z')
-            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
           }}
         />
         <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />

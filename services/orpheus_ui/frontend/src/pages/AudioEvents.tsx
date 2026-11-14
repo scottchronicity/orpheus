@@ -163,13 +163,14 @@ function IntervalsCell({ intervals }: { intervals?: TemporalInterval[] | null })
   )
 }
 
-function BirdCorrelationPanel({ startDate, endDate }: { startDate: string; endDate: string }) {
+function BirdCorrelationPanel({ startDate, endDate, tz }: { startDate: string; endDate: string; tz: string }) {
   const { data, isLoading, error } = useQuery<BirdCorrelationResponse>({
-    queryKey: ['audio-events-bird-correlation', startDate, endDate],
+    queryKey: ['audio-events-bird-correlation', startDate, endDate, tz],
     queryFn: async () => {
       const params = new URLSearchParams({
         start_date: startDate,
         end_date: endDate,
+        tz,
       })
       return fetchJson<BirdCorrelationResponse>(`/api/data/audio-events/bird-correlation?${params.toString()}`)
     },
@@ -284,7 +285,7 @@ function BirdCorrelationPanel({ startDate, endDate }: { startDate: string; endDa
       {/* Daily breakdown */}
       {daily_counts.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-xs uppercase text-slate-500 mb-1">By day</div>
+          <div className="text-xs uppercase text-slate-500 mb-1">By day (UTC)</div>
           <div className="flex items-center gap-3 text-xs text-slate-400 mb-2">
             <span className="flex items-center gap-1">
               <span className="inline-block w-3 h-3 bg-green-500/70 rounded-sm" />
@@ -654,6 +655,7 @@ export default function AudioEventsPage() {
       const params = new URLSearchParams({
         start_date: startDate,
         end_date: endDate,
+        tz: browserTz,
         page: String(page),
         page_size: String(ITEMS_PER_PAGE),
       })
@@ -661,7 +663,6 @@ export default function AudioEventsPage() {
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)
-        params.set('tz', browserTz)
       }
       return fetchJson<AudioEventsHistoryResponse>(`/api/data/audio-events/history?${params.toString()}`)
     },
@@ -744,7 +745,7 @@ export default function AudioEventsPage() {
 
       {/* Bird Correlation panel — the gating signal for putting bird-detection
           behind audio-events. See docs/designs/audio-events-smoke-test.md §4. */}
-      <BirdCorrelationPanel startDate={startDate} endDate={endDate} />
+      <BirdCorrelationPanel startDate={startDate} endDate={endDate} tz={browserTz} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard title="Total Events" value={totalCount} icon={Waves} color="blue" />
@@ -758,7 +759,7 @@ export default function AudioEventsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Events per Day</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Events per Day (UTC)</h2>
           <p className="text-xs text-slate-500 mb-3">All events across selected date range</p>
           <DailyActivityChart data={data?.stats?.daily_activity ?? []} />
         </Card>
@@ -781,7 +782,7 @@ export default function AudioEventsPage() {
       </Card>
 
       <Card>
-        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity</h2>
+        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
         <p className="text-xs text-slate-500 mb-3">All events grouped by hour of day</p>
         <HourlyActivityChart data={data?.stats?.hourly_activity ?? []} />
       </Card>

@@ -130,6 +130,31 @@ def test_generate_timelapse_success(
     assert mock_writer_instance.write.call_count > 0
 
 
+@patch("orpheus_agent_video_timelapser.main.datetime")
+@patch("orpheus_agent_video_timelapser.main.cv2.imread", return_value=None)
+def test_generate_timelapse_reads_across_utc_midnight(
+    mock_imread, mock_datetime, mock_config, tmp_path
+):
+    mock_config.storage_base_path = tmp_path
+    mock_datetime.now.return_value = datetime(2026, 11, 14, 0, 30, tzinfo=timezone.utc)
+    mock_datetime.fromisoformat = datetime.fromisoformat
+    camera = mock_config.cameras[0]
+    tl_config = camera.timelapses[0]
+    tl_config.lookback_window = "1h"
+    snapshots = tmp_path / "video" / "snapshots"
+    expected = [
+        snapshots / "2026.11.13" / "2026-11-13T23-40-00.000Z.test-camera.jpg",
+        snapshots / "2026.11.14" / "2026-11-14T00-10-00.000Z.test-camera.jpg",
+    ]
+    for frame in expected:
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.touch()
+
+    VideoTimelapser()._generate_timelapse(camera, tl_config, "2026.11.13")
+
+    assert [call.args[0] for call in mock_imread.call_args_list] == [str(p) for p in expected]
+
+
 @patch("orpheus_agent_video_timelapser.main.cv2.imread")
 def test_generate_timelapse_insufficient_snapshots(mock_imread, mock_config, tmp_path):
     """Test that timelapse is skipped when insufficient snapshots exist."""
@@ -1060,6 +1085,7 @@ def test_generate_timelapse_no_snapshots_found(
 ):
     """Test timelapse skipped when no snapshots found for camera."""
     mock_config.storage_base_path = tmp_path
+    mock_datetime.now.return_value = datetime(2025, 1, 15, 12, tzinfo=timezone.utc)
 
     date_str = "2025.01.15"
     snapshot_dir = tmp_path / "video" / "snapshots" / date_str

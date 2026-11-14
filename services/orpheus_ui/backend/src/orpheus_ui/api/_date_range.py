@@ -20,8 +20,9 @@ is FastAPI-specific — ``orpheus_common`` has no FastAPI dependency.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 
@@ -49,6 +50,7 @@ def resolve_date_range(
     end_date: Optional[str],
     *,
     default_days: Optional[int] = 7,
+    tz: Optional[str] = None,
 ) -> Tuple[Optional[datetime], Optional[datetime]]:
     """Resolve the ``days`` / ``start_date`` / ``end_date`` trio to a window.
 
@@ -76,6 +78,9 @@ def resolve_date_range(
        ``HTTPException(400)`` instead of silently resolving to an
        every-row-excluded query that renders as "no data".
 
+    Bare dates use the supplied IANA timezone, defaulting to UTC. Explicit
+    datetimes retain their existing offset and end-of-day handling.
+
     ``days`` is only consulted when it is a plain ``int``; anything else
     (``None`` or, for functions invoked directly in unit tests without FastAPI's
     dependency injection, an unresolved ``Query`` default) is treated as absent.
@@ -83,12 +88,23 @@ def resolve_date_range(
     start_dt: Optional[datetime] = None
     end_dt: Optional[datetime] = None
 
+    calendar_zone: tzinfo = timezone.utc
+    if isinstance(tz, str) and tz != "UTC":
+        try:
+            calendar_zone = ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+
     if start_date:
         start_dt = _parse_iso(start_date, field="start_date")
+        if len(start_date) == 10:
+            start_dt = start_dt.replace(tzinfo=calendar_zone).astimezone(timezone.utc)
     if end_date:
         end_dt = _parse_iso(end_date, field="end_date").replace(
             hour=23, minute=59, second=59, microsecond=999999
         )
+        if len(end_date) == 10:
+            end_dt = end_dt.replace(tzinfo=calendar_zone).astimezone(timezone.utc)
 
     # Guard on the EXPLICIT bounds only (before the rolling fallback fills a
     # side): an inverted explicit window is caller error and deserves a 400,

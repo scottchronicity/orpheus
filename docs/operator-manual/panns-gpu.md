@@ -11,7 +11,9 @@ enabling the GPU backend for production.
 
 From your local checkout, install the agent as usual with
 `make install-audio-events`. This also installs the small shared IPC library in
-the agent environment. It does not install NVIDIA Torch or alter services.
+the agent environment. The standard audio-events service installer and deploy
+target also install the IPC library in the service’s Python 3.9 environment.
+Install the CUDA worker separately with the command below.
 
 On a compatible Jetson, obtain the exact NVIDIA wheel
 `torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl` from
@@ -200,7 +202,7 @@ do not add RSS, allocator reservations and MemAvailable drops together.
 | `clip_ttl_seconds` | 3 | Lifetime after the source recording ends, including queueing, preprocessing and inference. |
 | `max_clip_seconds` | 40 | Maximum decoded clip duration; header checked before decoding. |
 | `startup_timeout_seconds` | 60 | Model load and warm-up deadline. |
-| `request_timeout_seconds` | 5 | IPC deadline, shortened to the remaining clip lifetime. |
+| `request_timeout_seconds` | 5 | Hard timeout for a worker request. |
 | `restart_backoff_seconds` | 2 | Initial restart delay, increasing to 30 seconds. |
 | `max_starts` | 3 | Maximum starts within `restart_window_seconds` (default 300). |
 
@@ -210,8 +212,9 @@ Validate maximum clips with the complete station workload. The worker checks
 host memory during loading, inference and idle time and exits on pressure or an
 unreadable memory source. The parent stops admitting clips before decoding them.
 
-Only one inference runs at a time. A full queue refuses new clips; expired clips
-are discarded. Requests never wait for a model reload or transparently retry.
+Only one inference runs at a time. A full queue refuses new clips. A request that
+already reached the worker can finish within its hard timeout. The agent discards
+late results. Requests never wait for a model reload or automatically retry.
 Reload took 12–15 seconds in the prototype, longer than a clip's default lifetime:
 clips arriving during recovery are refused, and new clips resume after readiness.
 Recorded audio remains available under normal retention; refused work is not

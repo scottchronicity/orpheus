@@ -117,6 +117,11 @@ same links appear in the detail view and on the Entities page. AudioSet labels
 link to the AudioSet ontology. Links prefer the scientific name so they land on
 the right taxon; legacy detections without one fall back to a common-name search.
 
+Date filters on the detection and video pages use your browser’s timezone.
+Hourly and daily activity summaries use UTC.
+The snapshot archive uses UTC date and hour filters. The timelapse archive uses
+the date from each camera’s schedule.
+
 ## Weather
 
 The Dashboard has a compact **Weather** card that shows the current temperature,

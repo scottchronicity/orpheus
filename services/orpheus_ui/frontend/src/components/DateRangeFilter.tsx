@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Calendar, Clock, RefreshCw } from 'lucide-react'
+import { localDateKey } from '../lib/utils'
 import { Card } from './ui'
 
 export interface DateTimeRange {
@@ -46,18 +47,14 @@ interface DateRangeFilterProps {
   isPlaceholderData?: boolean
 }
 
-function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0]
-}
-
 function getDaysAgo(days: number): string {
   const date = new Date()
   date.setDate(date.getDate() - days)
-  return formatDate(date)
+  return localDateKey(date)
 }
 
 function getToday(): string {
-  return formatDate(new Date())
+  return localDateKey(new Date())
 }
 
 /** User's IANA timezone name (e.g. "America/Los_Angeles"). */

@@ -151,6 +151,10 @@ correlator/backplane/UI are always in). Deterministic + idempotent. The compose 
 tag is a convention your build fills. Every shipped agent must be in the generator's
 catalog — `make guardrails` fails if one is missing, so a target can't silently drop it.
 
+**Camera timelapses:** The configured timezone sets the schedule and the output
+date. The timelapser reads snapshots from every UTC-date folder that overlaps
+the video’s time window, including when the window crosses midnight.
+
 ## 4. The backplane (messaging)
 
 - Default backend is **NATS + JetStream** (`event_bus.backend: nats`); mosquitto
@@ -270,7 +274,8 @@ catalog — `make guardrails` fails if one is missing, so a target can't silentl
   the sweep never deletes a file inside it, and if that means a ceiling cannot be
   reached, or the reserve cannot be met, it logs at CRITICAL and stops rather than
   taking your recent history. `min_file_age_hours` is a second hard floor that
-  always applies. `min_free_space_percent`, if set, is read as a percentage of the
+  always applies. Age limits count elapsed time across daylight-saving changes.
+  `min_free_space_percent`, if set, is read as a percentage of the
   whole disk and reconciled with `reserve_gb` — the stricter of the two wins.
   Every `*_gb` key is **GiB** (1024³ bytes, what `df -h` and the dashboard show);
   the `_gb` spelling is kept so that stations with ceilings already configured
