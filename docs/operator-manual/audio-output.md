@@ -6,6 +6,13 @@ to read its health, and what to do when nothing plays. Choosing and playing
 sounds (the request API, corollary-discharge windows) belongs to the
 [audio playback agent](https://github.com/scottchronicity/orpheus/tree/main/agents/orpheus-agent-audio-playback).
 
+`orpheus-audio-output` is the Linux systemd manager for the Jetson Bluetooth /
+PulseAudio setup. It is optional and is not required by the playback agent on
+macOS. A Mac can use CoreAudio through `audio.playback_command: afplay`; no
+PulseAudio, ALSA, `bluetoothctl`, systemd, or CUDA configuration is needed for
+that path. See the [laptop verification runbook](../runbooks/laptop-verification.md#macos-audio-boundary)
+for the silent native-backend check and real-broker integration command.
+
 ## What the service does
 
 `orpheus-audio-output` keeps the output ready for the playback agent. It
@@ -76,6 +83,27 @@ Check a configuration without changing anything:
 `make -C services/orpheus-audio-output check-config`. An unknown key, an
 unsupported type or an invalid address is reported by name. The running
 service exits with code 78 on one and is not restarted.
+
+### Self-playback tagging
+
+The playback agent publishes a `started` event on
+`orpheus/actuation/audio/playback` once the player reports that output has
+started, followed by a `finished` event with the measured elapsed duration (also
+published for interrupted playback). Both carry the same `playback_id`,
+`start_time`, source and sound identity. A backend failure before audio starts
+does not publish a playback window. The
+event correlator subscribes only when `corollary_discharge.enabled` is true
+(default `false`). Its `buffer_seconds` pads the end of playback, and
+`max_playback_seconds` bounds a start whose finish event is lost (default
+300 seconds).
+
+Corollary discharge tags an overlapping entity as self-generated; it does not
+delete detections or evidence. A real animal heard while the speaker is active
+remains in the database and in the entity's evidence. These playback events use
+the configured event bus and are not a durable work queue, so a broker or agent
+restart can still lose the tag. See the [corollary discharge settings](index.md#2-configuration)
+and the [playback agent guide](https://github.com/scottchronicity/orpheus/tree/main/agents/orpheus-agent-audio-playback)
+for request formats.
 
 **Coming from `orpheus-bluetooth-autoconnect`:** you don't need to change
 anything. While `orpheus.yaml` has no `audio_output` section, the service reads

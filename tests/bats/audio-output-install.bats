@@ -155,7 +155,10 @@ assert_host_untouched() {
   install_new
   assert_success
   [ "$(head -n 1 "$DEPLOY/venv/bin/orpheus-tool")" = "#!$DEPLOY/venv/bin/python" ]
-  run "$DEPLOY/venv/bin/orpheus-tool"
+  # Invoke through the rewritten interpreter explicitly. This still verifies
+  # that the entry point runs with the final venv, while avoiding macOS's
+  # kernel shebang-length limit on the nested Bats temp path.
+  run "$DEPLOY/venv/bin/python" "$DEPLOY/venv/bin/orpheus-tool"
   assert_success
   run grep -rlF ".stage." "$DEPLOY/venv/bin"
   assert_failure

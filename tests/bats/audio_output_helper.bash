@@ -110,7 +110,9 @@ EOF
 EOF
   cat > "$MOCK/bin/fakekill" <<'EOF'
 #!/bin/bash
-echo "kill $*" >> "$MOCK_LOG"; sed -i "/^$1\$/d" "$MOCK/pulseaudio-pids"
+echo "kill $*" >> "$MOCK_LOG"
+awk -v pid="$1" '$0 != pid { print }' "$MOCK/pulseaudio-pids" > "$MOCK/pulseaudio-pids.tmp"
+mv "$MOCK/pulseaudio-pids.tmp" "$MOCK/pulseaudio-pids"
 EOF
   for tool in bluetoothctl pulseaudio pactl; do
     printf '#!/bin/bash\nexit 0\n' > "$MOCK/bin/$tool"

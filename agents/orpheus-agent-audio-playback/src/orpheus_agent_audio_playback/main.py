@@ -5,6 +5,8 @@ import asyncio
 import contextlib
 import signal
 import sys
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional  # noqa: UP035
@@ -365,22 +367,37 @@ class AudioPlaybackAgent:
         """Play to the end and publish the measured playback window.
 
         ``player.play`` returns once playback has *started*; ``player.wait``
-        returns when it ends. The window covers the whole time audio may have
-        been coming out of the speaker, so it is published even when playback
-        fails or is stopped part-way (the correlator tags, never drops, so an
-        over-long window is harmless and a missing one is not). It is not
-        published if playback never started (``play`` raised).
+        returns when it ends. Publish a start marker immediately, then the
+        measured finish even when playback stops part-way. A failed start has
+        no output window and is not published.
         """
-        playback_start = datetime.now(timezone.utc)
         await player.play(audio_path, repeat_count, pause_between, **segment)
+        playback_start = datetime.now(timezone.utc)
+        playback_started_monotonic = time.monotonic()
+        playback_id = uuid.uuid4().hex
+        # Announce the start as soon as the output backend reports that it has
+        # started. This lets the correlator tag early detections without waiting
+        # for a long clip to finish.
+        self._publish_playback_window(
+            playback_start,
+            0.0,
+            label,
+            playback_id=playback_id,
+            phase="started",
+        )
         completed = True
+        playback_status = "interrupted"
         try:
             completed = await player.wait()
+            playback_status = "completed" if completed else "stopped"
         finally:
             self._publish_playback_window(
                 playback_start,
-                (datetime.now(timezone.utc) - playback_start).total_seconds(),
+                time.monotonic() - playback_started_monotonic,
                 label,
+                playback_id=playback_id,
+                phase="finished",
+                playback_status=playback_status,
             )
         if completed:
             logger.info("Playback completed", sound_name=label)
@@ -388,23 +405,35 @@ class AudioPlaybackAgent:
             logger.info("Playback stopped before the end", sound_name=label)
 
     def _publish_playback_window(
-        self, start: datetime, duration_seconds: float, sound_name: str
+        self,
+        start: datetime,
+        duration_seconds: float,
+        sound_name: str,
+        *,
+        playback_id: str,
+        phase: str,
+        playback_status: Optional[str] = None,
     ) -> None:
-        """Publish a playback-window event so the event-correlator can blank
+        """Publish a playback-window event so the event-correlator can tag
         self-generated detections (corollary discharge).
 
-        ``duration_seconds`` is the measured time from starting playback until
-        ``player.wait()`` returned, so no clip-length lookup is needed.
+        A ``started`` event has zero elapsed duration. The matching ``finished``
+        event carries measured elapsed playback time, so no clip-length lookup
+        is needed.
         Best-effort: a publish failure must never affect playback.
         """
         if self._mqtt_client is None:
             return
         event = {
+            "playback_id": playback_id,
+            "phase": phase,
             "start_time": start.isoformat(),
             "duration_seconds": round(duration_seconds, 3),
             "source": "audio_playback_agent",
             "sound_name": sound_name,
         }
+        if playback_status is not None:
+            event["playback_status"] = playback_status
         try:
             self._mqtt_client.publish(self.TOPIC_ACTUATION_AUDIO_PLAYBACK, event, qos=1)
         except Exception:  # noqa: BLE001 - telemetry must not break playback

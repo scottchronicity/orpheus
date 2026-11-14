@@ -177,6 +177,18 @@ The agent supports two request formats for backward compatibility:
 }
 ```
 
+### Playback window events
+
+When a player reports that output has started, the agent publishes a `started`
+event on `orpheus/actuation/audio/playback`. After playback ends or is
+interrupted, it publishes a `finished` event with the measured elapsed duration.
+Both events include the same `playback_id`, UTC `start_time`, `source`, and
+`sound_name`; the finish also includes `playback_status`. These events let the
+event correlator tag overlapping entities when
+`corollary_discharge.enabled` is explicitly enabled. They do not discard
+detections or their evidence. The event is best-effort and is not durable across
+broker or agent restarts.
+
 A success response means playback **started**. If the player then fails (the
 speaker or audio server is unavailable, for example), a second response
 follows on the same topic with `"status": "error"` and the player's message,

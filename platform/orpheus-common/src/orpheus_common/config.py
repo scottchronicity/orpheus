@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -1776,14 +1777,19 @@ class CorollaryDischargeConfig:
     # early (the what's-new tour lists it); rollback is the flag.
     enabled: bool = False
     buffer_seconds: float = 2.0
+    max_playback_seconds: float = 300.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CorollaryDischargeConfig:
         if not data:
             return cls()
+        max_playback_seconds = float(data.get("max_playback_seconds", 300.0))
+        if not math.isfinite(max_playback_seconds) or max_playback_seconds <= 0:
+            raise ValueError("corollary_discharge.max_playback_seconds must be finite and > 0")
         return cls(
             enabled=bool(data.get("enabled", False)),
             buffer_seconds=float(data.get("buffer_seconds", 2.0)),
+            max_playback_seconds=max_playback_seconds,
         )
 
 

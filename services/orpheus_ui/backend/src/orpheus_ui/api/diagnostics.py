@@ -27,12 +27,7 @@ from orpheus_common.storage import (
     get_video_path,
     normalize_sensor_id,
 )
-from orpheus_common.utils.time import (
-    is_full_day,
-    parse_hhmm,
-    timestamp_in_window,
-    to_zone,
-)
+from orpheus_common.utils.time import is_full_day, parse_hhmm, timestamp_in_window
 from pydantic import BaseModel, Field
 
 from orpheus_ui.api._date_range import resolve_date_range
@@ -983,7 +978,7 @@ def get_bird_history(
                 ):
                     continue
 
-            hourly_counts[to_zone(ts, tz).hour] += 1
+            hourly_counts[ts.hour] += 1
             species_counts[display_name] += 1
 
             context = _row_context_dump(row)
@@ -1205,7 +1200,7 @@ def get_audio_events_history(
                 ):
                     continue
 
-            hourly_counts[to_zone(ts, tz).hour] += 1
+            hourly_counts[ts.hour] += 1
             label_counts[display_name] += 1
 
             context = _row_context_dump(row)
@@ -1579,7 +1574,7 @@ def get_crow_stats(
             ):
                 continue
 
-            hour = to_zone(ts, tz).hour
+            hour = ts.hour
             hourly_counts[hour] += 1
             daily_counts[ts.date().isoformat()] += 1
 
@@ -1690,10 +1685,6 @@ def get_audio_history(
     ),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    tz: Optional[str] = Query(
-        None,
-        description="IANA timezone the hour-of-day chart buckets in (default UTC).",
-    ),
     user: User = Depends(current_active_user),
 ):
     """Get audio motion detection history from the database."""
@@ -1719,8 +1710,7 @@ def get_audio_history(
         results = []
         for row in rows:
             ts = _row_ts(row)
-            _h = to_zone(ts, tz).hour
-            hourly_counts[_h] = hourly_counts.get(_h, 0) + 1
+            hourly_counts[ts.hour] = hourly_counts.get(ts.hour, 0) + 1
             metadata = _row_metadata(row)
             channel_id = metadata.get("channel_id") or str(row["channel"] or "unknown")
             channel_counts[channel_id] = channel_counts.get(channel_id, 0) + 1

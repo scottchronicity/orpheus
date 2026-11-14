@@ -8,7 +8,7 @@ include ../../make/common_lint.mk
 include ../../make/common_service.mk
 include ../../make/common_deploy.mk
 
-.PHONY: help venv install reinstall run test coverage clean update
+.PHONY: help venv install reinstall run test coverage native-silent-smoke clean update
 
 help:
 	@echo "Orpheus Audio Playback Agent"
@@ -63,6 +63,9 @@ run: check-deps
 test: check-deps
 	@echo "Running pytest..."
 	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v
+
+native-silent-smoke: check-deps
+	@PYTHONPATH=$(SRC_DIR) $(PYTHON) tests/native_silent_smoke.py
 
 coverage: check-deps
 	@echo "Running pytest with coverage..."

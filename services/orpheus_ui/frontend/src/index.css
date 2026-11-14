@@ -44,16 +44,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
-
-/*
- * Recharts marks its wrapper focusable, so tapping or scrolling past a chart on
- * a touch device leaves a bright focus ring boxing the whole chart — it reads as
- * a rendering glitch rather than as focus. The charts carry no keyboard
- * interaction of their own, so there is nothing to signal.
- */
-.recharts-wrapper:focus,
-.recharts-wrapper:focus-visible,
-.recharts-surface:focus,
-.recharts-surface:focus-visible {
-  outline: none;
-}

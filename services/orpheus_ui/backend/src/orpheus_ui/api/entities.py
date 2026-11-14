@@ -32,13 +32,7 @@ from orpheus_common.detection import (
 )
 from orpheus_common.logging import get_logger
 from orpheus_common.storage import get_audio_clip_path
-from orpheus_common.utils.time import (
-    is_full_day,
-    parse_hhmm,
-    sqlite_time_window_sql,
-    sqlite_tz_offset,
-    timestamp_in_window,
-)
+from orpheus_common.utils.time import is_full_day, parse_hhmm, timestamp_in_window
 
 from orpheus_ui.api._date_range import resolve_date_range
 from orpheus_ui.api._responses import even_sample, paginate, set_cache_control
@@ -287,35 +281,17 @@ def _compute_entity_stats(
             )
             params.extend(exclude_list)
             params.extend(exclude_list)
-        # Time-of-day window in SQL, so every aggregate below is already
-        # windowed and nothing has to be re-filtered (and re-counted) in Python.
-        if start_hhmm is not None and end_hhmm is not None:
-            window_sql, window_params = sqlite_time_window_sql(
-                "timestamp", start_hhmm, end_hhmm, tz
-            )
-            if window_sql:
-                where_clauses.append(window_sql)
-                params.extend(window_params)
         where = " AND ".join(where_clauses)
 
         cursor.execute(f"SELECT COUNT(*) as total FROM entities WHERE {where}", params)
         row = cursor.fetchone()
         total = row["total"] if row else 0
 
-        # Bucket the hour-of-day chart in the viewer's zone (tz_offset), not UTC.
-        tz_offset = sqlite_tz_offset(tz)
-        if tz_offset:
-            cursor.execute(
-                f"SELECT CAST(strftime('%H', timestamp, ?) AS INTEGER) as hour, COUNT(*) as count "
-                f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
-                [tz_offset, *params],
-            )
-        else:
-            cursor.execute(
-                f"SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count "
-                f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
-                params,
-            )
+        cursor.execute(
+            f"SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count "
+            f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
+            params,
+        )
         hourly = {r["hour"]: r["count"] for r in cursor.fetchall()}
         hourly_activity = [{"hour": h, "count": hourly.get(h, 0)} for h in range(24)]
 
@@ -335,28 +311,27 @@ def _compute_entity_stats(
             species_dist[r["name"]] = species_dist.get(r["name"], 0) + r["count"]
             unique_species.add(r["name"])
 
-        if tz_offset:
-            cursor.execute(
-                f"SELECT strftime('%Y-%m-%d', timestamp, ?) as day, COUNT(*) as count "
-                f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
-                [tz_offset, *params],
-            )
-        else:
-            cursor.execute(
-                f"SELECT strftime('%Y-%m-%d', timestamp) as day, COUNT(*) as count "
-                f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
-                params,
-            )
+        cursor.execute(
+            f"SELECT strftime('%Y-%m-%d', timestamp) as day, COUNT(*) as count "
+            f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
+            params,
+        )
         daily_activity = [{"date": r["day"], "count": r["count"]} for r in cursor.fetchall()]
 
-        # Evenly-distributed scatter sample spanning the (already windowed)
-        # range. The time-of-day window is part of ``where`` above, so this can
-        # always sample server-side instead of loading the range to filter it.
+        # Evenly-distributed scatter sample spanning the full date range.
+        # When a time-of-day window is active we need EVERY row in range (all
+        # aggregates are recomputed in Python after the window filter), so
+        # only the full-day path may sample server-side.
+        apply_time_window = (
+            start_hhmm is not None
+            and end_hhmm is not None
+            and not is_full_day(start_hhmm, end_hhmm)
+        )
         scatter_projection = (
             "SELECT timestamp, species, "
             "COALESCE(NULLIF(common_name,''), species) as name, confidence "
         )
-        if total > 500:
+        if not apply_time_window and total > 500:
             # Server-side even sample: pick the SAME row positions
             # even_sample() would (rows[int(i * step)], n=500, including its
             # documented off-by-one), but let SQLite do the striding so only
@@ -385,6 +360,38 @@ def _compute_entity_stats(
             )
         all_scatter_rows = cursor.fetchall()
 
+        # If a time-of-day window is active, filter the rows and recompute
+        # all aggregates in Python. The SQL GROUP BY above has already run
+        # but its results are replaced for consistency with the filtered view.
+        if apply_time_window:
+            filtered_rows = []
+            hourly_counts: Dict[int, int] = defaultdict(int)
+            daily_counts: Dict[str, int] = defaultdict(int)
+            species_counts: Dict[str, int] = defaultdict(int)
+            for r in all_scatter_rows:
+                ts_str = r["timestamp"]
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                if not timestamp_in_window(ts, start_hhmm, end_hhmm, tz):
+                    continue
+                filtered_rows.append(r)
+                # For hourly activity we use the timestamp's own hour field
+                # (same semantics as the legacy SQL GROUP BY, which used UTC).
+                hourly_counts[ts.hour] += 1
+                daily_counts[ts.date().isoformat()] += 1
+                species_counts[r["name"]] += 1
+            total = len(filtered_rows)
+            hourly_activity = [{"hour": h, "count": hourly_counts[h]} for h in range(24)]
+            daily_activity = [
+                {"date": d, "count": daily_counts[d]} for d in sorted(daily_counts.keys())
+            ]
+            species_dist = dict(species_counts)
+            unique_species = set(species_counts.keys())
+            all_scatter_rows = filtered_rows
 
         scatter_sample = [
             {
@@ -941,28 +948,11 @@ def get_entities(
         # Bump to the paginated cap (100k) when species expansion is in
         # play, regardless of pagination mode.
         has_species_expansion = bool(legacy_terms or taxa_pairs)
-        # A plain date-range page — no species/exclude filter, no time-of-day
-        # window — can be paged in SQL, so only the 50 rows being rendered are
-        # built as Entity objects. The broad fetch below stays for the filters
-        # that must be applied in Python after loading (species equivalence
-        # expansion, time-of-day windows): those genuinely need the candidate
-        # set. Paging in SQL is what takes a 30-day page from ~20s (up to
-        # 100,000 objects materialised to show 50) to near-instant.
-        # The time-of-day window is applied in SQL too now, so a windowed page
-        # no longer forces the load-the-range-and-filter-in-Python path (which
-        # is what made a 30-day evening filter take ~45s).
-        page_in_sql = (
-            paginating
-            and not has_species_expansion
-            and not species
-            and not exclude_species
-        )
         fetch_limit = (
             100_000
             if (paginating or has_species_expansion)
             else (limit if isinstance(limit, int) else 2000)
         )
-        sql_paged_total = 0
 
         if has_species_expansion:
             # Skip DB-level species filter; we'll apply the broader
@@ -983,23 +973,6 @@ def get_entities(
                     ent_common_name=e.common_name,
                 )
             ]
-        elif page_in_sql:
-            # Exactly the requested page, skipped and windowed in SQL.
-            window_kwargs = (
-                {"start_hhmm": start_hhmm, "end_hhmm": end_hhmm, "tz_name": tz}
-                if apply_time_window
-                else {}
-            )
-            entities = db.get_entities(
-                start_time=start_dt,
-                end_time=end_dt,
-                limit=page_size,
-                offset=(max(1, page) - 1) * page_size,
-                **window_kwargs,
-            )
-            sql_paged_total = db.count_entities(
-                start_time=start_dt, end_time=end_dt, **window_kwargs
-            )
         else:
             entities = db.get_entities(
                 exclude_species=exclude_species,
@@ -1012,7 +985,7 @@ def get_entities(
         # pagination math sees the post-filter count. Previously the
         # filter was applied inline with the dict-building loop, which
         # meant pagination over a filtered subset double-counted skips.
-        if apply_time_window and not page_in_sql:
+        if apply_time_window:
             filtered_entities = []
             for ent in entities:
                 ts = ent.timestamp if isinstance(ent.timestamp, datetime) else None
@@ -1032,9 +1005,7 @@ def get_entities(
                 filtered_entities.append(ent)
             entities = filtered_entities
 
-        # When SQL did the paging, ``entities`` is already the page, so the
-        # range total comes from the COUNT rather than the fetched length.
-        total_count = sql_paged_total if page_in_sql else len(entities)
+        total_count = len(entities)
         # Capture the full filtered set's entity_ids BEFORE pagination
         # slices ``entities`` below. Stats must reflect every entity that
         # passed the equivalence-expanded predicate, not just the page
@@ -1049,10 +1020,7 @@ def get_entities(
         # page+page_size, return everything we fetched (legacy
         # behaviour).
         total_pages: Optional[int] = None
-        if paginating and page_in_sql:
-            # Already the right rows; only the page count is still owed.
-            total_pages = max(1, (total_count + page_size - 1) // page_size)
-        elif paginating:
+        if paginating:
             entities, _, _, total_pages = paginate(entities, page, page_size)
 
         # Collect event_ids only for the entities we'll actually return.
@@ -1118,9 +1086,7 @@ def get_entities(
                 exclude_species=exclude_species,
                 start_hhmm=start_hhmm if apply_time_window else None,
                 end_hhmm=end_hhmm if apply_time_window else None,
-                # Always pass tz so the hour-of-day / daily charts bucket in the
-                # viewer's zone even with no time-of-day window (the default view).
-                tz=tz,
+                tz=tz if apply_time_window else None,
                 matched_entity_ids=matched_entity_ids,
             )
         except Exception as stats_err:
@@ -1168,10 +1134,7 @@ def get_entities(
 
         # scatter_sample comes from _compute_entity_stats which queries the full
         # date range without the per-request row cap, so it spans all dates.
-        # Popped, not read: it is returned at the top level (where the frontend
-        # reads it) and leaving the copy inside ``stats`` shipped the same 500
-        # points twice — ~72 KB of the payload, on every 30-second poll.
-        scatter_sample = stats.pop("scatter_sample", [])
+        scatter_sample = stats.get("scatter_sample", [])
 
         result: Dict[str, Any] = {
             "entities": entity_dicts,

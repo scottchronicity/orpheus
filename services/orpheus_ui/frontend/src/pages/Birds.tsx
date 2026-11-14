@@ -235,9 +235,6 @@ export default function BirdsPage() {
         page_size: String(ITEMS_PER_PAGE),
       })
       if (speciesCsv) params.set('species', speciesCsv)
-      // Always sent: the hour-of-day chart must bucket in the same zone the
-      // timestamps are displayed in, filter or no filter.
-      params.set('tz', browserTz)
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)

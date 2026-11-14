@@ -174,7 +174,10 @@ class EventCorrelatorAgent(Actor):
         # `is True`: the real config layer yields a strict bool; anything else
         # (absent section, bare-Mock configs in older tests) means OFF.
         self.corollary_discharge_enabled = getattr(cd_cfg, "enabled", False) is True
-        self.corollary_discharge = CorollaryDischargeFilter(buffer_seconds=cd_cfg.buffer_seconds)
+        self.corollary_discharge = CorollaryDischargeFilter(
+            buffer_seconds=cd_cfg.buffer_seconds,
+            max_open_seconds=getattr(cd_cfg, "max_playback_seconds", 300.0),
+        )
 
         self.cluster_manager: ClusterManager | None = None
         self.db: DetectionDB | None = None

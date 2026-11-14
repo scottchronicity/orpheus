@@ -118,13 +118,16 @@ class TestAudioPlaybackAgent:
             for c in mock_mqtt_client.publish.call_args_list
             if c[0][0] == agent.TOPIC_ACTUATION_AUDIO_PLAYBACK
         ]
-        assert len(window_calls) == 1
-        payload = window_calls[0][0][1]
-        assert payload["sound_name"] == "crow_call"
-        assert payload["source"] == "audio_playback_agent"
-        assert "start_time" in payload
-        assert isinstance(payload["duration_seconds"], (int, float))
-        assert payload["duration_seconds"] >= 0
+        assert len(window_calls) == 2
+        started, finished = [call[0][1] for call in window_calls]
+        assert started["phase"] == "started"
+        assert finished["phase"] == "finished"
+        assert finished["sound_name"] == "crow_call"
+        assert finished["source"] == "audio_playback_agent"
+        assert "start_time" in finished
+        assert isinstance(finished["duration_seconds"], (int, float))
+        assert finished["duration_seconds"] >= 0
+        assert started["playback_id"] == finished["playback_id"]
 
     @pytest.mark.asyncio
     async def test_handle_playback_request_missing_sound_name(

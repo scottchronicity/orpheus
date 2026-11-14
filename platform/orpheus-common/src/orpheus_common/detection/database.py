@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from orpheus_common.storage import get_data_root
-from orpheus_common.utils.time import sqlite_time_window_sql
 
 from .models import Detection, Entity, EntityEvidence, TaxonomyRef, TemporalInterval
 
@@ -1070,10 +1069,6 @@ class DetectionDB:
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         limit: int = 500,
-        offset: int = 0,
-        start_hhmm: Optional[tuple] = None,
-        end_hhmm: Optional[tuple] = None,
-        tz_name: Optional[str] = None,
     ) -> list[Entity]:
         """Query entities with optional filters.
 
@@ -1087,16 +1082,6 @@ class DetectionDB:
             start_time: Filter entities after this time.
             end_time: Filter entities before this time.
             limit: Maximum number of results.
-            start_hhmm/end_hhmm/tz_name: optional time-of-day window (see
-                ``orpheus_common.utils.time.sqlite_time_window_sql``), applied
-                in SQL so a windowed page does not have to load the range and
-                filter it in Python.
-            offset: Rows to skip before collecting ``limit`` (0 = from the
-                start). Lets a paginating caller ask for exactly the page it
-                is rendering. Without it the UI fetched every row in the range
-                — up to 100,000 Entity objects built to display 50 — which is
-                what made a 30-day page take ~20s. Default 0 keeps every
-                existing call site identical.
 
         Returns:
             List of Entity objects ordered by timestamp DESC.
@@ -1147,19 +1132,8 @@ class DetectionDB:
                 query += " AND timestamp <= ?"
                 params.append(_iso_upper_bound(end_time))
 
-            if start_hhmm is not None and end_hhmm is not None:
-                window_sql, window_params = sqlite_time_window_sql(
-                    "timestamp", start_hhmm, end_hhmm, tz_name
-                )
-                if window_sql:
-                    query += f" AND {window_sql}"
-                    params.extend(window_params)
-
             query += " ORDER BY timestamp DESC LIMIT ?"
             params.append(limit)
-            if offset:
-                query += " OFFSET ?"
-                params.append(offset)
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -1168,43 +1142,6 @@ class DetectionDB:
             for row in rows:
                 entities.append(self._row_to_entity(row))
             return entities
-        finally:
-            conn.close()
-
-    def count_entities(
-        self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        start_hhmm: Optional[tuple] = None,
-        end_hhmm: Optional[tuple] = None,
-        tz_name: Optional[str] = None,
-    ) -> int:
-        """How many entities fall in the time range.
-
-        The companion to ``get_entities(..., offset=...)``: a paginating caller
-        needs the range total for its page count but must not materialise the
-        range to get it. This counts in SQLite (covered by the timestamp index)
-        instead of building Entity objects.
-        """
-        conn = self._connect()
-        try:
-            query = "SELECT COUNT(*) FROM entities WHERE 1=1"
-            params: list[Any] = []
-            if start_time:
-                query += " AND timestamp >= ?"
-                params.append(_iso_lower_bound(start_time))
-            if end_time:
-                query += " AND timestamp <= ?"
-                params.append(_iso_upper_bound(end_time))
-            if start_hhmm is not None and end_hhmm is not None:
-                window_sql, window_params = sqlite_time_window_sql(
-                    "timestamp", start_hhmm, end_hhmm, tz_name
-                )
-                if window_sql:
-                    query += f" AND {window_sql}"
-                    params.extend(window_params)
-            row = conn.execute(query, params).fetchone()
-            return int(row[0]) if row else 0
         finally:
             conn.close()
 

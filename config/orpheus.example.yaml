@@ -647,11 +647,13 @@ correlation:
 # subscribes to playback events and TAGS (does not drop) entities that overlap a
 # playback window with is_self_generated=true, so the system doesn't mistake
 # hearing itself for wildlife. buffer_seconds pads each window's tail to catch
-# reverb / slightly-late triggers.
+# reverb / slightly-late triggers. max_playback_seconds bounds how long a start
+# event remains active if playback exits before publishing its measured finish.
 corollary_discharge:
   # Off by default: tagging is new behavior, so the flag is the rollback.
   enabled: false
   buffer_seconds: 2.0
+  max_playback_seconds: 300.0
 
 # Weather-station ingestion ([FEATURE] Ecowitt Weather Station Integration).
 # Polls a local weather station and stores readings in the detections DB (so

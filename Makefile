@@ -38,6 +38,11 @@ ALL_PROJECTS = $(PYTHON_PROJECTS) services/orpheus-backplane
 # Default Python system interpreter (can be overridden via env or .env)
 PYTHON_SYSTEM ?= python3.9
 
+# The GPS component can use a separately named venv when installed with uv.
+# Keep the component's own default unless a laptop chooses another existing env.
+GPS_VENV ?= venv-py312
+CORRELATOR_VENV ?= venv-py312
+
 # Coverage threshold for CI (percentage)
 COVERAGE_THRESHOLD ?= 80
 
@@ -354,7 +359,7 @@ test-ui:
 
 test-gps:
 	@echo "Testing orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps test
+	@$(MAKE) -C services/orpheus-gps test VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps tests passed"
 
 test-audio-output:
@@ -422,7 +427,7 @@ test-crow-detection:
 
 test-event-correlator:
 	@echo "Testing orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator test
+	@$(MAKE) -C agents/orpheus-agent-event-correlator test VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator tests passed"
 
 #==============================================================================
@@ -608,7 +613,7 @@ lint-ui:
 
 lint-gps:
 	@echo "Linting orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps lint
+	@$(MAKE) -C services/orpheus-gps lint VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps linted"
 
 lint-audio-output:
@@ -658,7 +663,7 @@ lint-crow-detection:
 
 lint-event-correlator:
 	@echo "Linting orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator lint
+	@$(MAKE) -C agents/orpheus-agent-event-correlator lint VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator linted"
 
 lint-backplane:
@@ -1427,13 +1432,14 @@ backfill-entity-types-dry-run:
 # docs/TESTING.md.
 BDD_BEHAVE ?= agents/orpheus-agent-event-correlator/venv/bin/behave
 BDD_PYTEST ?= agents/orpheus-agent-event-correlator/venv/bin/pytest
+BDD_FEATURES ?= tests/bdd
 test-bdd:
 	@if [ ! -x "$(BDD_BEHAVE)" ]; then \
 		echo "❌ behave not found at $(BDD_BEHAVE) — run 'make install-event-correlator' (adds the dev extras)."; \
 		exit 1; \
 	fi
-	@echo "Running end-to-end BDD scenarios (tests/bdd)..."
-	@$(BDD_BEHAVE) tests/bdd
+	@echo "Running end-to-end BDD scenarios ($(BDD_FEATURES))..."
+	@$(BDD_BEHAVE) $(BDD_FEATURES)
 
 # sim-matrix-ci — the GENERATED failure matrix (full powerset) through the real
 # correlator in-process (no models, no docker). docs/designs/sim-test-matrix.md.
@@ -1460,6 +1466,7 @@ BATS_CORE_TAG    ?= v1.12.0
 BATS_SUPPORT_TAG ?= v0.3.0
 BATS_ASSERT_TAG  ?= v2.2.4
 BATS_BIN         := $(BATS_LIB_DIR)/bats-core/bin/bats
+BATS_TESTS       ?= tests/bats/*.bats
 
 test-bash:
 	@for spec in bats-core=$(BATS_CORE_TAG) bats-support=$(BATS_SUPPORT_TAG) bats-assert=$(BATS_ASSERT_TAG); do \
@@ -1471,8 +1478,8 @@ test-bash:
 			mv "$$dest.tmp" "$$dest"; \
 		fi; \
 	done
-	@echo "Running bash script tests (tests/bats/*.bats)..."
-	@"$(BATS_BIN)" tests/bats/*.bats
+	@echo "Running bash script tests ($(BATS_TESTS))..."
+	@"$(BATS_BIN)" $(BATS_TESTS)
 
 # reconcile — event-sourcing shadow reconciliation (determinism contract §3.3):
 # compare the durable domain stream vs the SQLite DB by event_id. ARGS passes flags

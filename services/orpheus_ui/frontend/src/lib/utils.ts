@@ -124,18 +124,17 @@ export function localDateKey(date: Date): string {
  * @param isoString - ISO 8601 timestamp string (e.g., "2026-01-18T10:00:00Z")
  * @returns Formatted date-time string in user's locale (e.g., "Jan 18, 2026, 4:30:05 PM")
  */
-export function formatDateTime(isoString: string, timeZone?: string): string {
+export function formatDateTime(isoString: string): string {
   try {
     const date = new Date(isoString)
-
+    
     // Check if date is valid
     if (isNaN(date.getTime())) {
       return isoString // Return original string if invalid
     }
-
+    
     // Use Intl.DateTimeFormat for locale-aware formatting
-    // Medium date + medium time format. timeZone undefined => browser-local
-    // (the default); pass "UTC" to render in UTC for the timezone toggle.
+    // Medium date + medium time format
     return new Intl.DateTimeFormat(undefined, {
       year: 'numeric',
       month: 'short',
@@ -144,7 +143,6 @@ export function formatDateTime(isoString: string, timeZone?: string): string {
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
-      ...(timeZone ? { timeZone } : {}),
     }).format(date)
   } catch (error) {
     console.error('Error formatting date:', error)
