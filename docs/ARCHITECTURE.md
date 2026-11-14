@@ -102,10 +102,14 @@ Any queue rejection, expiry, retry, shutdown cancellation or degradation policy
 must name its owner, reason, configuration, defaults and observability, and have
 behavioral tests. IPC exchange timeouts bound a faulty exchange; worker recovery
 does not authorize discarding work by recording age, silently loading another
-model or inventing retries. Current PANNs worker limits and rejection counters are
-documented in the [operator guide](operator-manual/panns-gpu.md#budget-memory-and-overload).
-Its bounded queue can reject clips and does not automatically replay them; selecting
-it requires evaluating that coverage tradeoff. Do not describe it as lossless.
+model or inventing retries. The PANNs agent bounds waiting clip references by
+configuration and blocks its callback when that capacity is full; it waits
+through temporary worker unavailability. Graceful shutdown drains within its
+configured lifecycle budget and logs/counts unfinished clips if that budget
+expires. This in-memory queue does not survive an agent/host crash, and the
+core event bus does not make it a durable work queue. See the
+[operator guide](operator-manual/panns-gpu.md#budget-memory-and-overload) for
+the explicit TTL/clip-length policies and operational limits.
 
 SQLite remains authoritative today. JetStream domain shadowing is optional and
 bounded, core NATS subscriptions are at-most-once, and current replay is not an

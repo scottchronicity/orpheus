@@ -20,8 +20,10 @@ class GPUWorkerConfig:
     python: str = ""
     startup_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 5.0
+    shutdown_drain_timeout_seconds: float = 60.0
     clip_ttl_seconds: float | None = None
     max_clip_seconds: float = 40.0
+    # Maximum queued clip references beyond the worker's active inference.
     max_pending_clips: int = 2
     start_memory_mib: int = 8704
     floor_memory_mib: int = 3800
@@ -41,6 +43,7 @@ class GPUWorkerConfig:
         for value in (
             self.startup_timeout_seconds,
             self.request_timeout_seconds,
+            self.shutdown_drain_timeout_seconds,
             self.max_clip_seconds,
             self.restart_backoff_seconds,
             self.restart_window_seconds,

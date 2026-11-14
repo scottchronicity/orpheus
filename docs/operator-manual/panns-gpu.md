@@ -200,12 +200,13 @@ do not add RSS, allocator reservations and MemAvailable drops together.
 | Setting | Default | Meaning |
 |---|---:|---|
 | `start_memory_mib` | 8704 | Minimum MemAvailable before starting/loading a worker. |
-| `floor_memory_mib` | 3800 | Worker watchdog stop and agent admission floor. |
-| `max_pending_clips` | 2 | Waiting clip references, in addition to one active clip. |
+| `floor_memory_mib` | 3800 | Worker watchdog stop threshold. Queued work waits while the worker recovers from memory pressure. |
+| `max_pending_clips` | 2 | Maximum waiting clip references in addition to one active clip. A full queue blocks the input callback until a slot opens. |
 | `clip_ttl_seconds` | unset | Optional maximum age after recording ends for PANNs to classify a clip. Set a positive number of seconds to enable it. |
 | `max_clip_seconds` | 40 | Maximum decoded clip duration; header checked before decoding. |
 | `startup_timeout_seconds` | 60 | Model load and warm-up deadline. |
 | `request_timeout_seconds` | 5 | Hard timeout for a worker request. |
+| `shutdown_drain_timeout_seconds` | 60 | Maximum graceful drain wait before forced worker stop and explicit accounting for unfinished clips. |
 | `restart_backoff_seconds` | 2 | Initial restart delay, increasing to 30 seconds. |
 | `max_starts` | 3 | Maximum starts within `restart_window_seconds` (default 300). |
 
@@ -225,14 +226,12 @@ Increasing duration also increases warm-up and peak memory. Revalidate those
 measurements and the request/startup timeouts for longer recordings.
 
 `max_concurrent_clips` is a positive integer controlling the in-process executor
-(default 2); it does not change the isolated worker's serial execution. The
-worker queue is controlled by `max_pending_clips`, not by a microphone count.
-
-The worker processes one clip at a time. A full queue refuses new clips.
-With two waiting slots, a burst of four clips can fill the queue and leave a
-clip unprocessed. More waiting slots let the worker absorb longer bursts and
-increase how long clips can wait. Size the queue using clip arrival rates,
-classification latency, and overload counts on your deployment. See
+(default 2); it does not change the isolated worker's serial execution. The GPU
+agent keeps at most one active clip plus `max_pending_clips` waiting references
+in FIFO order. When full, the event callback blocks until an execution slot
+opens; the agent does not reject clips due to queue capacity. Sustained demand
+above inference throughput therefore backpressures event delivery and increases
+latency. See
 [ADR 0019](../adr/0019-agent-owned-inference-workers.md).
 
 The agent publishes and persists `audio.classified` detections for completed
@@ -242,23 +241,35 @@ recording ends and includes delivery, queueing and classification. The
 correlator manages its own timing. The
 [storage retention policy](index.md#7-data-retention) governs recording deletion.
 
-The request timeout bounds the exchange with the worker. A worker reload took
-12–15 seconds in the prototype. The agent refuses clips while the worker is
-unavailable and resumes when it is ready. The agent does not automatically
-replay refused clips.
-
-Selecting this optional backend selects bounded, best-effort admission. The
-queue bounds decoded memory and absorbs short bursts; it sacrifices coverage
-when arrivals exceed capacity or the worker is unavailable. Rejections are
-reported by reason in `clips_rejected`: `overload`, `expired` (only with an
-explicit TTL), `unavailable`, `memory`, `too_long` and `shutdown`. Shutdown counts
-both running work interrupted before completion and queued futures cancelled
-while draining. An exchange/model failure increments error counters and worker
-health; it emits no synthetic detection. Valid old clips can be resubmitted once
-the worker is ready. No automatic replay or exactly-once processing is implied.
-If your deployment requires every recording to be classified, do not treat this
-queue as durable storage: durable admission/retry remains future work under the
+The request timeout bounds an exchange with the worker. A worker reload took
+12–15 seconds in the prototype. Accepted clips wait through temporary worker
+unavailability, then resume in FIFO order. Graceful shutdown drains active and
+queued work before closing the worker, for up to
+`shutdown_drain_timeout_seconds`. If that drain expires, the agent stops the
+worker, cancels queued jobs and counts unfinished work under
+`clips_rejected.shutdown`; shutdown logs the count. This lifecycle bound avoids
+an unending service stop. Increase it if measured worker recovery takes longer.
+The queue is process memory and cannot survive a host or agent crash.
+The input bus and shadow stream do not provide the durable
+acknowledgement/idempotency contract needed for automatic replay; see the
 existing [replay contract](../designs/event-sourcing-determinism-contract.md).
+An IPC or child failure before inference returns retries that same accepted
+clip after worker recovery; no detection is published until inference completes.
+
+`clips_rejected` reports deliberate TTL expiry and overlength recordings.
+Non-recoverable worker or model failures update error counters and worker
+health; no synthetic detection is emitted. Configuring `clip_ttl_seconds`
+explicitly trades coverage for a bounded age. No age cutoff is applied by default.
+
+This is bounded callback backpressure, not durable delivery. NATS core
+subscriptions are at-most-once, and the shared NATS callback dispatch queue is
+itself bounded with its existing drop-oldest overflow policy. Sustained overload
+can therefore lose work before this agent receives the callback; enabling the
+optional domain shadow does not turn it into a classifier work queue. Guaranteed
+delivery requires a future durable `audio.motion` consumer that acknowledges
+after classification persistence, with replay/idempotency and recording-retention
+semantics designed together. Until then, do not claim production-grade
+at-least-once classification.
 
 The agent resolves these settings through normal YAML/KV/environment precedence;
 for example `ORPHEUS_AUDIO_EVENTS__GPU_WORKER__FLOOR_MEMORY_MIB` reaches both the
