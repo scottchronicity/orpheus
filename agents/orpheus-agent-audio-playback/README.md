@@ -177,6 +177,45 @@ The agent supports two request formats for backward compatibility:
 }
 ```
 
+A success response means playback **started**. If the player then fails (the
+speaker or audio server is unavailable, for example), a second response
+follows on the same topic with `"status": "error"` and the player's message,
+naming the request's `sound_name`, or its file path or detection ID as
+`source`:
+
+```json
+{
+  "status": "error",
+  "error": "Playback failed: Audio player 'ffplay' failed with code 1: ...",
+  "source": "audio/test.wav"
+}
+```
+
+### Playback Window
+
+**Topic:** `orpheus/actuation/audio/playback`
+
+When playback ends, whether it finished, was stopped or failed, the agent
+publishes the window during which its audio may have been coming out of the
+speaker. The event correlator uses it to tag Orpheus's own sounds
+(`corollary_discharge.enabled`). `duration_seconds` is measured from the start
+of playback to the moment the player finished. No window is published for a
+request whose playback never started.
+
+```json
+{
+  "start_time": "2026-11-14T19:12:03.511+00:00",
+  "duration_seconds": 4.82,
+  "source": "audio_playback_agent",
+  "sound_name": "crow_call"
+}
+```
+
+Keeping the speaker connected is the job of the
+[Bluetooth auto-connect service](../../services/orpheus-bluetooth-autoconnect/README.md);
+see [Bluetooth speaker](../../docs/operator-manual/bluetooth-speaker.md) when
+sounds do not play.
+
 ### Health Status
 
 **Topic:** `orpheus/audio/playback/health`

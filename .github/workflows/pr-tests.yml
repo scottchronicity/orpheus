@@ -122,6 +122,7 @@ jobs:
             shell-scripts:
               - 'scripts/**'
               - 'tests/bats/**'
+              - 'services/orpheus-bluetooth-autoconnect/**'
               - 'Makefile'
             workflow:
               - '.github/workflows/**'

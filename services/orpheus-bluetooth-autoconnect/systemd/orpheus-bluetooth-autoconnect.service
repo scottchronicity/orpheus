@@ -6,27 +6,23 @@ Wants=bluetooth.service
 
 [Service]
 Type=simple
-MemoryMax=128M
-MemoryHigh=100M
 # Run as root (required for bluetoothctl operations)
 User=root
 Group=root
 
-
-# Run as root (required for bluetoothctl operations)
-User=root
-Group=root
-
-# Execute the connection script
+# Execute the connection script. It supervises the speaker itself (polling,
+# reconnecting, exponential backoff while the speaker, controller or audio
+# server is unavailable) and survives bluetooth.service restarts, so systemd
+# only has to restart it if the script itself dies.
 ExecStart=/usr/local/bin/orpheus-bluetooth-connect
 
-# Restart policy: always restart on failure with exponential backoff
+# Restart whenever the script exits, without a start limit: a transient crash
+# loop must never leave the speaker unsupervised until someone notices. Exit
+# 78 (EX_CONFIG: invalid MAC or timing values) is not retried; the unit shows
+# as failed and the journal names the bad setting.
 Restart=always
-RestartSec=5s
-
-# Increase restart delay on subsequent failures (exponential backoff)
-StartLimitIntervalSec=300
-StartLimitBurst=5
+RestartSec=30s
+RestartPreventExitStatus=78
 
 # Logging
 StandardOutput=journal
@@ -43,8 +39,9 @@ LogRateLimitIntervalSec=30s
 LogRateLimitBurst=500
 SyslogIdentifier=orpheus-bluetooth
 
-# Resource limits
-# Limit memory usage to 64MB (generous for a simple connection script)
+# Resource limits. The script and one bluetoothctl call need under 10 MB;
+# 64 MB leaves headroom. (Interactive-mode bluetoothctl once reached this
+# limit by re-reading an unbounded history file — see the script header.)
 MemoryMax=64M
 
 # Limit CPU usage to 10% (prevents runaway processes)

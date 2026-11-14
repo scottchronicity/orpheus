@@ -109,6 +109,7 @@ class TestAudioPlaybackAgent:
 
         player = MagicMock()
         player.play = AsyncMock(return_value=None)
+        player.wait = AsyncMock(return_value=True)
 
         await agent._play_sound_async(player, Path("crow.wav"), 1, 0.0, "crow_call")  # noqa: SLF001
 
@@ -629,6 +630,7 @@ class TestNewAudioSourceFeatures:
         """Test playing audio by absolute file path."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Create a test audio file
         audio_file = tmp_path / "test.wav"
@@ -639,8 +641,8 @@ class TestNewAudioSourceFeatures:
             "repeat_count": 1,
         }
 
-        # Mock asyncio.run to avoid actually running playback
-        with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+        # Mock the thread-safe scheduling to avoid actually running playback
+        with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
             agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
         # Verify success response
@@ -660,6 +662,7 @@ class TestNewAudioSourceFeatures:
         """Test playing audio by relative file path."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Mock get_data_root to return tmp_path
         with patch("orpheus_agent_audio_playback.main.get_data_root") as mock_data_root:
@@ -675,8 +678,8 @@ class TestNewAudioSourceFeatures:
                 "repeat_count": 1,
             }
 
-            # Mock asyncio.run to avoid actually running playback
-            with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+            # Mock the thread-safe scheduling to avoid actually running playback
+            with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
                 agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
             # Verify success response
@@ -694,6 +697,7 @@ class TestNewAudioSourceFeatures:
         """Test playing audio by detection ID."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Create a test audio file
         audio_file = tmp_path / "detection_audio.wav"
@@ -712,8 +716,8 @@ class TestNewAudioSourceFeatures:
                 "repeat_count": 1,
             }
 
-            # Mock asyncio.run to avoid actually running playback
-            with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+            # Mock the thread-safe scheduling to avoid actually running playback
+            with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
                 agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
             # Verify detection was looked up
@@ -734,6 +738,7 @@ class TestNewAudioSourceFeatures:
         """Test playing audio with segment extraction."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Create a test audio file
         audio_file = tmp_path / "test.wav"
@@ -746,8 +751,8 @@ class TestNewAudioSourceFeatures:
             "repeat_count": 1,
         }
 
-        # Mock asyncio.run to avoid actually running playback
-        with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+        # Mock the thread-safe scheduling to avoid actually running playback
+        with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
             agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
         # Verify success response
@@ -765,6 +770,7 @@ class TestNewAudioSourceFeatures:
         """Test playing audio with volume control."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Create a test audio file
         audio_file = tmp_path / "test.wav"
@@ -776,8 +782,8 @@ class TestNewAudioSourceFeatures:
             "repeat_count": 1,
         }
 
-        # Mock asyncio.run to avoid actually running playback
-        with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+        # Mock the thread-safe scheduling to avoid actually running playback
+        with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
             agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
         # Verify success response
@@ -794,6 +800,7 @@ class TestNewAudioSourceFeatures:
         """Test error handling when file is not found."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         payload = {
             "file_path": "/nonexistent/path/audio.wav",
@@ -819,6 +826,7 @@ class TestNewAudioSourceFeatures:
         """Test error handling when detection is not found."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Mock DetectionDB to return None
         with patch("orpheus_agent_audio_playback.main.DetectionDB") as mock_db_class:
@@ -850,6 +858,7 @@ class TestNewAudioSourceFeatures:
         """Test validation of invalid volume parameter."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         audio_file = tmp_path / "test.wav"
         audio_file.write_text("fake audio")
@@ -880,6 +889,7 @@ class TestNewAudioSourceFeatures:
         """Test validation of invalid start_time parameter."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         audio_file = tmp_path / "test.wav"
         audio_file.write_text("fake audio")
@@ -909,6 +919,7 @@ class TestNewAudioSourceFeatures:
         """Test validation of invalid duration parameter."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         audio_file = tmp_path / "test.wav"
         audio_file.write_text("fake audio")
@@ -937,6 +948,7 @@ class TestNewAudioSourceFeatures:
         """Test error when no audio source is provided."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         payload = {
             "repeat_count": 1,
@@ -962,6 +974,7 @@ class TestNewAudioSourceFeatures:
         """Test backward compatibility with sound_name requests."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Legacy format request
         payload = {
@@ -970,8 +983,8 @@ class TestNewAudioSourceFeatures:
             "pause_between": 0.5,
         }
 
-        # Mock asyncio.run to avoid actually running playback
-        with patch("orpheus_agent_audio_playback.main.asyncio.run"):
+        # Mock the thread-safe scheduling to avoid actually running playback
+        with patch("orpheus_agent_audio_playback.main.asyncio.run_coroutine_threadsafe"):
             agent._handle_playback_request(agent.TOPIC_REQUEST, payload)  # noqa: SLF001
 
         # Verify success response
@@ -988,6 +1001,7 @@ class TestNewAudioSourceFeatures:
         """Test error when detection has no audio clip."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Mock DetectionDB with detection that has no audio_clip_path
         with patch("orpheus_agent_audio_playback.main.DetectionDB") as mock_db_class:
@@ -1021,6 +1035,7 @@ class TestNewAudioSourceFeatures:
         """Test error when both file_path and detection_id are provided."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         audio_file = tmp_path / "test.wav"
         audio_file.write_text("fake audio")
@@ -1051,6 +1066,7 @@ class TestNewAudioSourceFeatures:
         """Test error when relative path uses traversal to escape data root."""
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
 
         # Mock get_data_root to return a specific directory
         with patch("orpheus_agent_audio_playback.main.get_data_root") as mock_data_root:
@@ -1087,6 +1103,7 @@ class TestNewAudioSourceFeatures:
         """
         agent = AudioPlaybackAgent()
         agent._mqtt_client = mock_mqtt_client  # noqa: SLF001
+        agent._event_loop = MagicMock()  # noqa: SLF001
         # Simulate event loop being set (normally happens in start())
         agent._event_loop = MagicMock()  # noqa: SLF001
 

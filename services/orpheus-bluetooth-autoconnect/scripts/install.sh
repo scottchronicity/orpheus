@@ -53,8 +53,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BLUETOOTH_SERVICE_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-BLUETOOTH_MAC="${BLUETOOTH_SPEAKER_MAC:-FC:58:FA:02:AF:28}"
-AUDIO_USER="${AUDIO_USER:-orpheus}"
+# Defaults apply to a fresh install only; an existing config.env is kept
+# unless BLUETOOTH_SPEAKER_MAC or AUDIO_USER is given explicitly (see Step 4).
+DEFAULT_BLUETOOTH_MAC="FC:58:FA:02:AF:28"
+DEFAULT_AUDIO_USER="orpheus"
+REQUESTED_MAC="${BLUETOOTH_SPEAKER_MAC:-}"
+REQUESTED_AUDIO_USER="${AUDIO_USER:-}"
 ORPHEUS_ROOT_CONFIG_DIR="/etc/orpheus"
 ORPHEUS_BLUETOOTH_CONFIG_DIR="${ORPHEUS_ROOT_CONFIG_DIR}/bluetooth-autoconnect"
 CONFIG_FILE="${ORPHEUS_BLUETOOTH_CONFIG_DIR}/config.env"
@@ -98,9 +102,23 @@ log_info "Creating Bluetooth Auto-Connect configuration subdirectory..."
 mkdir -p "$ORPHEUS_BLUETOOTH_CONFIG_DIR"
 log_success "Created Bluetooth config directory: $ORPHEUS_BLUETOOTH_CONFIG_DIR"
 
-# Step 4: Write configuration file
-log_info "Creating configuration file..."
-cat > "$CONFIG_FILE" << EOF
+# Step 4: Write configuration file. Reinstalls (`make update`, `make
+# update-all`) keep the operator's edited file: overwriting it with the
+# defaults would silently retarget the service at the wrong speaker.
+if [[ -f "$CONFIG_FILE" && -z "$REQUESTED_MAC" && -z "$REQUESTED_AUDIO_USER" ]]; then
+    log_info "Keeping existing configuration file: $CONFIG_FILE"
+    # shellcheck source=/dev/null
+    BLUETOOTH_MAC="$( . "$CONFIG_FILE" && echo "${BLUETOOTH_SPEAKER_MAC:-$DEFAULT_BLUETOOTH_MAC}" )"
+    AUDIO_USER="$( . "$CONFIG_FILE" && echo "${AUDIO_USER:-$DEFAULT_AUDIO_USER}" )"
+else
+    BLUETOOTH_MAC="${REQUESTED_MAC:-$DEFAULT_BLUETOOTH_MAC}"
+    AUDIO_USER="${REQUESTED_AUDIO_USER:-$DEFAULT_AUDIO_USER}"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+        log_info "Previous configuration saved to ${CONFIG_FILE}.bak"
+    fi
+    log_info "Creating configuration file..."
+    cat > "$CONFIG_FILE" << EOF
 # Orpheus Bluetooth Auto-Connect Configuration
 # This file is sourced by the service to configure the Bluetooth device
 
@@ -108,29 +126,23 @@ cat > "$CONFIG_FILE" << EOF
 BLUETOOTH_SPEAKER_MAC=${BLUETOOTH_MAC}
 
 # User account running PulseAudio (used for audio output switching)
-AUDIO_USER=${AUDIO_USER:-orpheus}
+AUDIO_USER=${AUDIO_USER}
+
+# Optional tuning (seconds): poll interval while healthy, and backoff ceiling
+# while the speaker, controller or audio server is unavailable.
+#RECONNECT_DELAY=10
+#MAX_RECONNECT_DELAY=60
 EOF
-chmod 644 "$CONFIG_FILE"
-log_success "Configuration file created: $CONFIG_FILE"
+    chmod 644 "$CONFIG_FILE"
+    log_success "Configuration file created: $CONFIG_FILE"
+fi
 
 # Step 5: Install the connection script
 log_info "Installing connection script..."
 cp "$SCRIPT_SRC" "$SCRIPT_DEST"
 chmod 755 "$SCRIPT_DEST"
 
-# Update the script to source the configuration file
-sed -i 's|^BLUETOOTH_MAC=.*|# BLUETOOTH_MAC is loaded from config file|' "$SCRIPT_DEST"
-sed -i "/^set -euo pipefail/a\\
-\\
-# Load configuration\\
-CONFIG_FILE=\"${CONFIG_FILE}\"\\
-if [[ -f \"\$CONFIG_FILE\" ]]; then\\
-    source \"\$CONFIG_FILE\"\\
-fi\\
-\\
-# Configuration (with fallback default)\\
-BLUETOOTH_MAC=\"\${BLUETOOTH_SPEAKER_MAC:-FC:58:FA:02:AF:28}\"" "$SCRIPT_DEST"
-
+# The script loads $CONFIG_FILE itself; it is installed unmodified.
 log_success "Connection script installed to: $SCRIPT_DEST"
 
 # Step 6: Install systemd service file
@@ -162,6 +174,16 @@ else
     log_info "Checking service status..."
     systemctl status orpheus-bluetooth-autoconnect.service --no-pager
     exit 1
+fi
+
+# Step 10b: Note when the audio user has no PulseAudio socket. Informational
+# only: the speaker needs some running audio server (PulseAudio with its
+# Bluetooth module, possibly in a desktop session) to accept the connection.
+AUDIO_UID="$(id -u "$AUDIO_USER" 2>/dev/null || true)"
+if [[ -z "$AUDIO_UID" || ! -S "/run/user/${AUDIO_UID}/pulse/native" ]]; then
+    log_warning "No PulseAudio socket for ${AUDIO_USER} right now (/run/user/${AUDIO_UID:-?}/pulse/native)."
+    log_warning "Playback goes through PulseAudio; if the speaker will not connect, see"
+    log_warning "docs/operator-manual/bluetooth-speaker.md ('Protocol not available')."
 fi
 
 # Step 11: Run post-install tests
