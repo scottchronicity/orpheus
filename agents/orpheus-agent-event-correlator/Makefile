@@ -3,6 +3,12 @@
 SERVICE_NAME := orpheus-agent-event-correlator
 DEPLOY_ROOT  := /opt/orpheus/agents/$(SERVICE_NAME)
 
+# Correlation is a pure Python service, independently upgraded from model
+# runtimes that may need older vendor stacks.
+PYTHON_SYSTEM ?= python3.12
+PYTHON_REQUIRED_VERSION ?= 3.12
+VENV ?= venv-py312
+
 include ../../make/common_python.mk
 include ../../make/common_lint.mk
 include ../../make/common_service.mk
@@ -14,7 +20,7 @@ help:
 	@echo "Orpheus Event Correlator"
 	@echo ""
 	@echo "Local development (no sudo):"
-	@echo "  make install          Create venv and install dependencies"
+	@echo "  make install          Create Python 3.12/3.13 venv and install dependencies"
 	@echo "  make reinstall        Recreate venv from scratch"
 	@echo "  make run [ARGS=...]   Run agent locally (pass extra args via ARGS)"
 	@echo "  make test             Execute pytest suite"

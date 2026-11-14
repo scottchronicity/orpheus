@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -215,17 +215,27 @@ class TestClusterManager:
         manager = ClusterManager(window_seconds=3.0)
         manager.process_observation(
             Observation(
-                species_code="insect", common_name="Insect", confidence=0.51,
-                event_id="i1", source_event_id="root-1", sensor_id="mic-2",
-                clip_path=None, context=None,
+                species_code="insect",
+                common_name="Insect",
+                confidence=0.51,
+                event_id="i1",
+                source_event_id="root-1",
+                sensor_id="mic-2",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 0.0, "end_seconds": 9.6}],
             )
         )
         manager.process_observation(
             Observation(
-                species_code="loon", common_name="Common Loon", confidence=0.12,
-                event_id="l1", source_event_id="root-1", sensor_id="mic-2",
-                clip_path=None, context=None,
+                species_code="loon",
+                common_name="Common Loon",
+                confidence=0.12,
+                event_id="l1",
+                source_event_id="root-1",
+                sensor_id="mic-2",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 13.5, "end_seconds": 16.5}],
             )
         )
@@ -243,18 +253,28 @@ class TestClusterManager:
         manager = ClusterManager(window_seconds=3.0)
         manager.process_observation(
             Observation(
-                species_code="amecro", common_name="American Crow", confidence=0.8,
-                event_id="a1", source_event_id=None, sensor_id="mic-1",
-                clip_path=None, context=None,
+                species_code="amecro",
+                common_name="American Crow",
+                confidence=0.8,
+                event_id="a1",
+                source_event_id=None,
+                sensor_id="mic-1",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}],
                 root_event_id="motion-A",
             )
         )
         manager.process_observation(
             Observation(
-                species_code="amecro", common_name="American Crow", confidence=0.7,
-                event_id="a2", source_event_id=None, sensor_id="mic-2",
-                clip_path=None, context=None,
+                species_code="amecro",
+                common_name="American Crow",
+                confidence=0.7,
+                event_id="a2",
+                source_event_id=None,
+                sensor_id="mic-2",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 13.5, "end_seconds": 16.5}],
                 root_event_id="motion-B",
             )
@@ -275,9 +295,15 @@ class TestClusterManager:
         ):
             manager.process_observation(
                 Observation(
-                    species_code="amecro", common_name="American Crow", confidence=0.8,
-                    event_id=evt, source_event_id=None, sensor_id=mic,
-                    clip_path=None, context=None, intervals=iv,
+                    species_code="amecro",
+                    common_name="American Crow",
+                    confidence=0.8,
+                    event_id=evt,
+                    source_event_id=None,
+                    sensor_id=mic,
+                    clip_path=None,
+                    context=None,
+                    intervals=iv,
                     root_event_id="motion-A",
                 )
             )
@@ -292,18 +318,28 @@ class TestClusterManager:
         manager = ClusterManager(window_seconds=3.0, is_equivalent=same_source)
         manager.process_observation(
             Observation(
-                species_code="corvus", common_name="American Crow", confidence=0.9,
-                event_id="b1", source_event_id="root-1", sensor_id="mic-1",
-                clip_path=None, context=None,
+                species_code="corvus",
+                common_name="American Crow",
+                confidence=0.9,
+                event_id="b1",
+                source_event_id="root-1",
+                sensor_id="mic-1",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}],
                 taxonomy={"namespace": "ioc", "id": "Corvus brachyrhynchos"},
             )
         )
         manager.process_observation(
             Observation(
-                species_code="audioset_x", common_name="Crow", confidence=0.8,
-                event_id="p1", source_event_id="root-1", sensor_id="mic-1",
-                clip_path=None, context=None,
+                species_code="audioset_x",
+                common_name="Crow",
+                confidence=0.8,
+                event_id="p1",
+                source_event_id="root-1",
+                sensor_id="mic-1",
+                clip_path=None,
+                context=None,
                 intervals=[{"start_seconds": 0.5, "end_seconds": 2.8}],
                 taxonomy={"namespace": "audioset", "id": "/m/04s8yn"},
             )
@@ -346,7 +382,7 @@ class TestMultiSpeciesScenario:
         # Simulate a bird detection with 2 species in sub-detections.
         bird_detection = Detection(
             event_id="bird-det-001",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             detection_type="species.detected",
             channel=1,
             audio_clip_path="/data/orpheus/audio/clip1.flac",
@@ -431,8 +467,8 @@ class TestMultiSensorScenario:
         for i in range(1, 4):
             payload: dict[str, Any] = {
                 "event_id": f"bird-det-{i:03d}",
-                "event_timestamp": datetime.now(timezone.utc).isoformat(),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event_timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "detection_type": "species.detected",
                 "channel": i,
                 "species_code": "amecro",
@@ -444,7 +480,7 @@ class TestMultiSensorScenario:
                     "lat": 40.7128,
                     "lon": -74.0060,
                     "sensor_id": f"mic-{i}",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
                 "metadata": {},
             }
@@ -492,8 +528,8 @@ class TestEventFiltering:
 
         payload: dict[str, Any] = {
             "event_id": "audio-motion-001",
-            "event_timestamp": datetime.now(timezone.utc).isoformat(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "detection_type": "audio.motion",
             "channel": 1,
             "audio_clip_path": "/data/clip.flac",
@@ -526,7 +562,7 @@ class TestEntityPersistence:
 
         entity_event: dict[str, Any] = {
             "entity_id": "ent-persist-001",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "species_code": "amecro",
             "common_name": "American Crow",
             "confidence": 0.92,
@@ -572,7 +608,7 @@ class TestEntityPersistence:
 
         entity_event: dict[str, Any] = {
             "entity_id": "ent-ready-001",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "species_code": "amerob",
             "common_name": "American Robin",
             "confidence": 0.85,
@@ -625,8 +661,8 @@ class TestEntityPersistence:
         # Seed an open cluster the way an MQTT detection event would.
         bird_detection = Detection(
             event_id="bird-det-shutdown-001",
-            event_timestamp=datetime.now(timezone.utc),
-            timestamp=datetime.now(timezone.utc),
+            event_timestamp=datetime.now(UTC),
+            timestamp=datetime.now(UTC),
             detection_type="species.detected",
             channel=1,
             species_code="amecro",
@@ -682,8 +718,8 @@ class TestEventFilteringCrow:
 
         payload: dict[str, Any] = {
             "event_id": "crow-det-001",
-            "event_timestamp": datetime.now(timezone.utc).isoformat(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "detection_type": "crow.analyzed",
             "channel": 1,
             "species_code": "amecro",
@@ -903,8 +939,8 @@ class TestLegacyBirdNETSchema:
         # Legacy BirdNET payload: 'detections' at root level, not in metadata
         legacy_payload: dict[str, Any] = {
             "event_id": "bird-det-legacy-001",
-            "event_timestamp": datetime.now(timezone.utc).isoformat(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "detection_type": "species.detected",
             "channel": 1,
             "audio_clip_path": "/data/orpheus/audio/legacy_clip.flac",
@@ -973,8 +1009,13 @@ class TestEntityTypeEmission:
     def test_corvid_emits_crow(self) -> None:
         events = self._emit(
             Observation(
-                species_code="corvus", common_name="American Crow", confidence=0.9,
-                event_id="d1", source_event_id="r1", sensor_id="mic-1", clip_path=None,
+                species_code="corvus",
+                common_name="American Crow",
+                confidence=0.9,
+                event_id="d1",
+                source_event_id="r1",
+                sensor_id="mic-1",
+                clip_path=None,
                 context=None,
                 taxonomy={"namespace": "ioc", "id": "Corvus brachyrhynchos"},
                 detection_type="species.detected",
@@ -988,8 +1029,13 @@ class TestEntityTypeEmission:
     def test_generic_bird_coarsens_to_animal_bird(self) -> None:
         events = self._emit(
             Observation(
-                species_code="amerob", common_name="American Robin", confidence=0.9,
-                event_id="d1", source_event_id="r1", sensor_id="mic-1", clip_path=None,
+                species_code="amerob",
+                common_name="American Robin",
+                confidence=0.9,
+                event_id="d1",
+                source_event_id="r1",
+                sensor_id="mic-1",
+                clip_path=None,
                 context=None,
                 taxonomy={"namespace": "ioc", "id": "Turdus migratorius"},
                 detection_type="species.detected",
@@ -1000,9 +1046,16 @@ class TestEntityTypeEmission:
     def test_unresolvable_is_none(self) -> None:
         events = self._emit(
             Observation(
-                species_code="unknownx", common_name="Unknown", confidence=0.5,
-                event_id="d1", source_event_id="r1", sensor_id="mic-1", clip_path=None,
-                context=None, taxonomy=None, detection_type="audio.classified",
+                species_code="unknownx",
+                common_name="Unknown",
+                confidence=0.5,
+                event_id="d1",
+                source_event_id="r1",
+                sensor_id="mic-1",
+                clip_path=None,
+                context=None,
+                taxonomy=None,
+                detection_type="audio.classified",
             )
         )
         assert events[0]["entity_type"] is None
@@ -1050,4 +1103,4 @@ class TestExpiryFailureAccounting:
         naive = datetime(2026, 8, 22, 10, 0, 0)  # noqa: DTZ001 — naive on purpose
         obs = self._obs("evt-naive", timestamp=naive)
         assert obs.timestamp.tzinfo is not None
-        assert obs.timestamp == naive.replace(tzinfo=timezone.utc)
+        assert obs.timestamp == naive.replace(tzinfo=UTC)

@@ -52,9 +52,9 @@ def _obs(
         sensor_id=sensor_id,
         clip_path=None,
         context=None,
-        intervals=intervals if intervals is not None else [
-            {"start_seconds": 0.0, "end_seconds": 3.0}
-        ],
+        intervals=intervals
+        if intervals is not None
+        else [{"start_seconds": 0.0, "end_seconds": 3.0}],
         taxonomy=taxonomy,
         detection_type=detection_type,
         root_event_id=root,
@@ -157,14 +157,24 @@ class TestHappyPath:
         taxon = {"namespace": "ioc", "id": "Corvus brachyrhynchos"}
         manager, emitted, enriched = _manager()
         manager.process_observation(
-            _obs(event_id="evt-1", confidence=0.6, species_code="amecro",
-                 common_name="American Crow", detection_type="species.detected",
-                 taxonomy=taxon)
+            _obs(
+                event_id="evt-1",
+                confidence=0.6,
+                species_code="amecro",
+                common_name="American Crow",
+                detection_type="species.detected",
+                taxonomy=taxon,
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-2", confidence=0.9, species_code="",
-                 common_name="Crow", detection_type="audio.classified",
-                 taxonomy=taxon)
+            _obs(
+                event_id="evt-2",
+                confidence=0.9,
+                species_code="",
+                common_name="Crow",
+                detection_type="audio.classified",
+                taxonomy=taxon,
+            )
         )
         _emit(manager)
         assert len(emitted) == 1
@@ -174,8 +184,14 @@ class TestHappyPath:
 
         # Coded late arrival: beats the coded max, not the codeless max.
         manager.process_observation(
-            _obs(event_id="evt-3", confidence=0.8, species_code="crow",
-                 common_name="Crow", detection_type="crow.analyzed", taxonomy=None)
+            _obs(
+                event_id="evt-3",
+                confidence=0.8,
+                species_code="crow",
+                common_name="Crow",
+                detection_type="crow.analyzed",
+                taxonomy=None,
+            )
         )
         assert len(enriched) == 1
         assert entity["species_code"] == "crow"  # display swapped
@@ -183,15 +199,22 @@ class TestHappyPath:
         # entity_type stays consistent with the (new) display label, exactly
         # as _build_one_entity derives it.
         assert entity["entity_type"] == derive_entity_type(
-            taxonomy=None, species_code="crow", common_name="Crow",
+            taxonomy=None,
+            species_code="crow",
+            common_name="Crow",
             detection_type="crow.analyzed",
         )
         assert entity["confidence"] == 0.9  # entity max is NOT display-gated
 
         # Negative control: below the coded max — no swap.
         manager.process_observation(
-            _obs(event_id="evt-4", confidence=0.5, species_code="comrav",
-                 common_name="Crow", detection_type="species.detected")
+            _obs(
+                event_id="evt-4",
+                confidence=0.5,
+                species_code="comrav",
+                common_name="Crow",
+                detection_type="species.detected",
+            )
         )
         assert entity["species_code"] == "crow"
 
@@ -247,14 +270,24 @@ class TestSameSourceGate:
         # BirdNET item ("American Crow"); the PANNs "Crow" item is secondary.
         taxon = {"namespace": "ioc", "id": "Corvus brachyrhynchos"}
         manager.process_observation(
-            _obs(event_id="evt-1", confidence=0.9, species_code="amecro",
-                 common_name="American Crow", detection_type="species.detected",
-                 taxonomy=taxon)
+            _obs(
+                event_id="evt-1",
+                confidence=0.9,
+                species_code="amecro",
+                common_name="American Crow",
+                detection_type="species.detected",
+                taxonomy=taxon,
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-2", confidence=0.4, species_code="",
-                 common_name="Crow", detection_type="audio.classified",
-                 taxonomy=taxon)
+            _obs(
+                event_id="evt-2",
+                confidence=0.4,
+                species_code="",
+                common_name="Crow",
+                detection_type="audio.classified",
+                taxonomy=taxon,
+            )
         )
         _emit(manager)
         assert len(emitted) == 1
@@ -263,8 +296,14 @@ class TestSameSourceGate:
         # taxonomy=None) matches ONLY the secondary PANNs item — proving the
         # gate scans every evidence item, not just the display label.
         manager.process_observation(
-            _obs(event_id="evt-3", confidence=0.7, species_code="crow",
-                 common_name="Crow", detection_type="crow.analyzed", taxonomy=None)
+            _obs(
+                event_id="evt-3",
+                confidence=0.7,
+                species_code="crow",
+                common_name="Crow",
+                detection_type="crow.analyzed",
+                taxonomy=None,
+            )
         )
         assert len(emitted) == 1
         assert len(enriched) == 1
@@ -277,23 +316,41 @@ class TestSiblings:
         # would have lost one; the list keeps both reachable.
         manager, emitted, enriched = _manager()
         manager.process_observation(
-            _obs(event_id="evt-c", species_code="amecro", common_name="American Crow",
-                 intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}])
+            _obs(
+                event_id="evt-c",
+                species_code="amecro",
+                common_name="American Crow",
+                intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}],
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-l", species_code="comloo", common_name="Common Loon",
-                 intervals=[{"start_seconds": 10.0, "end_seconds": 13.0}])
+            _obs(
+                event_id="evt-l",
+                species_code="comloo",
+                common_name="Common Loon",
+                intervals=[{"start_seconds": 10.0, "end_seconds": 13.0}],
+            )
         )
         _emit(manager)
         assert len(emitted) == 2
 
         manager.process_observation(
-            _obs(event_id="evt-c2", species_code="amecro", common_name="American Crow",
-                 confidence=0.9, intervals=[{"start_seconds": 1.0, "end_seconds": 2.0}])
+            _obs(
+                event_id="evt-c2",
+                species_code="amecro",
+                common_name="American Crow",
+                confidence=0.9,
+                intervals=[{"start_seconds": 1.0, "end_seconds": 2.0}],
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-l2", species_code="comloo", common_name="Common Loon",
-                 confidence=0.9, intervals=[{"start_seconds": 11.0, "end_seconds": 12.0}])
+            _obs(
+                event_id="evt-l2",
+                species_code="comloo",
+                common_name="Common Loon",
+                confidence=0.9,
+                intervals=[{"start_seconds": 11.0, "end_seconds": 12.0}],
+            )
         )
         assert len(emitted) == 2  # no new entities
         assert len(enriched) == 2
@@ -304,9 +361,7 @@ class TestSiblings:
 class TestLifecycle:
     def test_ttl_eviction(self) -> None:
         manager, emitted, enriched = _manager(ttl=10.0)
-        with patch(
-            "orpheus_agent_event_correlator.cluster_manager.time.monotonic"
-        ) as clock:
+        with patch("orpheus_agent_event_correlator.cluster_manager.time.monotonic") as clock:
             clock.return_value = 1000.0
             manager.process_observation(_obs(event_id="evt-1"))
             _emit(manager)
@@ -339,12 +394,22 @@ class TestLifecycle:
         crow_tax = {"namespace": "ioc", "id": "Corvus brachyrhynchos"}
         raven_tax = {"namespace": "ioc", "id": "Corvus corax"}
         manager.process_observation(
-            _obs(event_id="evt-late", species_code="corvus", common_name="American Crow",
-                 confidence=0.7, taxonomy=crow_tax)
+            _obs(
+                event_id="evt-late",
+                species_code="corvus",
+                common_name="American Crow",
+                confidence=0.7,
+                taxonomy=crow_tax,
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-late", species_code="corvus", common_name="Common Raven",
-                 confidence=0.9, taxonomy=raven_tax)
+            _obs(
+                event_id="evt-late",
+                species_code="corvus",
+                common_name="Common Raven",
+                confidence=0.9,
+                taxonomy=raven_tax,
+            )
         )
         assert len(emitted) == 1  # both enriched, no duplicate entity
         assert len(enriched) == 2  # BOTH persisted — the raven is not swallowed
@@ -354,8 +419,13 @@ class TestLifecycle:
 
         # A TRUE redelivery (same event_id + code + taxon) still dedups.
         manager.process_observation(
-            _obs(event_id="evt-late", species_code="corvus", common_name="Common Raven",
-                 confidence=0.9, taxonomy=raven_tax)
+            _obs(
+                event_id="evt-late",
+                species_code="corvus",
+                common_name="Common Raven",
+                confidence=0.9,
+                taxonomy=raven_tax,
+            )
         )
         assert len(enriched) == 2  # consumed without a third persist
 
@@ -367,12 +437,19 @@ class TestLifecycle:
         manager, emitted, enriched = _manager()
         # One merged entity from two clips: clip-A crow @0-3s, clip-B crow @13-16s.
         manager.process_observation(
-            _obs(event_id="evt-a", root="AM-001",
-                 intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}])
+            _obs(
+                event_id="evt-a",
+                root="AM-001",
+                intervals=[{"start_seconds": 0.0, "end_seconds": 3.0}],
+            )
         )
         manager.process_observation(
-            _obs(event_id="evt-b", root="AM-002", sensor_id="mic-2",
-                 intervals=[{"start_seconds": 13.0, "end_seconds": 16.0}])
+            _obs(
+                event_id="evt-b",
+                root="AM-002",
+                sensor_id="mic-2",
+                intervals=[{"start_seconds": 13.0, "end_seconds": 16.0}],
+            )
         )
         _emit(manager)
         assert len(emitted) == 1
@@ -381,8 +458,12 @@ class TestLifecycle:
         # cross-root fallback must accept it (label-compatible, unprovable
         # origin) — enrich, not duplicate.
         manager.process_observation(
-            _obs(event_id="evt-late", root="AM-002", confidence=0.9,
-                 intervals=[{"start_seconds": 5.0, "end_seconds": 8.0}])
+            _obs(
+                event_id="evt-late",
+                root="AM-002",
+                confidence=0.9,
+                intervals=[{"start_seconds": 5.0, "end_seconds": 8.0}],
+            )
         )
         assert len(emitted) == 1
         assert len(enriched) == 1
@@ -416,8 +497,7 @@ class TestLifecycle:
         _emit(manager)
         # An unrelated cluster is now open...
         manager.process_observation(
-            _obs(event_id="evt-x", root="AM-002", species_code="comloo",
-                 common_name="Common Loon")
+            _obs(event_id="evt-x", root="AM-002", species_code="comloo", common_name="Common Loon")
         )
         # ...when a late AM-001 arrival shows up: it must enrich the emitted
         # entity, NOT be dumped into the open AM-002 cluster.
@@ -508,8 +588,14 @@ class TestAgentEnrichCallback:
     def test_persists_and_publishes_on_update_topic_only(self) -> None:
         agent = _agent()
         agent.db.update_entity.return_value = True
-        enriched = {"entity_id": "e1", "species_code": "amecro", "common_name": "c",
-                    "confidence": 0.9, "evidence": [], "timestamp": "2026-07-01T00:00:00+00:00"}
+        enriched = {
+            "entity_id": "e1",
+            "species_code": "amecro",
+            "common_name": "c",
+            "confidence": 0.9,
+            "evidence": [],
+            "timestamp": "2026-07-01T00:00:00+00:00",
+        }
         ok = agent._on_entity_enrich(enriched, _obs(event_id="late-1"))
         assert ok is True
         assert agent.entities_enriched == 1
@@ -521,8 +607,14 @@ class TestAgentEnrichCallback:
     def test_missing_row_returns_false_and_skips_publish(self) -> None:
         agent = _agent()
         agent.db.update_entity.return_value = False
-        enriched = {"entity_id": "e1", "species_code": "amecro", "common_name": "c",
-                    "confidence": 0.9, "evidence": [], "timestamp": "2026-07-01T00:00:00+00:00"}
+        enriched = {
+            "entity_id": "e1",
+            "species_code": "amecro",
+            "common_name": "c",
+            "confidence": 0.9,
+            "evidence": [],
+            "timestamp": "2026-07-01T00:00:00+00:00",
+        }
         assert agent._on_entity_enrich(enriched, _obs()) is False
         agent.bus.publish.assert_not_called()
         assert agent.entities_enriched == 0
@@ -534,8 +626,14 @@ class TestAgentEnrichCallback:
         # of silent evidence loss + a divergence that blocks redelivery repair.
         agent = _agent()
         agent.db.update_entity.side_effect = RuntimeError("disk full")
-        enriched = {"entity_id": "e1", "species_code": "amecro", "common_name": "c",
-                    "confidence": 0.9, "evidence": [], "timestamp": "2026-07-01T00:00:00+00:00"}
+        enriched = {
+            "entity_id": "e1",
+            "species_code": "amecro",
+            "common_name": "c",
+            "confidence": 0.9,
+            "evidence": [],
+            "timestamp": "2026-07-01T00:00:00+00:00",
+        }
         assert agent._on_entity_enrich(enriched, _obs()) is False
         assert agent.errors_count == 1
         assert agent.last_error is not None
@@ -548,16 +646,20 @@ class TestAgentEnrichCallback:
         agent = _agent()
         agent.db.update_entity.return_value = True
         agent.bus.publish.side_effect = RuntimeError("broker away")
-        enriched = {"entity_id": "e1", "species_code": "amecro", "common_name": "c",
-                    "confidence": 0.9, "evidence": [], "timestamp": "2026-07-01T00:00:00+00:00"}
+        enriched = {
+            "entity_id": "e1",
+            "species_code": "amecro",
+            "common_name": "c",
+            "confidence": 0.9,
+            "evidence": [],
+            "timestamp": "2026-07-01T00:00:00+00:00",
+        }
         assert agent._on_entity_enrich(enriched, _obs()) is True
         assert agent.entities_enriched == 1
         assert agent.errors_count == 1  # the publish failure is still visible
 
     def test_config_defaults_off(self) -> None:
-        cfg = OrpheusConfig.from_dict(
-            {"mqtt": {"broker_host": "localhost"}}, source="<test>"
-        )
+        cfg = OrpheusConfig.from_dict({"mqtt": {"broker_host": "localhost"}}, source="<test>")
         with patch("orpheus_agent_event_correlator.main.OrpheusConfig") as mock_cfg:
             mock_cfg.get_instance.return_value = cfg
             agent = EventCorrelatorAgent()

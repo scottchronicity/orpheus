@@ -49,13 +49,14 @@ a subprocess if its compatible in-process backend is sufficient.
 
 ### Runtimes and hardware resources
 
-Python versions and dependency pins belong to components. Current agent/service
-packages generally declare Python 3.9; the validated Jetson PANNs CUDA worker
-declares Python 3.8 with its NVIDIA stack. The shared IPC library supports 3.8+.
-Those are implementation constraints, not an Orpheus-wide Python requirement.
-Read each package's metadata, Makefile and constraints before changing it. Shared
-code must support its actual consumers. Modernizing non-GPU agents can proceed
-independently in future work without replacing the CUDA worker runtime.
+Python versions and dependency pins belong to components. The GPS service and
+event correlator now use independent Python 3.12/3.13 environments; existing model
+agents retain their validated runtimes, including the isolated Jetson PANNs CUDA
+worker on Python 3.8. The shared IPC library supports 3.8+. These are component
+constraints, not an Orpheus-wide Python requirement. Read each package's
+metadata, Makefile and constraints before changing it. Shared code must support
+its actual consumers. Further non-GPU modernization can proceed component by
+component without replacing hardware-specific runtimes.
 
 The owning agent supplies concurrency, queue capacity, device, worker lifecycle,
 timeouts and memory policy through `OrpheusConfig`. Follow

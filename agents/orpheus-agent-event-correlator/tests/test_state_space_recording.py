@@ -77,9 +77,7 @@ class TestStateSpaceRecording:
         # the is_self_generated tag from the corollary filter first when
         # corollary_discharge.enabled is on.)
         agent = _agent(True, tmp_path)
-        agent._record_state_space(
-            _entity(entity_type="Animal.Bird.Crow", is_self_generated=True)
-        )
+        agent._record_state_space(_entity(entity_type="Animal.Bird.Crow", is_self_generated=True))
         assert agent.state_space.query_pattern("Animal.Bird.Crow").total == 0
 
     def test_record_failure_does_not_break_pipeline(self, tmp_path) -> None:

@@ -14,7 +14,7 @@ Features:
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import asin, cos, radians, sin, sqrt
 from typing import Optional
 
@@ -152,9 +152,9 @@ class GPSService:
 
         # Combine date and time from GPRMC
         if sentence.datestamp and sentence.timestamp:
-            dt = datetime.combine(sentence.datestamp, sentence.timestamp, tzinfo=timezone.utc)
+            dt = datetime.combine(sentence.datestamp, sentence.timestamp, tzinfo=UTC)
         else:
-            dt = datetime.now(timezone.utc)
+            dt = datetime.now(UTC)
 
         return (lat, lon, dt)
 
@@ -205,7 +205,7 @@ class GPSService:
         Args:
             gps_time: GPS-provided UTC timestamp
         """
-        system_time = datetime.now(timezone.utc)
+        system_time = datetime.now(UTC)
         drift_seconds = abs((gps_time - system_time).total_seconds())
 
         if drift_seconds > self.TIME_DRIFT_THRESHOLD:
@@ -235,7 +235,7 @@ class GPSService:
             timestamp: Optional timestamp (uses current time if None)
         """
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         location = {
             "lat": lat,

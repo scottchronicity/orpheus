@@ -224,12 +224,20 @@ nats sub 'orpheus.state.location'
 
 ## Dependencies
 
-- Python 3.9.5+ (locked for Jetson compatibility)
+- Python 3.12 or 3.13 in an isolated GPS service environment. Override
+  `PYTHON_BIN` when installing if the compatible interpreter is not the default.
 - `orpheus-common`: Shared Orpheus platform library
 - `paho-mqtt>=2.1.0`: MQTT client
 - `pyserial>=3.5`: Serial port communication
 - `pynmea2>=1.18.0`: NMEA sentence parsing
 - `PyYAML>=6.0`: Configuration file parsing
+
+The GPS service uses its own Python 3.12 or 3.13 virtual environment and does
+not depend on the inference agents' framework runtimes. Development uses
+`venv-py312`; service installation defaults to `python3.12`. Set `PYTHON_BIN`
+to a compatible interpreter when installing on a host where it has another
+path. Python 3.9 environments remain available to components that have not
+moved yet.
 
 ## Service Management
 

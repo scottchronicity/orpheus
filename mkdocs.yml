@@ -169,6 +169,7 @@ nav:
           - adr/0021-birdnet-onnx-execution-providers.md
           - adr/0022-birdnet-onnx-provider-fail-closed-runtime.md
           - adr/0023-portable-crow-torch-device-selection.md
+          - adr/0024-independent-python-312-runtime-migration.md
       - Design Docs:
           - designs/README.md
           - designs/actor-model-and-control-plane.md

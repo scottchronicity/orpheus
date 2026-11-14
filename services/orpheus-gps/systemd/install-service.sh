@@ -7,10 +7,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMMON_RELATIVE="../../platform/orpheus-common"
 COMMON_PATH="${PROJECT_ROOT}/${COMMON_RELATIVE}"
-PYTHON_BIN="${PYTHON_BIN:-python3.9}"
+PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 
 if [ ! -d "${COMMON_PATH}" ]; then
     echo "ERROR: Could not locate orpheus-common at ${COMMON_PATH}" >&2
+    exit 1
+fi
+
+if ! "${PYTHON_BIN}" -c 'import sys; raise SystemExit(not ((3, 12) <= sys.version_info[:2] < (3, 14)))'; then
+    echo "ERROR: GPS requires Python 3.12 or 3.13; set PYTHON_BIN to a compatible interpreter." >&2
     exit 1
 fi
 

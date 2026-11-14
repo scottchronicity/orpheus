@@ -20,7 +20,7 @@
 	services-install services-start services-stop services-restart \
 	install-host install-backbone install-log-bounds upsert-backbone-env check-installable \
 	update-services \
-	sim-up sim-down sim-logs sim-status sim-fleet-up sim-validate \
+	sim-up sim-down sim-logs sim-status sim-fleet-up sim-config sim-validate \
 	sim-distributed-up sim-distributed-validate sim-distributed-down \
 	docs-build docs-serve docs-preview docs-pages \
 	status-all update-all logs-all test-all deploy-all check-models download-models run-ui verify-deploy \
@@ -874,6 +874,11 @@ sim-fleet-up:
 	@$(COMPOSE) --profile fleet up -d --build
 	@echo "✅ Fleet up.  Validate the real-audio cascade: make sim-validate   Stop: make sim-down"
 
+sim-config:
+	@echo "Validating the Simulacrum Compose configuration..."
+	@$(COMPOSE) config --quiet
+	@echo "✅ Simulacrum Compose configuration is valid"
+
 # Real-audio end-to-end validation: inject one audio.motion (crow clip) into the
 # running fleet and assert the cascade lands an EntityEvent. Needs sim-fleet-up.
 #
@@ -889,6 +894,7 @@ $(SIM_VALIDATE_PYTHON):
 
 sim-validate: $(SIM_VALIDATE_PYTHON)
 	@echo "Validating the real-audio cascade against the running fleet..."
+	@ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:4222 $(SIM_VALIDATE_PYTHON) -m orpheus_common.testing.simulacrum
 	@ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:4222 ORPHEUS_E2E_REAL_AUDIO=1 $(SIM_VALIDATE_PYTHON) -m pytest tests/e2e_bdd -v -m real_audio
 
 sim-down:

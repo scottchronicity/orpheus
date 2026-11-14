@@ -1,7 +1,8 @@
 # Generic Orpheus agent image for the Simulacrum (build context = repo root).
 # AGENT_PATH selects which agent; AGENT_MODULE is its python -m entrypoint.
 # Single-stage for now (dev sim); multi-stage slimming is a follow-up.
-FROM python:3.9-slim
+ARG PYTHON_VERSION=3.9
+FROM python:${PYTHON_VERSION}-slim
 
 ARG AGENT_PATH
 ARG AGENT_MODULE

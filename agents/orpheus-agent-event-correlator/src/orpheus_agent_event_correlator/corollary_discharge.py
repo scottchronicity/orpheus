@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from orpheus_common.logging import get_logger
@@ -84,7 +84,7 @@ class CorollaryDischargeFilter:
         start = _utc(start_time)
         end = start + timedelta(seconds=max(0.0, duration_seconds) + self.buffer_seconds)
         self._windows.append(PlaybackWindow(start=start, end=end, source=source))
-        self._evict(_utc(now) if now is not None else datetime.now(timezone.utc))
+        self._evict(_utc(now) if now is not None else datetime.now(UTC))
 
     def register_from_event(self, payload: Any, *, now: datetime | None = None) -> bool:
         """Register a window from a raw playback-event payload. Returns True if
@@ -113,7 +113,7 @@ class CorollaryDischargeFilter:
         if span is None:
             return False
         start, end = span
-        self._evict(_utc(now) if now is not None else datetime.now(timezone.utc))
+        self._evict(_utc(now) if now is not None else datetime.now(UTC))
         # Interval overlap: [start, end] intersects [w.start, w.end].
         return any(w.start <= end and start <= w.end for w in self._windows)
 
@@ -146,5 +146,5 @@ def _parse_ts(value: Any) -> datetime:
 
 def _utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)

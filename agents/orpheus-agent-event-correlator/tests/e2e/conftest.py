@@ -30,9 +30,7 @@ NATS_URL = DEFAULT_NATS_URL
 
 
 # Shared body from orpheus_common.testing — one definition, every suite.
-_reset_orpheus_config_singleton = pytest.fixture(autouse=True)(
-    reset_orpheus_config_singleton
-)
+_reset_orpheus_config_singleton = pytest.fixture(autouse=True)(reset_orpheus_config_singleton)
 
 
 @pytest.fixture(scope="session")

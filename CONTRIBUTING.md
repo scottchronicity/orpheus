@@ -12,11 +12,12 @@ before changing architecture, configuration, runtimes or deployment.
 **Configure the capability, not the machine.** Agents own domain behavior;
 model/backend implementations and their runtimes remain replaceable.
 
-Python versions belong to components. Most current agents/services declare
-Python 3.9; the validated Jetson PANNs CUDA worker declares Python 3.8 with its
-pinned NVIDIA stack; shared IPC supports 3.8+. Follow each package's metadata,
-constraints, Makefile and Ruff target. This assignment does not modernize those
-runtimes, and the worker does not prevent future agent modernization.
+Python versions belong to components. GPS and event-correlator use Python 3.12
+or 3.13; other agents retain their declared runtimes, including the validated
+Jetson PANNs CUDA worker on Python 3.8 with its pinned NVIDIA stack. Shared IPC
+supports 3.8+. Follow each package's metadata, constraints, Makefile, container
+build args and Ruff target. Modernize components independently; never widen the
+GPU worker runtime without validating its vendor stack.
 
 For current Python 3.9 components, postponed annotations permit `X | None` and
 `list[X]`; expressions evaluated at runtime still need compatible types. Syntax
@@ -98,14 +99,14 @@ Spikes exist because we'd rather have a well-reasoned decision document than a s
 
 ### Prerequisites
 
-- **The component-compatible Python interpreter** — the current default developer toolchain is 3.9.5 (uv recommended); optional CUDA workers use their own pinned runtime
+- **The component-compatible Python interpreter** — the root Make default remains 3.9.5 for existing components; GPS and the event correlator manage Python 3.12/3.13 independently, and the PANNs CUDA worker has its own pinned runtime
 - **Git LFS** — for ML models and audio samples: `git lfs install && git lfs pull`
 - **Make** — build automation
 - **libportaudio2** and **libsndfile1** — audio I/O for local testing: `sudo apt install libportaudio2 libsndfile1` (macOS: `brew install portaudio libsndfile`)
 
 ### Quick Setup
 
-> For the current default agent setup, ensure Python 3.9.5 is active (`python3 --version`). See Prerequisites above or the [macOS Quick Start](docs/MACOS_QUICKSTART.md) for installation via uv or pyenv.
+> For components using the root default, ensure Python 3.9.5 is available (`python3 --version`). Component Makefiles select their own runtime where needed; see the [operator runtime notes](docs/operator-manual/index.md#component-python-environments).
 
 ```bash
 git clone https://github.com/scottchronicity/orpheus.git

@@ -4,7 +4,7 @@
 -include .env
 export
 
-.PHONY: help install install-dev test clean lint format check deploy-config update force-update-config install-service dry-run
+.PHONY: help install install-dev test test-isolation-contracts clean lint format check deploy-config update force-update-config install-service dry-run
 
 # -- Component identity ------------------------------------------------------
 SERVICE_NAME := orpheus-common
@@ -60,6 +60,10 @@ test: check-deps
 	@echo "Running tests..."
 	$(PYTEST) tests/ -v
 	@echo "✓ Tests complete"
+
+test-isolation-contracts: check-deps
+	@echo "Testing live-service safety gates without connecting to services..."
+	$(PYTEST) tests/test_testing_bus_harness.py tests/test_simulacrum_broker_guard.py -v
 
 coverage: check-deps
 	@echo "Running tests with coverage..."

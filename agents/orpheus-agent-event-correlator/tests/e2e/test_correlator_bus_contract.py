@@ -14,7 +14,7 @@ only on the EntityEvent it publishes. Skips when no broker is reachable.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from orpheus_common.detection import Detection
@@ -32,6 +32,7 @@ def _wait_until(pred, timeout: float = 6.0, interval: float = 0.02) -> bool:
         time.sleep(interval)
     return pred()
 
+
 ENTITY_TOPIC = "orpheus/entities/animal"
 BIRD_TOPIC = "orpheus/detection/bird/events"
 CROW_TOPIC = "orpheus/detection/crow/events"
@@ -44,7 +45,7 @@ def _species_detected(root: str, event_id: str, sensor: str = "mic-1") -> dict:
     """A BirdNET-shaped species.detected for a corvid (sim-source shape)."""
     return Detection(
         event_id=event_id,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         detection_type="species.detected",
         species_code="amecro",
         species_common="American Crow",
@@ -61,7 +62,7 @@ def _crow_analyzed(root: str, event_id: str, sensor: str = "mic-1") -> dict:
     None — crow is a call-type analyzer, not a species claim)."""
     return Detection(
         event_id=event_id,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         detection_type="crow.analyzed",
         species_code="american_crow",
         species_common="Crow",
@@ -112,7 +113,7 @@ def test_audio_motion_is_ignored(correlator, nats_url):
     sent alongside still does (non-vacuous)."""
     motion = Detection(
         event_id="motion-1",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         detection_type="audio.motion",
         confidence=0.5,
         root_event_id="root-motion",
