@@ -238,6 +238,10 @@ class OutputManager:
             self.reset_backoff = Backoff(self.config.reconnect)
             self.routed_sink = sink
             self.route_detail = detail
+        if self.route_state != "routed" and not self.route_detail.startswith("default sink"):
+            # Recovered without re-routing (the sink came back as the default):
+            # drop the earlier waiting/failure text.
+            self.route_detail = f"default sink {sink}"
         self.route_state = "routed"
         self._transition("routing", before, self.route_state, self.route_detail)
 

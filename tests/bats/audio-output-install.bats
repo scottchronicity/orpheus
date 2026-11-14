@@ -87,7 +87,7 @@ assert_host_untouched() {
 @test "a successful install records prior states and verifies the masks" {
   legacy_installed; unit_on "$LEGACY" enabled active
   competing_unit; unit_on "$COMPETING" enabled
-  touch "$MOCK/stock-pa"
+  pulseaudio_running 4242 stock
   install_new
   assert_success
   [ -f "$DEPLOY/venv/bin/python" ]
@@ -107,6 +107,40 @@ assert_host_untouched() {
   # Masks were followed by a reload of orpheus's manager, and verified.
   [ -s "$MOCK/user-reloads" ]
   assert_output --partial "stock pulseaudio.socket/.service are masked and inactive"
+}
+
+@test "an update never stops the managed PulseAudio as if it were stock" {
+  pulseaudio_running 5151 managed
+  pulseaudio_running 4242 stock
+  install_new
+  assert_success
+  grep -qx "kill 4242" "$MOCK_LOG"
+  run grep -q "kill 5151" "$MOCK_LOG"
+  assert_failure
+  grep -qx "pulseaudio-stopped:orpheus" "$STATE/changes"
+}
+
+@test "only the managed PulseAudio running means nothing is stopped or recorded" {
+  pulseaudio_running 5151 managed
+  install_new
+  assert_success
+  run grep -q "^kill " "$MOCK_LOG"
+  assert_failure
+  run grep -q "pulseaudio-stopped" "$STATE/changes"
+  assert_failure
+}
+
+@test "failing commands inside \$(...) never trigger a hidden restore" {
+  # No PulseAudio at all (pgrep exits 1) and a user with no session or
+  # lingering (loginctl show-user exits 1): both are normal, not failures.
+  legacy_installed; unit_on "$LEGACY" enabled active
+  export FAKE_SHOWUSER_FAILS=1
+  install_new
+  assert_success
+  refute_output --partial "install failed"
+  refute_output --partial "stopping the stock PulseAudio"
+  grep -qx "linger:orpheus" "$STATE/changes"
+  is_active "$NEW"
 }
 
 @test "an active stock pulseaudio.socket is stopped before verification" {

@@ -300,6 +300,21 @@ def test_lost_sink_after_a_server_restart_reconnects_the_output(setup):
     assert manager.ready and server.default == SINK
 
 
+def test_recovering_without_a_reroute_clears_the_stale_detail(setup):
+    manager, _, server, clock, _ = setup()
+    run(manager, clock, 1)
+    server.sink_present = False
+    run(manager, clock, SINK_GRACE_POLLS)
+    assert "another audio server" in manager.health()["routing"]["detail"]
+    server.sink_present = True  # same sink, still the default: no re-route
+    run(manager, clock, 1)
+    assert manager.health()["routing"] == {
+        "state": "routed",
+        "sink": SINK,
+        "detail": f"default sink {SINK}",
+    }
+
+
 def test_a_sink_missing_without_a_server_restart_is_reported_not_fought(setup):
     # e.g. another user's audio server holds the A2DP endpoint
     server = FakeServer(up=True, sink_present=False)

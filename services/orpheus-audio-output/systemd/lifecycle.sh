@@ -143,11 +143,19 @@ reload_and_verify_masks() {
 # Bluetooth-only instance owns the socket. Not restarted on rollback: it was
 # never started by Orpheus and would take the capture interface again.
 stop_stock_pulseaudio() {
-    local user="$1" uid
+    local user="$1" uid pid stopped=0
     uid="$(user_uid "${user}")"
-    if pgrep -u "${uid}" -x pulseaudio >/dev/null 2>&1; then
-        say "stopping the stock PulseAudio running for ${user}"
-        pkill -u "${uid}" -x pulseaudio || true
+    for pid in $(pgrep -u "${uid}" -x pulseaudio 2>/dev/null || true); do
+        # The managed instance (an update re-runs the installer) is restarted
+        # with the service; only a stock instance is stopped and recorded.
+        if tr '\0' ' ' < "${SYSROOT}/proc/${pid}/cmdline" 2>/dev/null | grep -qF "/run/orpheus-audio-output/pulseaudio.pa"; then
+            continue
+        fi
+        say "stopping the stock PulseAudio (pid ${pid}) running for ${user}"
+        ${KILL_CMD:-kill} "${pid}" 2>/dev/null || true
+        stopped=1
+    done
+    if [[ "${stopped}" == "1" ]]; then
         record "pulseaudio-stopped:${user}"
     fi
 }

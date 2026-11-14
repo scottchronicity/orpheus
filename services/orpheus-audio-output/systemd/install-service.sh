@@ -112,6 +112,12 @@ rm -f "${RUN_CHANGES}" "${PREV_UNIT_FILE}"
 rm -rf "${PREV_DEPLOY}"
 
 restore_previous() {
+    # set -E makes the ERR trap fire inside command substitutions too, e.g.
+    # `$(pgrep ...)` finding nothing. Only the main shell restores; a subshell
+    # just fails, and the caller's own error handling decides what that means.
+    if [[ "${BASHPID}" != "$$" ]]; then
+        exit 1
+    fi
     trap - ERR
     set +e
     say "install failed: restoring the previous installation"
