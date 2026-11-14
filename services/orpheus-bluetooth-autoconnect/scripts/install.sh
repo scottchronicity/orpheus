@@ -131,7 +131,7 @@ AUDIO_USER=${AUDIO_USER}
 # Optional tuning (seconds): poll interval while healthy, and backoff ceiling
 # while the speaker, controller or audio server is unavailable.
 #RECONNECT_DELAY=10
-#MAX_RECONNECT_DELAY=300
+#MAX_RECONNECT_DELAY=60
 EOF
     chmod 644 "$CONFIG_FILE"
     log_success "Configuration file created: $CONFIG_FILE"
@@ -176,14 +176,14 @@ else
     exit 1
 fi
 
-# Step 10b: Warn when the audio user has no PulseAudio. bluetoothd needs an
-# audio server's A2DP endpoint; without one every connect fails with
-# "Protocol not available" and the service backs off.
+# Step 10b: Note when the audio user has no PulseAudio socket. Informational
+# only: the speaker needs some running audio server (PulseAudio with its
+# Bluetooth module, possibly in a desktop session) to accept the connection.
 AUDIO_UID="$(id -u "$AUDIO_USER" 2>/dev/null || true)"
 if [[ -z "$AUDIO_UID" || ! -S "/run/user/${AUDIO_UID}/pulse/native" ]]; then
-    log_warning "No PulseAudio socket for ${AUDIO_USER} (/run/user/${AUDIO_UID:-?}/pulse/native)."
-    log_warning "The speaker cannot connect until an audio server runs for that user;"
-    log_warning "see 'Speaker never connects' in services/orpheus-bluetooth-autoconnect/README.md."
+    log_warning "No PulseAudio socket for ${AUDIO_USER} right now (/run/user/${AUDIO_UID:-?}/pulse/native)."
+    log_warning "Playback goes through PulseAudio; if the speaker will not connect, see"
+    log_warning "docs/operator-manual/bluetooth-speaker.md ('Protocol not available')."
 fi
 
 # Step 11: Run post-install tests

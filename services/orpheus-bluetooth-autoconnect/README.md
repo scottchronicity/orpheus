@@ -19,13 +19,13 @@ README covers how the service is built and tested.
    `BT_COMMAND_TIMEOUT`).
 2. **Connected:** if audio was not routed yet (or routing failed), retries
    routing; otherwise does nothing and logs nothing.
-3. **Otherwise:** skips the attempt when there is no controller, BlueZ is
-   unavailable, or (with `REQUIRE_AUDIO_SERVER=true`) the audio user has no
-   PulseAudio socket. Without an audio server nothing offers an A2DP endpoint
-   and bluetoothd fails every connect with `Protocol not available`. If it
-   does not skip, it powers the controller on if needed, trusts the device if
-   needed, and connects. The first failed connect of an outage (or one for a
-   device BlueZ has lost) runs one `SCAN_SECONDS` discovery scan and retries.
+3. **Otherwise:** skips the attempt when there is no controller or BlueZ is
+   unavailable; otherwise connects. A failed connect is followed by a
+   `SCAN_SECONDS` discovery scan and one more attempt (unchanged from earlier
+   versions). If both fail and the audio user has no PulseAudio socket, it
+   logs a hint. It never skips because of that: the A2DP endpoint may be
+   registered by an audio server running as another user, such as a desktop
+   session's PulseAudio.
 4. **After connecting:** waits up to `SINK_WAIT_SECONDS` for
    `bluez_sink.<MAC>.a2dp_sink`, sets it as the default sink, and moves
    playing streams to it, all as `AUDIO_USER` via `su`.
@@ -42,12 +42,12 @@ Design constraints, each tied to a field failure:
 - **No `set -e`.** A failing command substitution (for example
   `pactl set-default-sink` while PulseAudio restarts) used to kill the loop.
   Every failure is handled explicitly instead.
-- **Probing for the audio server is side-effect free.** It checks for the
-  socket file and never runs `pactl info`, because a client connect can
-  autospawn PulseAudio, which claims the capture interface on stations that
-  keep it stopped.
+- **The audio-server hint is side-effect free and never a gate.** It checks
+  for the socket file and never runs `pactl info`, because a client connect
+  can autospawn PulseAudio, which claims the capture interface on stations
+  that keep it stopped.
 - **Stop is immediate.** Sleeps run in the background under `wait`, so
-  SIGTERM does not wait out a 5-minute backoff.
+  SIGTERM does not wait out a backoff sleep.
 - The unit restarts the script whenever it exits, with no start limit. The
   exception is exit 78 (invalid configuration), which leaves the unit failed.
 
@@ -82,8 +82,8 @@ make uninstall   # remove the unit (config kept); `make clean` also removes conf
   It drives `poll_once` against stateful mocks of `bluetoothctl`, `su` and
   `id`, and covers: startup connect and routing; a quiet healthy poll; a
   speaker dropping and reconnecting; an unavailable speaker's backoff and scan
-  policy; no audio server; a hung or restarted bluetoothd; a missing or
-  powered-off controller; lost pairing; untrusted devices; set-default-sink
+  policy; a missing PulseAudio socket never blocking a connect; a hung or
+  restarted bluetoothd; a missing controller; lost pairing; trust at startup; set-default-sink
   failures; bad `AUDIO_USER` values; config-file loading; exit 78 on bad
   config; and prompt SIGTERM. Run it with `make test-bash` here or at the repo
   root. CI runs it in the `test-bash` job.

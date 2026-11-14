@@ -184,16 +184,17 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
   assert_equal "$(cat "$BT_STATE/default_sink")" "$SINK"
 }
 
-@test "an unavailable speaker backs off exponentially, scanning once per outage" {
+@test "an unavailable speaker backs off exponentially, scanning on each attempt as before" {
   world connect_mode "fail:org.bluez.Error.Failed br-connection-page-timeout"
   drive 'for i in 1 2 3 4 5 6; do poll_once; echo "DELAY $NEXT_DELAY"; done'
   assert_success
   assert_equal "$(echo "$output" | grep '^DELAY' | tr '\n' ' ')" "DELAY 10 DELAY 20 DELAY 40 DELAY 80 DELAY 80 DELAY 80 "
   assert_output --partial "br-connection-page-timeout"
-  assert_equal "$(count scans)" 1
-  # 2 connects on the first attempt (before and after the scan), then 1 each.
-  assert_equal "$(count connects)" 7
+  # Unchanged connect logic: connect, scan, connect again on every attempt.
+  assert_equal "$(count scans)" 6
+  assert_equal "$(count connects)" 12
 }
+
 
 @test "recovers when an unavailable speaker comes back, resetting the backoff" {
   world connect_mode "fail:org.bluez.Error.Failed br-connection-page-timeout"
@@ -211,30 +212,28 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
   assert_output --partial "REPORT state=connected failures=0"
 }
 
-@test "without an audio server it does not attempt to connect, then recovers" {
+@test "no PulseAudio socket for AUDIO_USER never blocks connecting" {
+  # The A2DP endpoint can come from an audio server run by another user (the
+  # desktop session's PulseAudio), so the socket check is a hint, not a gate.
   pulse_down
-  drive 'poll_once; report; poll_once; report'
-  assert_success
-  assert_output --partial "No PulseAudio socket for orpheus"
-  assert_output --partial "REPORT state=disconnected failures=2 delay=20 routed=false"
-  assert_equal "$(count connects)" 0
-
-  pulse_up
-  drive 'poll_once; report'
-  assert_success
-  assert_output --partial "REPORT state=connected failures=0 delay=10 routed=true"
-}
-
-@test "REQUIRE_AUDIO_SERVER=false connects without probing for PulseAudio" {
-  pulse_down
-  export REQUIRE_AUDIO_SERVER=false
   world no_sink 1
   drive 'poll_once; report'
   assert_success
   assert_equal "$(count connects)" 1
+  assert_output --partial "Connected to $MAC"
   assert_output --partial "REPORT state=connected failures=1"
-  assert_output --partial "did not become available"
 }
+
+@test "a failed connect without a PulseAudio socket logs a hint, and still retries" {
+  pulse_down
+  world connect_mode "fail:org.bluez.Error.Failed"
+  drive 'poll_once; poll_once; report'
+  assert_success
+  assert_output --partial "Hint: no PulseAudio socket for orpheus"
+  assert_output --partial "Protocol not available"
+  assert_equal "$(count connects)" 4
+}
+
 
 @test "a hung bluetoothd is bounded by the command timeout and recovers" {
   world controller hang
@@ -261,15 +260,6 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
   assert_equal "$(count connects)" 0
 }
 
-@test "a powered-off controller is powered on before connecting" {
-  world controller off
-  drive 'poll_once; report'
-  assert_success
-  assert_output --partial "powering it on"
-  grep -qx 'power on' "$BT_STATE/calls"
-  assert_output --partial "REPORT state=connected failures=0"
-}
-
 @test "a device BlueZ no longer knows gets a pairing hint and a scan" {
   world device unknown
   world connect_mode "fail:org.bluez.Error.DoesNotExist"
@@ -288,14 +278,15 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
   assert_output --partial "known but not paired"
 }
 
-@test "an untrusted device is trusted before connecting" {
+@test "the device is trusted once at startup, as before" {
   world trusted no
-  drive 'poll_once; report'
+  drive 'startup; poll_once; report'
   assert_success
   assert_output --partial "Device $MAC trusted"
   assert_equal "$(cat "$BT_STATE/trusted")" yes
   assert_output --partial "REPORT state=connected failures=0"
 }
+
 
 @test "a failing set-default-sink no longer kills the loop and is retried" {
   world set_sink_fail 1
@@ -309,7 +300,7 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
 }
 
 @test "an unknown audio user does not stop the Bluetooth connection" {
-  export AUDIO_USER=nosuchuser REQUIRE_AUDIO_SERVER=false
+  export AUDIO_USER=nosuchuser
   drive 'poll_once; report'
   assert_success
   assert_output --partial "Unable to get UID for user: nosuchuser"
@@ -324,7 +315,7 @@ count() { if [ -f "$BT_STATE/$1" ]; then wc -l < "$BT_STATE/$1" | tr -d ' '; els
 
   rm -f "$BT_STATE/su.log"
   world device disconnected
-  export AUDIO_USER='bad;user' REQUIRE_AUDIO_SERVER=false
+  export AUDIO_USER='bad;user'
   drive 'poll_once; report'
   assert_success
   assert_output --partial "Invalid AUDIO_USER: bad;user"

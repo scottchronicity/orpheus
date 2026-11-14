@@ -15,15 +15,19 @@ paired speaker. Every poll it asks BlueZ for the speaker's state, and:
 - **Not connected:** connects, then makes the speaker PulseAudio's default
   output for the audio user and moves any playing streams to it.
 - **Unavailable** (speaker off or out of range, no Bluetooth controller,
-  bluetoothd not answering, no audio server): logs why, and retries with a
-  doubling delay — 10 s, 20 s, 40 s … up to 5 minutes — so a speaker that is
-  switched off for a week costs a retry every 5 minutes, not every 10 seconds.
-  The delay drops back to 10 s as soon as the speaker is back.
+  bluetoothd not answering): logs why, and retries with a doubling delay —
+  10 s, 20 s, 40 s, then every 60 s. The delay drops back to 10 s as soon as
+  the speaker is back.
 
-It scans for devices once per outage, not on every retry. It survives
-`bluetooth.service` restarts: each check is a fresh `bluetoothctl` call with a
-timeout, so a restarting or wedged bluetoothd shows up as a logged retry rather
-than a stuck service.
+A failed connect is followed by a short discovery scan and a second attempt.
+The service survives `bluetooth.service` restarts: each check is a fresh
+`bluetoothctl` call with a timeout, so a restarting or wedged bluetoothd shows
+up as a logged retry rather than a stuck service.
+
+Playback goes through PulseAudio: the speaker only accepts a connection while a
+PulseAudio with its Bluetooth module is running (for the audio user, or in a
+desktop session), and the playback agent plays to the audio user's PulseAudio.
+This service does not start PulseAudio.
 
 The speaker has to be **paired once by hand**. The service trusts and reconnects
 a paired speaker; it does not pair new ones (pairing needs the speaker in
@@ -43,8 +47,7 @@ Settings live in `/etc/orpheus/bluetooth-autoconnect/config.env`:
 | `BLUETOOTH_SPEAKER_MAC` | — (set at install) | The paired speaker. |
 | `AUDIO_USER` | `orpheus` | The user whose PulseAudio plays to the speaker. The playback agent runs as this user. |
 | `RECONNECT_DELAY` | `10` | Seconds between checks while the speaker is healthy. |
-| `MAX_RECONNECT_DELAY` | `300` | Longest wait between retries while it is unavailable. |
-| `REQUIRE_AUDIO_SERVER` | `true` | Skip connect attempts while the audio user has no PulseAudio socket (they cannot succeed; see below). |
+| `MAX_RECONNECT_DELAY` | `60` | Longest wait between retries while it is unavailable. |
 
 After editing the file: `sudo systemctl restart orpheus-bluetooth-autoconnect`.
 Reinstalling (`make update`, `make update-all`) keeps your edited file. Passing
@@ -70,47 +73,34 @@ the next delay.
 
 ### Speaker never connects: "Protocol not available"
 
-The service logs `No PulseAudio socket for orpheus ... Not attempting to
-connect`, or `sudo journalctl -u bluetooth` shows
-`a2dp-sink profile connect failed for XX:XX:...: Protocol not available`.
+The service logs `Failed to connect ... even after cache refresh`, perhaps with
+`Hint: no PulseAudio socket for orpheus`, and `sudo journalctl -u bluetooth`
+shows `a2dp-sink profile connect failed for XX:XX:...: Protocol not available`.
 
-A speaker connects over A2DP, and something on the host has to offer the A2DP
-endpoint. In this setup that is PulseAudio's Bluetooth module, running as the
-audio user. With no PulseAudio running, BlueZ refuses every connection,
-however many times it is retried. Check:
+BlueZ is saying that nothing on the host has registered an A2DP audio
+endpoint, which means no PulseAudio with its Bluetooth module is running. The
+speaker itself is fine. Retries cannot succeed until an audio server is up.
+Check:
 
 ```bash
-ls -l /run/user/$(id -u orpheus)/pulse/native     # the socket the service looks for
-systemctl --user status pulseaudio                # run as the audio user
-loginctl show-user orpheus -p Linger              # does a user session exist without a login?
+pgrep -a pulseaudio                               # is any PulseAudio running, and as whom?
+ls -l /run/user/$(id -u orpheus)/pulse/native     # the socket the playback agent uses
 ```
 
-Common causes:
-
-- **No desktop session.** On a desktop install PulseAudio is started by the
-  graphical login. On a headless station nothing starts it unless the audio
-  user has a lingering session (`loginctl enable-linger orpheus`) and the
-  `pulseaudio` user service is enabled.
-- **PulseAudio is masked on purpose.** The
-  [audio-motion agent's README](https://github.com/scottchronicity/orpheus/tree/main/agents/orpheus-agent-audio-motion)
-  masks it (`systemctl --user mask pulseaudio`), because PulseAudio claims the
-  USB capture interface the recording agents read with ALSA ("Device or
-  resource busy"). Unmasking it brings that conflict back. Running PulseAudio
-  only for Bluetooth playback, without letting it claim the capture interface,
-  needs a PulseAudio configuration this repository does not ship yet. Test it
-  on your hardware before relying on it, and check the recording agents keep
-  their devices afterwards.
-
-Until an audio server is running, leave `REQUIRE_AUDIO_SERVER=true`: the
-service then waits quietly, at the backoff ceiling, instead of attempting a
-connection that cannot succeed.
+Start PulseAudio the way it ran when playback last worked on this host, and the
+service connects on its next retry. Be careful with the capture interface: the
+[audio-motion agent's README](https://github.com/scottchronicity/orpheus/tree/main/agents/orpheus-agent-audio-motion)
+masks the PulseAudio user service (`systemctl --user mask pulseaudio`) because
+PulseAudio can claim the USB interface the recording agents read with ALSA
+("Device or resource busy"). After starting PulseAudio, confirm the recording
+agents still have their devices.
 
 ### Speaker is off, flat or out of range
 
 The journal shows `Failed to connect ...: org.bluez.Error.Failed` (often
 `br-connection-page-timeout`) and growing retry delays. Nothing to fix on the
 host: switch the speaker on or bring it into range, and it reconnects within
-one retry delay (at most 5 minutes). Restart the service to retry at once.
+one retry delay (at most a minute). Restart the service to retry at once.
 
 ### "is not known to BlueZ" or "not paired"
 

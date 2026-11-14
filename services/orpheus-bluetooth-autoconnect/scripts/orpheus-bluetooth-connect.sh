@@ -5,16 +5,16 @@
 # Keeps one paired Bluetooth speaker connected and routes PulseAudio output to
 # it. Runs as a long-lived systemd service (orpheus-bluetooth-autoconnect):
 # each poll reads the device state, reconnects when it has dropped, and backs
-# off exponentially while the speaker, the controller or the audio server is
-# unavailable.
+# off (up to MAX_RECONNECT_DELAY) while the speaker or BlueZ is unavailable.
+# Connecting needs a running audio server (PulseAudio with its Bluetooth
+# module) to have registered the A2DP endpoint; this script does not start or
+# configure one.
 #
 # Configuration (environment, or the config file below; the file wins):
 #   BLUETOOTH_SPEAKER_MAC  MAC address of the paired speaker
 #   AUDIO_USER             user whose PulseAudio receives the speaker (default orpheus)
 #   RECONNECT_DELAY        seconds between polls while healthy (default 10)
-#   MAX_RECONNECT_DELAY    backoff ceiling in seconds (default 300)
-#   REQUIRE_AUDIO_SERVER   "true" (default): skip connect attempts while the
-#                          audio user's PulseAudio socket is absent
+#   MAX_RECONNECT_DELAY    backoff ceiling in seconds (default 60)
 #
 # Why bluetoothctl is only ever called with arguments, never fed on stdin:
 # in interactive mode (`echo "connect X" | bluetoothctl`) every invocation
@@ -41,8 +41,7 @@ fi
 BLUETOOTH_MAC="${BLUETOOTH_SPEAKER_MAC:-FC:58:FA:02:AF:28}"
 AUDIO_USER="${AUDIO_USER:-orpheus}"
 RECONNECT_DELAY="${RECONNECT_DELAY:-10}"
-MAX_RECONNECT_DELAY="${MAX_RECONNECT_DELAY:-300}"
-REQUIRE_AUDIO_SERVER="${REQUIRE_AUDIO_SERVER:-true}"
+MAX_RECONNECT_DELAY="${MAX_RECONNECT_DELAY:-60}"
 BT_COMMAND_TIMEOUT="${BT_COMMAND_TIMEOUT:-15}"   # info/show/trust/power
 BT_CONNECT_TIMEOUT="${BT_CONNECT_TIMEOUT:-45}"   # connect (page timeout + profile setup)
 SCAN_SECONDS="${SCAN_SECONDS:-10}"
@@ -136,13 +135,16 @@ as_audio_user() {
     su - "${AUDIO_USER}" -c "export XDG_RUNTIME_DIR=${PULSE_RUNTIME_ROOT}/${TARGET_UID}; $1"
 }
 
-# Side-effect-free check for the audio user's PulseAudio (or pipewire-pulse)
-# socket. Deliberately not `pactl info`: a client connect may autospawn
-# PulseAudio, which grabs the capture interface on stations that keep it
-# stopped (see the audio-motion agent's README).
-audio_server_ready() {
-    resolve_audio_user || return 1
-    [[ -S "${PULSE_RUNTIME_ROOT}/${TARGET_UID}/pulse/native" ]]
+# Diagnostic only, never a gate: the A2DP endpoint may be registered by an
+# audio server running as another user (e.g. a desktop session). Checks the
+# socket file rather than running `pactl info`, because a client connect may
+# autospawn PulseAudio, which grabs the capture interface on stations that
+# keep it stopped (see the audio-motion agent's README).
+audio_server_hint() {
+    if resolve_audio_user 2>/dev/null && [[ -S "${PULSE_RUNTIME_ROOT}/${TARGET_UID}/pulse/native" ]]; then
+        return 0
+    fi
+    log_info "Hint: no PulseAudio socket for ${AUDIO_USER} (${PULSE_RUNTIME_ROOT}/${TARGET_UID:-?}/pulse/native). If 'journalctl -u bluetooth' shows 'a2dp-sink profile connect failed ... Protocol not available', no audio server has registered A2DP with BlueZ."
 }
 
 # Read the device and controller state into DEVICE_STATE / DEVICE_INFO:
@@ -185,21 +187,6 @@ trust_device() {
     return 1
 }
 
-# Power the controller on if it is off (rfkill, or a bluetoothd restart
-# without AutoEnable).
-ensure_powered() {
-    local show
-    show=$(bt "${BT_COMMAND_TIMEOUT}" show 2>&1) || true
-    if [[ "${show}" == *"Powered: no"* ]]; then
-        log_warn "Bluetooth controller is powered off; powering it on"
-        if ! bt "${BT_COMMAND_TIMEOUT}" power on >/dev/null 2>&1; then
-            log_error "Failed to power on the Bluetooth controller"
-            return 1
-        fi
-    fi
-    return 0
-}
-
 # Pull the reason out of bluetoothctl's connect output, e.g.
 # "Failed to connect: org.bluez.Error.Failed".
 connect_failure_reason() {
@@ -220,20 +207,15 @@ connect_device() {
     local out
     out=$(bt "${BT_CONNECT_TIMEOUT}" connect "${BLUETOOTH_MAC}" 2>&1)
     if ! is_connected; then
-        # One discovery scan per outage (or when BlueZ has lost the device)
-        # re-populates the controller cache. Repeating it on every retry only
-        # keeps the radio busy while the speaker is off or out of range.
-        if [[ "${FAILURES}" -eq 0 || "${DEVICE_STATE}" == "missing" ]]; then
-            log_info "Initial connection failed ($(connect_failure_reason "${out}")). Refreshing Bluetooth cache with scan..."
-            bt "$((SCAN_SECONDS + 5))" --timeout "${SCAN_SECONDS}" scan on >/dev/null 2>&1 || true
-            sleep 2
-            out=$(bt "${BT_CONNECT_TIMEOUT}" connect "${BLUETOOTH_MAC}" 2>&1)
-            if ! is_connected; then
-                log_error "Failed to connect to ${BLUETOOTH_MAC} even after cache refresh: $(connect_failure_reason "${out}")"
-                return 1
-            fi
-        else
-            log_error "Failed to connect to ${BLUETOOTH_MAC}: $(connect_failure_reason "${out}")"
+        # As before: a discovery scan to wake the stack and re-populate the
+        # controller cache, then one more attempt.
+        log_info "Initial connection failed ($(connect_failure_reason "${out}")). Refreshing Bluetooth cache with scan..."
+        bt "$((SCAN_SECONDS + 5))" --timeout "${SCAN_SECONDS}" scan on >/dev/null 2>&1 || true
+        sleep 2
+        out=$(bt "${BT_CONNECT_TIMEOUT}" connect "${BLUETOOTH_MAC}" 2>&1)
+        if ! is_connected; then
+            log_error "Failed to connect to ${BLUETOOTH_MAC} even after cache refresh: $(connect_failure_reason "${out}")"
+            audio_server_hint
             return 1
         fi
     fi
@@ -314,19 +296,6 @@ attempt_connection() {
             ;;
     esac
 
-    if [[ "${REQUIRE_AUDIO_SERVER}" == "true" ]] && ! audio_server_ready; then
-        # Without an audio server nothing has registered an A2DP endpoint, so
-        # every connect fails in bluetoothd with "a2dp-sink profile connect
-        # failed for <MAC>: Protocol not available".
-        log_error "No PulseAudio socket for ${AUDIO_USER} at ${PULSE_RUNTIME_ROOT}/${TARGET_UID:-?}/pulse/native; an A2DP speaker cannot connect without an audio server. Not attempting to connect."
-        return 1
-    fi
-
-    ensure_powered || return 1
-    if [[ "${DEVICE_STATE}" == "disconnected" && "${DEVICE_INFO}" == *"Trusted: no"* ]]; then
-        trust_device || true
-    fi
-
     connect_device
 }
 
@@ -401,13 +370,8 @@ on_stop() {
     exit 0
 }
 
-# Main loop
-main() {
-    if ! validate_config; then
-        exit "${EX_CONFIG}"
-    fi
-    trap on_stop TERM INT
-
+# Startup, as before: wait for bluetooth.service, trust the device once.
+startup() {
     log_info "Orpheus Bluetooth Auto-Connect service started"
     log_info "Target device: ${BLUETOOTH_MAC}; audio user: ${AUDIO_USER}; poll ${RECONNECT_DELAY}s, backoff up to ${MAX_RECONNECT_DELAY}s"
 
@@ -415,6 +379,19 @@ main() {
     if [[ "${STARTUP_DELAY}" -gt 0 ]]; then
         sleep_interruptible "${STARTUP_DELAY}"
     fi
+
+    # Trust the device once at startup
+    trust_device || log_error "Warning: Could not trust device, continuing anyway..."
+}
+
+# Main loop
+main() {
+    if ! validate_config; then
+        exit "${EX_CONFIG}"
+    fi
+    trap on_stop TERM INT
+
+    startup
 
     while true; do
         poll_once

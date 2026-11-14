@@ -21,7 +21,8 @@ target in the root Makefile. Later runs skip the bootstrap. Reset with
 - **`bluetooth-autoconnect.bats`** — the Bluetooth speaker supervisor
   (`services/orpheus-bluetooth-autoconnect/scripts/orpheus-bluetooth-connect.sh`):
   connect and audio routing, reconnect after a drop, backoff while the speaker,
-  controller, bluetoothd or audio server is unavailable, recovery from each,
+  controller or bluetoothd is unavailable, recovery from each, a missing
+  PulseAudio socket never blocking a connect,
   pairing and trust handling, config loading, and SIGTERM. Uses stateful mocks
   of `bluetoothctl` / `su` / `id` under `BATS_TEST_TMPDIR`.
 - **`bump-version.bats`** — `scripts/bump-version.sh`: patch/minor/patch
