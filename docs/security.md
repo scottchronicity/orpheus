@@ -129,16 +129,19 @@ Being explicit, because "it has a login page" invites wrong assumptions:
   reverse proxy in front for TLS and its access log becomes a file full of live
   session tokens unless you configure that away.
 
-## The platform constraint
+## Runtime-specific dependency constraints
 
-The reference deployment is an NVIDIA Jetson, whose vendor image pins Python to 3.9
-(`requires-python = ">=3.9, <3.10"`). That floor is not a preference — the ARM64
-builds of the ML stack that work on that hardware require it.
+Orpheus does not have one Python runtime. GPS and event correlation support Python
+3.12/3.13; many capture, model and dashboard components still declare Python 3.9;
+the isolated Jetson PANNs CUDA worker uses its validated Python 3.8/NVIDIA stack.
+The supported runtime and dependency range is recorded by each component's package
+metadata and installer.
 
-The consequence is honest and worth stating: **some dependencies are older than what
-a current desktop install would use**, and some upstream security fixes ship only in
-versions that require newer Python. We track this rather than pretend otherwise, and
-whether the constraint can be lifted is still an open question.
+The remaining Python 3.9 inference and hardware dependencies can lag packages that
+target newer Python releases, so security fixes may be delayed until that component
+can be upgraded without breaking its hardware or model contract. Moving GPS and the
+correlator does not imply that the Jetson model stacks have moved. Track risk and
+upgrade each component independently rather than changing the system interpreter.
 
 What this means practically: the risk is bounded by not exposing the box. On a
 private network, behind your router, with changed credentials, an older dependency

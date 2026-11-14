@@ -20,15 +20,19 @@ For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows
 | **Node.js 20+** | Only for a developer-style `make install` — `make install-service` fetches its own Node. See [Node.js: what needs it, and when](ORPHEUS_UI.md#nodejs-what-needs-it-and-when) | `curl -fsSL https://deb.nodesource.com/setup_20.x \| sudo -E bash - && sudo apt install nodejs` |
 | **ffmpeg** | Timelapse video generation | `sudo apt install ffmpeg` |
 
-> **Where `python3.9` comes from.** The Makefiles look for an interpreter named
-> `python3.9` on `PATH` (`PYTHON_SYSTEM`, default `python3.9`) and require at
-> least 3.9.5 (`PYTHON_REQUIRED_VERSION`). If your JetPack image already ships
-> one, use it — a system interpreter built for the board is the one that carries
-> working CUDA and cuDNN bindings, and replacing it is how people break GPU
-> inference. If it does not ship one, install 3.9.5 with uv and point the build
-> at it: `uv python install 3.9.5` then
-> `export PYTHON_SYSTEM=$(uv python find 3.9.5)`. Check which case you are in
-> before you start: `python3.9 --version`.
+> **Where Python 3.9 comes from.** Components that retain the repository default
+> look for `python3.9` and require at least 3.9.5. Prefer the JetPack interpreter
+> for those agent environments when available; otherwise install a compatible
+> interpreter with uv and set `PYTHON_SYSTEM`. The PANNs CUDA worker has its own
+> isolated Python 3.8 environment and vendor stack. Do not use a standalone
+> interpreter for that worker unless it has been validated against the installed
+> JetPack/CUDA libraries.
+
+GPS and event-correlator use independent Python 3.12 or 3.13 environments and
+do not share the PANNs CUDA runtime. Their systemd installers need a compatible
+interpreter available as `python3.12` or supplied through `PYTHON_BIN`; this
+does not replace the Jetson's system Python. See the
+[component runtime notes](operator-manual/index.md#component-python-environments).
 
 ---
 

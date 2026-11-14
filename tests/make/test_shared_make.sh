@@ -145,6 +145,21 @@ else
     fail "common_python.mk provides default SRC_DIR and TEST_DIR"
 fi
 
+# The version gate must honor arbitrary per-component minimums, not only the
+# repository's historical Python 3.9 floor.
+output="$(cd "$FIXTURE_PY" && make check-python-version PYTHON_SYSTEM=python3 PYTHON_REQUIRED_VERSION=3 2>&1)" || true
+if echo "$output" | grep -q "version .* OK (requires 3+)"; then
+    pass "common_python.mk accepts a matching component minimum"
+else
+    fail "common_python.mk accepts a matching component minimum"
+fi
+output="$(cd "$FIXTURE_PY" && make check-python-version PYTHON_SYSTEM=python3 PYTHON_REQUIRED_VERSION=4.0 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && echo "$output" | grep -q "Python 4.0+ required"; then
+    pass "common_python.mk rejects an interpreter below the component minimum"
+else
+    fail "common_python.mk rejects an interpreter below the component minimum"
+fi
+
 # -- Test 7: variables can be overridden before include ----------------------
 FIXTURE_PY2="$TMPDIR_BASE/test_python_override"
 mkdir -p "$FIXTURE_PY2"

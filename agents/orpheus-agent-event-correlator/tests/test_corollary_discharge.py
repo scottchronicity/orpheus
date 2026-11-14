@@ -1,7 +1,7 @@
 """Tests for corollary discharge (the "echo problem"): the filter + the agent
 wiring that tags self-generated detections overlapping our own playback."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 from orpheus_common.config import OrpheusConfig
@@ -13,7 +13,7 @@ from orpheus_agent_event_correlator.corollary_discharge import (
 )
 from orpheus_agent_event_correlator.main import EventCorrelatorAgent
 
-T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 6, 26, 12, 0, 0, tzinfo=UTC)
 
 
 def _real_config(*, corollary_enabled: bool = True) -> OrpheusConfig:
@@ -114,7 +114,7 @@ class TestAgentCorollaryDischargeWiring:
         agent = EventCorrelatorAgent(window_seconds=3.0)
         agent.bus = Mock()  # db stays None → _persist_entity no-ops
         # Use a near-now start so the window stays within the 5-min retention.
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         agent._on_playback_event(
             PLAYBACK_TOPIC,
             {"start_time": start.isoformat(), "duration_seconds": 5.0, "source": "speaker"},
@@ -135,7 +135,7 @@ class TestAgentCorollaryDischargeWiring:
         agent = EventCorrelatorAgent(window_seconds=3.0)
         agent.bus = Mock()
         agent.db = DetectionDB(db_path=tmp_path / "entities.db")
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         agent._on_playback_event(
             PLAYBACK_TOPIC,
             {"start_time": start.isoformat(), "duration_seconds": 5.0, "source": "speaker"},
@@ -151,7 +151,7 @@ class TestAgentCorollaryDischargeWiring:
         mock_cfg_cls.get_instance.return_value = _real_config()
         agent = EventCorrelatorAgent(window_seconds=3.0)
         agent.bus = Mock()
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         entity = self._entity_event(start, start + timedelta(seconds=1), "e2")
         agent._on_entity_ready(entity)
         assert entity["is_self_generated"] is False
@@ -165,9 +165,7 @@ class TestAgentCorollaryDischargeWiring:
         assert subs.get(PLAYBACK_TOPIC) == agent._on_playback_event
 
     @patch("orpheus_agent_event_correlator.main.OrpheusConfig")
-    def test_flag_off_no_playback_subscription_and_no_tagging(
-        self, mock_cfg_cls: Mock
-    ) -> None:
+    def test_flag_off_no_playback_subscription_and_no_tagging(self, mock_cfg_cls: Mock) -> None:
         """Default (disabled): no PLAYBACK_TOPIC subscription and the verdict
         is never recomputed — the entity keeps the False that
         _build_one_entity emits, even with a window planted in the filter."""
@@ -178,7 +176,7 @@ class TestAgentCorollaryDischargeWiring:
         assert PLAYBACK_TOPIC not in [topic for topic, _ in agent.subscriptions()]
 
         # Plant an overlapping window directly — disabled still means no tag.
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         agent.corollary_discharge.register_playback(start, 5.0, "speaker")
         entity = self._entity_event(
             start + timedelta(seconds=2), start + timedelta(seconds=3), "off1"

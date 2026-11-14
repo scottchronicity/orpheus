@@ -1,6 +1,6 @@
 # GPS Service Dependencies
-# NOTE: This project uses requirements.txt for dependencies
-# for compatibility with older pip versions (Python 3.9.5).
+# GPS uses an independent Python 3.12/3.13 runtime; this file retains the
+# deployment installer path dependency convention.
 
 # Core dependency - installed from local path in production
 -e ../../platform/orpheus-common

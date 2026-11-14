@@ -3,8 +3,10 @@
 # This file documents the version constraints used across all projects.
 # Each project's requirements.txt should mirror these versions.
 #
-# Python Version: 3.9.5+ (Jetson Orin NX compatibility)
-# Last Updated: December 2024
+# Runtime versions are component-owned: the validated PANNs GPU worker remains
+# on Python 3.8; existing agents retain their current environment; GPS and the
+# event correlator use Python 3.12 or 3.13.
+# Last Updated: November 2026
 #
 # To check for consistency, run: make check-deps
 #

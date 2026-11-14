@@ -1,7 +1,7 @@
 """Tests for GPS service main module."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pynmea2
@@ -258,7 +258,7 @@ class TestTimeDrift:
 
     def test_no_drift_warning(self, gps_service):
         """Test no warning when time is synchronized."""
-        gps_time = datetime.now(timezone.utc)
+        gps_time = datetime.now(UTC)
 
         # Should not raise any exception
         gps_service._check_time_drift(gps_time)
@@ -267,7 +267,7 @@ class TestTimeDrift:
         """Test warning when time drifts significantly."""
         # GPS time is 10 seconds in the past
         gps_time = datetime.fromtimestamp(
-            datetime.now(timezone.utc).timestamp() - 10, tz=timezone.utc
+            datetime.now(UTC).timestamp() - 10, tz=UTC
         )
 
         # Should not raise exception, just log warning

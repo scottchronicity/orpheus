@@ -36,6 +36,7 @@ it has shipped.
 | [0021](0021-birdnet-onnx-execution-providers.md) | BirdNET ONNX execution providers | Live — per-agent provider selection with isolated runtime dependencies |
 | [0022](0022-birdnet-onnx-provider-fail-closed-runtime.md) | BirdNET ONNX provider fail-closed runtime | Live — exclusive per-agent runtime choice and explicit accelerator failure semantics |
 | [0023](0023-portable-crow-torch-device-selection.md) | Portable crow Torch device selection | Live — shared resolved device, opt-in MPS, and video model boundary |
+| [0024](0024-independent-python-312-runtime-migration.md) | Independent Python 3.12 runtimes for GPS and event correlation | Live — isolated modern runtimes with legacy and GPU environments preserved |
 
 Records are immutable once accepted: a decision that changes gets a new record
 and a `Superseded` line on the old one, rather than an edit.

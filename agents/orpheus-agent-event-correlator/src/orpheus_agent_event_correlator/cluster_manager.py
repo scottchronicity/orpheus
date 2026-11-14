@@ -23,9 +23,10 @@ import asyncio
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from orpheus_common.detection import TaxonomyRef
 from orpheus_common.detection.entity_taxonomy import derive_entity_type
@@ -87,9 +88,7 @@ class Observation:
         # Normalized to aware-UTC: cluster time math (min/max over mixed
         # observations) raises on a naive-vs-aware mix, and producers are not
         # trusted to always send an offset.
-        self.timestamp = (
-            _utc(timestamp) if timestamp is not None else datetime.now(timezone.utc)
-        )
+        self.timestamp = _utc(timestamp) if timestamp is not None else datetime.now(UTC)
         self.intervals = intervals
         # ``taxonomy`` is the serialised TaxonomyRef dict from the source
         # Detection. May be None for classifiers that don't make species
@@ -193,8 +192,8 @@ class TemporalCluster:
     ) -> None:
         self.window_seconds = window_seconds
         self.observations: list[Observation] = []
-        self.created_at = datetime.now(timezone.utc)
-        self.last_updated = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
+        self.last_updated = datetime.now(UTC)
         self._timer_handle: asyncio.TimerHandle | None = None
         # Optional callable(TaxonomyRef, TaxonomyRef) -> bool used to merge
         # cross-classifier labels a Layer-3 equivalence has linked (e.g.
@@ -209,7 +208,7 @@ class TemporalCluster:
         this method just bookkeeps the cluster's state.
         """
         self.observations.append(obs)
-        self.last_updated = datetime.now(timezone.utc)
+        self.last_updated = datetime.now(UTC)
 
     @property
     def max_confidence(self) -> float:
@@ -227,9 +226,7 @@ class TemporalCluster:
         Not authoritative — the full evidence list is the source of
         truth. This just gives table/list views something to show.
         """
-        candidates = [
-            obs for obs in self.observations if obs.species_code
-        ]
+        candidates = [obs for obs in self.observations if obs.species_code]
         if not candidates:
             return None
         return max(candidates, key=lambda o: o.confidence)
@@ -378,7 +375,7 @@ class TemporalCluster:
             context["lat"] = sum(lats) / len(lats)
         if lons:
             context["lon"] = sum(lons) / len(lons)
-        context["timestamp"] = datetime.now(timezone.utc).isoformat()
+        context["timestamp"] = datetime.now(UTC).isoformat()
 
         display = self._group_display(observations)
         start = min(timestamps) if timestamps else self.created_at
@@ -402,7 +399,7 @@ class TemporalCluster:
         return EntityEvent.from_dict(
             {
                 "entity_id": str(uuid.uuid4()),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "species_code": display.species_code if display else "",
                 "common_name": display.common_name if display else "",
                 "confidence": max((o.confidence for o in observations), default=0.0),
@@ -530,11 +527,7 @@ def enrich_entity_event(entity_event: dict[str, Any], obs: Observation) -> bool:
     # a from-scratch rebuild would have displayed it. Computed BEFORE the
     # append so the new evidence can't gate itself.
     pre_display_max = max(
-        (
-            float(ev.get("confidence") or 0.0)
-            for ev in evidence
-            if ev.get("species_code")
-        ),
+        (float(ev.get("confidence") or 0.0) for ev in evidence if ev.get("species_code")),
         default=0.0,
     )
     evidence.append(
@@ -826,7 +819,7 @@ class ClusterManager:
         # Compute time remaining until the absolute cap. If we're already
         # at or past the cap, expire immediately rather than scheduling
         # a no-op timer.
-        elapsed = (datetime.now(timezone.utc) - cluster.created_at).total_seconds()
+        elapsed = (datetime.now(UTC) - cluster.created_at).total_seconds()
         remaining_until_cap = self.max_cluster_duration_seconds - elapsed
         if remaining_until_cap <= 0:
             self._expire_cluster()

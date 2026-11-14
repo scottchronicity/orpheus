@@ -30,7 +30,13 @@ For full development guidelines, see [CONTRIBUTING.md](contributing.md) and [AGE
 uv python install 3.9.5
 ```
 
-That's it. uv downloads a standalone CPython 3.9.5 build and manages it for you. The repo's `.python-version` file tells uv (and the Makefiles) which version to use.
+That's it. uv downloads a standalone CPython 3.9.5 build and manages it for you.
+The root `.python-version` provides the default for components that use the
+repository runtime; individual component Makefiles may select a different version.
+
+GPS and the event correlator use Python 3.12 or 3.13 in their own Make-managed
+environments; those targets provision the component runtime independently. See
+the [operator runtime notes](operator-manual/index.md#component-python-environments).
 
 Verify:
 

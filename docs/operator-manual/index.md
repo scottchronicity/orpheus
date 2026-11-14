@@ -46,6 +46,21 @@ Pick your platform quickstart, then the full install reference:
 Everything is driven by `make` targets (never raw `pip`/`systemctl`) — see
 [Tooling](../agent-instructions/10-tooling.md).
 
+### Component Python environments
+
+Python versions are selected per component. GPS and the event correlator use
+Python 3.12 or 3.13 and keep development environments in `venv-py312`. Their
+systemd installers default to `python3.12`; set `PYTHON_BIN` when installing if
+your compatible interpreter has another path. The other agents retain their
+declared runtime until individually validated. The PANNs CUDA worker remains
+isolated on its validated Python 3.8 NVIDIA stack. The root Makefile's Python
+3.9 default remains for components that have not moved.
+
+The event-correlator installer rebuilds its old Python 3.9 service environment
+when it detects one. GPS installation already recreates its service environment.
+These installers affect only their component venvs; they do not change the
+system Python or the inference workers. See [ADR 0024](../adr/0024-independent-python-312-runtime-migration.md).
+
 ## 2. Configuration
 
 For optional isolated PANNs GPU inference, including automatic backend selection,

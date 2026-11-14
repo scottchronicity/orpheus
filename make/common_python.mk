@@ -83,16 +83,9 @@ check-python-version:
 		exit 1; \
 	fi; \
 	PYTHON_VER=$$($$FOUND_PYTHON -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"); \
-	MAJOR=$$(echo $$PYTHON_VER | cut -d. -f1); \
-	MINOR=$$(echo $$PYTHON_VER | cut -d. -f2); \
-	MICRO=$$(echo $$PYTHON_VER | cut -d. -f3); \
-	if [ "$$MAJOR" != "3" ] || [ "$$MINOR" -lt "9" ]; then \
+	if ! "$$FOUND_PYTHON" -c 'import sys; required=tuple(map(int, sys.argv[1].split("."))); raise SystemExit(sys.version_info[:len(required)] < required)' "$(PYTHON_REQUIRED_VERSION)"; then \
 		echo "❌ Python $(PYTHON_REQUIRED_VERSION)+ required, found $$PYTHON_VER"; \
-		echo "   Set PYTHON_SYSTEM=path/to/python3.9"; \
-		exit 1; \
-	fi; \
-	if [ "$$MINOR" = "9" ] && [ "$$MICRO" -lt 5 ]; then \
-		echo "❌ Python $(PYTHON_REQUIRED_VERSION)+ required, found $$PYTHON_VER (micro version too low)"; \
+		echo "   Set PYTHON_SYSTEM to a compatible interpreter"; \
 		exit 1; \
 	fi; \
 	echo "✓ Python version $$PYTHON_VER OK (requires $(PYTHON_REQUIRED_VERSION)+)"
@@ -140,9 +133,14 @@ $(VENV)/bin/activate: assure-python-version
 ifdef HAS_UV
 	@if [ -f "$(VENV)/bin/activate" ]; then \
 		echo "✓ Virtual environment already present at $(VENV)"; \
-	else \
-		echo "Creating virtual environment at $(VENV) via uv..."; \
+	elif command -v $(PYTHON_SYSTEM) >/dev/null 2>&1; then \
+		echo "Creating virtual environment at $(VENV) via uv with $(PYTHON_SYSTEM)..."; \
 		uv venv --seed --python $(PYTHON_SYSTEM) $(VENV) && \
+		echo "✓ Virtual environment created"; \
+	else \
+		UV_PYTHON=$$(uv python find $(PYTHON_REQUIRED_VERSION)) && \
+		echo "Creating virtual environment at $(VENV) via uv with $$UV_PYTHON..." && \
+		uv venv --seed --python "$$UV_PYTHON" $(VENV) && \
 		echo "✓ Virtual environment created"; \
 	fi
 else
