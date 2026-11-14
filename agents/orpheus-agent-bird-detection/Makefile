@@ -8,14 +8,24 @@ include ../../make/common_lint.mk
 include ../../make/common_service.mk
 include ../../make/common_deploy.mk
 
-.PHONY: help venv install reinstall run test coverage clean update dry-run \
+.PHONY: help venv install install-cuda reinstall run test coverage clean update dry-run \
         download-labels download-models pull-models check-models
+
+ONNX_RUNTIME ?= cpu
+ifeq ($(ONNX_RUNTIME),cpu)
+INSTALL_REQUIREMENTS := requirements.txt
+else ifeq ($(ONNX_RUNTIME),cuda)
+INSTALL_REQUIREMENTS := requirements-cuda.txt
+else
+$(error ONNX_RUNTIME must be cpu or cuda; got '$(ONNX_RUNTIME)')
+endif
 
 help:
 	@echo "Orpheus Bird Detection"
 	@echo ""
 	@echo "Local development (no sudo):"
-	@echo "  make install          Create venv and install dependencies"
+	@echo "  make install          Create venv and install dependencies (ONNX_RUNTIME=cpu|cuda; default cpu)"
+	@echo "  make install-cuda     Install the isolated CUDA ONNX Runtime variant"
 	@echo "  make reinstall        Recreate venv from scratch"
 	@echo "  make run [ARGS=...]   Run agent locally (pass extra args via ARGS)"
 	@echo "  make test             Execute pytest suite"
@@ -48,8 +58,17 @@ install: venv
 	fi
 	@echo "Installing dependencies..."
 	@$(PIP) install --upgrade pip
-	@$(PIP) install -r requirements.txt
+	@echo "Removing any previously installed ONNX Runtime variant..."
+	@if command -v uv >/dev/null 2>&1; then \
+		uv pip uninstall --python $(PYTHON) onnxruntime onnxruntime-gpu; \
+	else \
+		$(PIP) uninstall -y onnxruntime onnxruntime-gpu; \
+	fi
+	@$(PIP_INSTALL) -r $(INSTALL_REQUIREMENTS)
 	@echo "Dependencies installed"
+
+install-cuda:
+	$(MAKE) install ONNX_RUNTIME=cuda
 
 reinstall:
 	@if [ "$$(id -u)" = "0" ]; then \

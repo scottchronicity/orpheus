@@ -20,9 +20,19 @@ Subscribes to audio motion events from `orpheus-agent-audio-motion` and performs
 # Install dependencies
 make install
 
+# For a CUDA-capable ONNX Runtime build in this agent's isolated environment:
+# make install-cuda
+
 # Install systemd service
 make install-service
 ```
+
+`make install` selects the CPU `onnxruntime` package by default. The
+`install-cuda` target first removes either ONNX Runtime distribution, then
+installs this agent with the `onnxruntime-gpu` extra. Exactly one runtime
+distribution is installed in the agent environment. CUDA package compatibility
+depends on the deployment's operating system, architecture, CUDA, and cuDNN;
+the target does not provision or validate those host libraries.
 
 ## Model Management
 

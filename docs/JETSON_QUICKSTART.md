@@ -235,10 +235,10 @@ sudo systemctl stop 'orpheus-*'
 3. If cameras are connected, video motion and snapshots will populate automatically.
 4. BirdNET identifications appear when bird calls are detected.
 
-> **Note:** BirdNET runs on the CPU everywhere, the Jetson included: it is an
-> ONNX model and the session is built with the default CPU provider. Expect a
-> couple of seconds per clip. The GPU is used by the two torch models,
-> crow-detection and audio-events, which take a `device` setting.
+> **Note:** BirdNET defaults to ONNX Runtime's best available supported
+> provider. CUDA acceleration requires a compatible ONNX Runtime GPU package in
+> the BirdNET agent environment; the standard CPU package remains the default.
+> This setting does not itself validate a Jetson CUDA stack.
 
 ---
 

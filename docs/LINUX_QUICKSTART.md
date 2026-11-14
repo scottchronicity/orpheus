@@ -167,12 +167,9 @@ make dev-restart SVC=bird-detection   # Restart one service
 2. Play a YouTube video of bird calls near your mic.
 3. Within 10–20 seconds you should see audio motion events and BirdNET identifications in the UI.
 
-> **Note:** Expect BirdNET results in a few seconds per clip. BirdNET runs on
-> the CPU on every platform — it ships as ONNX against the CPU-only runtime, so
-> an NVIDIA card does not change it. Putting it on a GPU would need the
-> `onnxruntime-gpu` package and a code change to request the provider;
-> contributions welcome. The two torch models do use a GPU where one is
-> available.
+> **Note:** BirdNET uses the best supported ONNX Runtime provider installed in
+> its own environment (CUDA, CoreML, or CPU). See [BirdNET provider
+> configuration](operator-manual/index.md#birdnet-execution-provider).
 
 ---
 
@@ -180,7 +177,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 
 | Limitation | Impact | Workaround |
 | --- | --- | --- |
-| No GPU path for BirdNET | BirdNET is CPU-only on every platform, so it is the slowest step | Nothing to configure; the two torch models use a GPU if one is present |
+| BirdNET uses CPU | The installed ONNX Runtime build exposes no supported accelerator | Configure `bird_detection.execution_provider` and install a compatible runtime in this agent's environment |
 | systemd production path is Jetson-tuned | Services' `install.sh` scripts may not work cleanly on non-Jetson Linux | Use `make dev-stack` for development; adapt `systemd/install.sh` per-service if you need production |
 | Bluetooth auto-connect is Jetson-focused | `orpheus-bluetooth-autoconnect` may not work on your distro | Disable or skip the service if Bluetooth isn't needed |
 | Package names vary by distro | `libportaudio2` / `libsndfile1` are Debian/Ubuntu names | Fedora: `portaudio-devel`, `libsndfile`. Arch: `portaudio`, `libsndfile`. |

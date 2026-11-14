@@ -28,6 +28,7 @@ class BirdDetectionConfig:
     # Scientific names or full BirdNET labels for species personally confirmed
     # at this site; these bypass the geo filter. See _resolve_whitelist.
     site_species_whitelist: list[str] = field(default_factory=list)
+    execution_provider: str = "auto"
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> BirdDetectionConfig:
@@ -71,6 +72,14 @@ class BirdDetectionConfig:
             whitelist_raw = []
         whitelist = [str(x) for x in whitelist_raw]
 
+        execution_provider = str(bird_config.get("execution_provider", "auto")).lower()
+        if execution_provider not in {"auto", "cpu", "cuda", "coreml"}:
+            raise ValueError(
+                "bird_detection.execution_provider must be one of "
+                "auto, cpu, cuda, coreml; got "
+                f"{execution_provider!r}"
+            )
+
         return cls(
             model_path=model_path,
             confidence_threshold=float(bird_config.get("confidence_threshold", 0.5)),
@@ -84,6 +93,7 @@ class BirdDetectionConfig:
                 bird_config.get("geo_filter_weak_admit_conf", 0.85)
             ),
             site_species_whitelist=whitelist,
+            execution_provider=execution_provider,
         )
 
 

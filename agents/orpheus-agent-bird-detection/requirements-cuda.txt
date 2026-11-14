@@ -1,0 +1,3 @@
+# CUDA environment variant. Do not install alongside requirements.txt.
+-e ../../platform/orpheus-common
+-e .[dev,onnx-cuda]

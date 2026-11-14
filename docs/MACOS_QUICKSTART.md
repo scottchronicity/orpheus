@@ -209,7 +209,9 @@ make dev-restart SVC=bird-detection   # Restart just bird-detection
    - Audio motion events appearing in the UI
    - BirdNET species identifications for detected calls
 
-> **Note:** CPU inference is slower than GPU. On a MacBook Pro M-series, expect BirdNET results in 2–5 seconds per clip. On Intel Macs, up to 10 seconds.
+> **Note:** BirdNET uses the best supported ONNX Runtime provider installed in
+> its own environment. CoreML may be selected on Apple hardware when the
+> installed runtime exposes it; otherwise inference uses CPU.
 
 ---
 
@@ -217,7 +219,7 @@ make dev-restart SVC=bird-detection   # Restart just bird-detection
 
 | Limitation | Impact | Workaround |
 | --- | --- | --- |
-| No GPU acceleration | Only affects the two torch models; BirdNET is CPU everywhere | Acceptable for demo/development |
+| BirdNET uses CPU | The installed ONNX Runtime build exposes no supported accelerator | Configure `bird_detection.execution_provider` and install a compatible runtime in the BirdNET agent environment |
 | Video agents require RTSP cameras | Won't use your Mac's webcam | Cameras use credentials from `config/orpheus.example.yaml` or ignore the failures |
 | No Bluetooth | No speaker auto-connect | Set `ORPHEUS_AUDIO__PLAYBACK_COMMAND=afplay` in `config/.env.orpheus` to use the macOS built-in player |
 | Crow detection requires AVES model | Agent skipped if model not downloaded | `git lfs pull` — both files ship in `artifacts/models/` and `dev-stack` symlinks them into place on first run |

@@ -3,6 +3,8 @@
 import os
 from unittest.mock import Mock, patch
 
+import pytest
+
 from orpheus_agent_bird_detection.config import BirdDetectionConfig, load_config
 
 
@@ -31,6 +33,23 @@ class TestBirdDetectionConfig:
             assert config.geo_filter_weak_admit_prob == 0.0005
             assert config.geo_filter_weak_admit_conf == 0.85
             assert config.site_species_whitelist == []
+            assert config.execution_provider == "auto"
+
+    def test_execution_provider_is_read_from_bird_config(self) -> None:
+        with patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": ""}):
+            config = BirdDetectionConfig.from_orpheus_config(
+                self.ConfigStub({"bird_detection": {"execution_provider": "CUDA"}})
+            )
+        assert config.execution_provider == "cuda"
+
+    def test_invalid_execution_provider_fails_validation(self) -> None:
+        with (
+            patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": ""}),
+            pytest.raises(ValueError, match="execution_provider must be one of"),
+        ):
+            BirdDetectionConfig.from_orpheus_config(
+                self.ConfigStub({"bird_detection": {"execution_provider": "metal"}})
+            )
 
     def test_from_orpheus_config_with_geo_overrides_and_whitelist(self) -> None:
         """Should read geo filter knobs and site whitelist from YAML."""
