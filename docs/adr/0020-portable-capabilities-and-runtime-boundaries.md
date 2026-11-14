@@ -75,9 +75,11 @@ Separate runtimes add packaging and supervision costs, but avoid a platform-wide
 dependency lock. Cross-host processing still needs recording access and the
 security/deployment prerequisites in ADR 0018.
 
-The current opt-in PANNs queue rejects on overload/unavailability and has no
-automatic replay. Its default pending capacity is an explicitly documented
-coverage tradeoff, not a guarantee for a particular microphone count. Durable
+The opt-in PANNs agent queues each callback it receives and waits through
+temporary worker unavailability or memory recovery. Graceful shutdown drains
+accepted work before closing the worker. This is process-local queueing, not
+crash-durable admission or automatic replay. The legacy `max_pending_clips`
+setting remains parseable but no longer imposes admission rejection. Durable
 admission/retry would need the event-sourcing acknowledgement/idempotency work;
 the shadow stream does not supply it today. SQLite authority and the existing
 replay gates remain unchanged.
@@ -85,8 +87,10 @@ replay gates remain unchanged.
 ## Enforcement and evidence
 
 - Audio-events tests compare in-process and real pipe-worker domain output,
-  persist to SQLite, classify old clips, exercise configured bursts beyond four
-  sources, and verify IPC failures emit no fabricated detections or age policy.
+  persist to SQLite, classify old clips, exercise bursts beyond four sources,
+  count callbacks accepted under overload, wait through worker recovery, drain
+  queued and active work on shutdown, and verify IPC failures emit no fabricated
+  detections or implicit age policy.
 - Configuration tests exercise YAML, optional KV and environment precedence
   through parent limits and child command arguments, and refuse unsupported
   PANNs devices and invalid concurrency/capacity.

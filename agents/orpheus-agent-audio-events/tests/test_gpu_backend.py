@@ -116,13 +116,19 @@ def test_gpu_pipeline_preserves_lineage_and_persistence(gpu_agent, clip_source):
     assert gpu_agent.health_payload("heartbeat")["model_loaded"] is True
 
 
-def test_bounded_admission_precedes_decode(gpu_agent, clip_source, monkeypatch):
+def test_gpu_queue_preserves_every_received_clip_under_overload(
+    gpu_agent, clip_source, monkeypatch
+):
     entered, release = threading.Event(), threading.Event()
+    processed = []
+    processed_lock = threading.Lock()
 
     def block(_path, _source, *, deadline):
         assert deadline is None
         entered.set()
         release.wait(timeout=5)
+        with processed_lock:
+            processed.append(_source.event_id)
 
     monkeypatch.setattr(gpu_agent, "_process_audio_file", block)
     path, source = clip_source
@@ -131,12 +137,12 @@ def test_bounded_admission_precedes_decode(gpu_agent, clip_source, monkeypatch):
         assert entered.wait(timeout=2)
         for _ in range(20):
             gpu_agent._submit_processing(path, source)
-        assert len(gpu_agent._inflight) == 3
-        assert gpu_agent.health_payload("heartbeat")["pending_clips"] == 2
-        assert gpu_agent.clips_rejected["overload"] == 18
+        assert len(gpu_agent._inflight) == 21
+        assert gpu_agent.clips_rejected["overload"] == 0
     finally:
         release.set()
         gpu_agent.wait_inflight(timeout=5)
+    assert len(processed) == 21
 
 
 @pytest.mark.parametrize("ttl", [None, 3.0])
@@ -174,22 +180,22 @@ def test_header_duration_limit_before_decode(gpu_agent, clip_source):
     assert gpu_agent.clips_rejected["too_long"] == 1
 
 
-def test_memory_guard_before_decode(gpu_agent, clip_source, monkeypatch):
-    monkeypatch.setattr("orpheus_inference.resources.mem_available_mib", lambda: 3000)
-    with patch.object(gpu_agent, "_load_and_preprocess") as decode:
-        gpu_agent._submit_processing(*clip_source)
-        decode.assert_not_called()
-    assert gpu_agent.clips_rejected["memory"] == 1
-
-
-def test_unready_worker_does_not_queue_during_recovery(gpu_agent, clip_source):
-    gpu_agent.model.client.close()
+def test_queued_clip_waits_for_worker_recovery(gpu_agent, clip_source, monkeypatch):
+    ready = threading.Event()
+    monkeypatch.setattr(
+        gpu_agent.model,
+        "health",
+        lambda: {"ready": ready.is_set(), "state": "recovering", "failures": 0},
+    )
+    decoded = threading.Event()
+    monkeypatch.setattr(gpu_agent, "_process_audio_file", lambda *_args, **_kwargs: decoded.set())
     gpu_agent._submit_processing(*clip_source)
-    assert not gpu_agent._inflight
-    health = gpu_agent.health_payload("heartbeat")
-    assert health["model_loaded"] is False
-    assert health["worker"]["state"] == "stopped"
-    assert health["clips_rejected"]["unavailable"] == 1
+    time.sleep(0.2)
+    assert not decoded.is_set()
+    ready.set()
+    assert decoded.wait(timeout=2)
+    gpu_agent.wait_inflight(timeout=2)
+    assert gpu_agent.clips_rejected["unavailable"] == 0
 
 
 def test_decode_expiry_does_not_emit_or_infer(gpu_agent, clip_source):
@@ -283,16 +289,17 @@ def test_auto_selection_checks_platform_install_and_host_memory(monkeypatch):
     assert not auto_worker_available(GPUWorkerConfig(python=sys.executable))
 
 
-async def test_auto_cpu_fallback_uses_cpu(gpu_agent):
+async def test_auto_backend_preserves_inprocess_device_discovery(gpu_agent):
     gpu_agent.config.backend = "auto"
     gpu_agent._worker_backend = False
     gpu_agent.model = None
     with (
-        patch("orpheus_agent_audio_events.main.select_torch_device", return_value="cpu") as select,
+        patch("orpheus_agent_audio_events.main.select_torch_device", return_value="cuda") as select,
         patch("orpheus_agent_audio_events.main.build_model", return_value=DeterministicFakeSED()),
     ):
         await gpu_agent.on_setup()
-        select.assert_called_once_with("cpu")
+        select.assert_called_once_with("auto")
+        assert gpu_agent._resolved_device == "cuda"
 
 
 @pytest.mark.parametrize(
@@ -459,35 +466,36 @@ def test_config_precedence_reaches_parent_and_child(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["crash", "hang"])
-def test_ipc_failure_does_not_emit_and_old_clip_can_be_resubmitted_after_recovery(
-    gpu_agent, clip_source, mode,
+def test_ipc_failure_retries_accepted_old_clip_after_worker_recovery(
+    gpu_agent, clip_source, mode
 ):
     path, source = clip_source
     source.timestamp -= timedelta(days=30)
     model = gpu_agent.model
     model.client.close()
     model.client.command[model.client.command.index("--mode") + 1] = mode
-    # New supervisor for the failure probe; recovery itself must not retry work.
+    # New supervisor for the failure probe; change the next launch to normal
+    # once the first IPC failure is observed to exercise retry of the same job.
     model.client = WorkerClient(
         model.client.command, model.client.env,
-        replace(model.client.options, max_starts=3, restart_backoff=0.5),
+        replace(model.client.options, max_starts=3, restart_backoff=0.1),
     )
     model.client.start()
     wait_ready(model)
     gpu_agent._submit_processing(path, source)
-    gpu_agent.wait_inflight(timeout=5)
-    gpu_agent.bus.publish.assert_not_called()
-    gpu_agent.detection_db.save.assert_not_called()
-    assert gpu_agent.errors_count == 1
+    end = time.monotonic() + 5
+    while time.monotonic() < end and model.health()["failures"] == 0:
+        time.sleep(0.01)
+    assert model.health()["failures"] == 1
+    model.client.command[-1] = "normal"
+    gpu_agent.wait_inflight(timeout=10)
+    assert gpu_agent.bus.publish.call_count == 1
+    assert gpu_agent.detection_db.save.call_count == 1
+    assert gpu_agent.errors_count == 0
     assert gpu_agent.clips_rejected["expired"] == 0
     assert gpu_agent.model is model
-    # The supervisor reloads independently; repairing the fake executable's
-    # launch mode simulates the underlying fault clearing between starts.
-    model.client.command[-1] = "normal"
     wait_ready(model)
     assert model.health()["starts"] == 2
-    gpu_agent._submit_processing(path, source)
-    gpu_agent.wait_inflight(timeout=5)
     assert gpu_agent.detection_db.save.call_args.args[0].source_event_id == source.event_id
 
 
@@ -527,8 +535,10 @@ def test_configured_queue_can_admit_bursts_beyond_four_sources(
             asyncio.run(agent.on_stopping())
 
 
-async def test_shutdown_accounts_for_running_and_queued_clips(gpu_agent, clip_source):
-    entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
+async def test_shutdown_drains_running_and_queued_clips_before_closing_worker(
+    gpu_agent, clip_source
+):
+    entered, release = threading.Event(), threading.Event()
     original = gpu_agent._process_audio_file
 
     def blocked(*args, **kwargs):
@@ -543,14 +553,16 @@ async def test_shutdown_accounts_for_running_and_queued_clips(gpu_agent, clip_so
         gpu_agent._submit_processing(*clip_source)
     queued = [future for future in gpu_agent._inflight if not future.running()]
     assert len(queued) == 2
-    queued[-1].add_done_callback(lambda _future: cancelled.set())
     stopping = asyncio.create_task(gpu_agent.on_stopping())
     try:
-        assert await asyncio.get_running_loop().run_in_executor(None, cancelled.wait, 3)
+        await asyncio.sleep(0.1)
+        assert not stopping.done()
+        assert gpu_agent.model.health()["ready"]
     finally:
         release.set()
         await stopping
-    assert all(future.cancelled() for future in queued)
-    assert gpu_agent.clips_rejected["shutdown"] == 3
+    assert all(future.done() and not future.cancelled() for future in queued)
+    assert gpu_agent.detections_emitted == 3
+    assert gpu_agent.clips_rejected["shutdown"] == 0
     assert not gpu_agent._inflight
-    gpu_agent.bus.publish.assert_not_called()
+    assert gpu_agent.bus.publish.call_count == 3

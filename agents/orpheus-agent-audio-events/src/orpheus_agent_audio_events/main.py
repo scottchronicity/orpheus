@@ -123,12 +123,6 @@ class AudioEventsAgent(Actor):
             "too_long": 0,
             "shutdown": 0,
         }
-        self._admission = (
-            threading.BoundedSemaphore(1 + self.config.gpu_worker.max_pending_clips)
-            if self._worker_backend
-            else None
-        )
-
         # Bounded concurrent clip processing. A new audio.motion tick submits a new
         # clip WITHOUT cancelling an in-flight one — older instances run to
         # completion. The pool is small so SED inference
@@ -229,11 +223,7 @@ class AudioEventsAgent(Actor):
             # explicit device="cuda" with no GPU fails loud here with a clear
             # message instead of crashing deep inside the model constructor.
             # Kept on self so health surfaces a silent CPU fallback.
-            resolved_device = select_torch_device(
-                "cpu"
-                if self.config.backend == "auto" and self.config.device == "auto"
-                else self.config.device
-            )
+            resolved_device = select_torch_device(self.config.device)
             self._resolved_device = resolved_device
             logger.info(
                 "Loading SED model",
@@ -306,17 +296,14 @@ class AudioEventsAgent(Actor):
     async def on_stopping(self) -> None:
         with self._submission_lock:
             self._accepting = False
-        if isinstance(self.model, WorkerSEDModel):
-            # Interrupt a load/exchange and disable recovery before draining threads.
-            await asyncio.get_running_loop().run_in_executor(None, self.model.close)
-        # Drain in-flight clip processing BEFORE the bus disconnects: older
-        # instances finish AND publish their detections (the base runs on_stopping
-        # pre-disconnect). shutdown(wait=True) also rejects new submits, and
-        # cancel_futures=True drops the still-QUEUED backlog so shutdown latency
-        # is bounded by the running clips, not the whole queue.
+        # Stop admission, then finish every callback already accepted. The worker
+        # must remain alive throughout the drain so active IPC and queued clips can
+        # complete and publish before Actor disconnects the bus.
         await asyncio.get_running_loop().run_in_executor(
-            None, lambda: self._executor.shutdown(wait=True, cancel_futures=True)
+            None, lambda: self._executor.shutdown(wait=True, cancel_futures=False)
         )
+        if isinstance(self.model, WorkerSEDModel):
+            await asyncio.get_running_loop().run_in_executor(None, self.model.close)
 
     async def on_shutdown(self) -> None:
         logger.info(
@@ -375,11 +362,7 @@ class AudioEventsAgent(Actor):
             self.last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
 
     def _submit_processing(self, audio_path: Path, source: Detection) -> None:
-        """Dispatch without blocking the bus callback.
-
-        The optional worker bounds accepted work before decode. The existing
-        in-process executor retains its concurrency and queueing behavior.
-        """
+        """Queue each received clip using the executor's existing FIFO behavior."""
         with self._submission_lock:
             if not self._accepting:
                 self._reject_clip("shutdown")
@@ -387,18 +370,8 @@ class AudioEventsAgent(Actor):
             self._submit_accepted_clip(audio_path, source)
 
     def _submit_accepted_clip(self, audio_path: Path, source: Detection) -> None:
-        if self._admission is None:
-            future = self._executor.submit(self._process_safely, audio_path, source)
-        else:
+        if self._worker_backend:
             deadline = self._clip_deadline(source)
-            if deadline is not None and time.monotonic() >= deadline:
-                self._reject_clip("expired")
-                return
-            if not self._worker_admissible():
-                return
-            if not self._admission.acquire(blocking=False):
-                self._reject_clip("overload")
-                return
             ticket = object()
             with self._stats_lock:
                 self._queued_at[ticket] = time.monotonic()
@@ -408,11 +381,11 @@ class AudioEventsAgent(Actor):
                 )
             except RuntimeError:
                 self._forget_pending(ticket)
-                self._admission.release()
                 self._reject_clip("shutdown")
                 return
-            future.add_done_callback(lambda _future: self._admission.release())
             future.add_done_callback(lambda _future: self._forget_pending(ticket))
+        else:
+            future = self._executor.submit(self._process_safely, audio_path, source)
         with self._stats_lock:
             self._inflight.add(future)
         future.add_done_callback(self._on_processing_done)
@@ -440,41 +413,54 @@ class AudioEventsAgent(Actor):
         return time.monotonic() + ttl - age
 
     def _worker_admissible(self) -> bool:
-        if not isinstance(self.model, WorkerSEDModel) or not self.model.health()["ready"]:
-            self._reject_clip("unavailable")
+        if not isinstance(self.model, WorkerSEDModel):
             return False
-        from orpheus_inference.resources import mem_available_mib  # noqa: PLC0415
-
-        available = mem_available_mib()
-        if available is None or available < self.config.gpu_worker.floor_memory_mib:
-            self._reject_clip("memory")
-            return False
-        return True
+        return bool(self.model.health()["ready"])
 
     def _process_worker_clip(
         self, path: Path, source: Detection, deadline: float | None, ticket: object
     ) -> None:
-        """Check readiness and memory again before decoding a queued clip."""
+        """Wait for worker recovery, then process this accepted clip in FIFO order."""
         self._forget_pending(ticket)
         try:
-            if not self._accepting:
-                self._reject_clip("shutdown")
-                return
             if deadline is not None and time.monotonic() >= deadline:
                 self._reject_clip("expired")
                 return
-            if not self._worker_admissible():
-                return
+            while not self._worker_admissible():
+                if deadline is not None and time.monotonic() >= deadline:
+                    self._reject_clip("expired")
+                    return
+                time.sleep(0.1)
             # Read only the audio header before allocating decoded/resampled arrays.
             info = sf.info(path)
             if info.duration > self.config.gpu_worker.max_clip_seconds:
                 self._reject_clip("too_long")
                 return
-            self._process_audio_file(path, source, deadline=deadline)
+            while True:
+                failures_before = self.model.health()["failures"]
+                try:
+                    self._process_audio_file(path, source, deadline=deadline)
+                except Exception as exc:
+                    # WorkerClient marks itself unready before raising an IPC or
+                    # child failure. No Detection has been emitted yet (inference
+                    # precedes post-processing/publication), so retrying this clip
+                    # after supervised recovery cannot duplicate domain output.
+                    health = self.model.health()
+                    if health["ready"] and health["failures"] == failures_before:
+                        raise
+                    logger.warning(
+                        "PANNs exchange failed; retaining clip until worker recovery",
+                        event_id=source.event_id,
+                        error=str(exc),
+                    )
+                    while not self._worker_admissible():
+                        if deadline is not None and time.monotonic() >= deadline:
+                            self._reject_clip("expired")
+                            return
+                        time.sleep(0.1)
+                else:
+                    return
         except Exception as exc:
-            if not self._accepting:
-                self._reject_clip("shutdown")
-                return
             if deadline is not None and time.monotonic() >= deadline:
                 self._reject_clip("expired")
                 return

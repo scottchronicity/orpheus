@@ -565,16 +565,15 @@ class TestEventSourcingShadow:
 
 
 class TestShutdownDrain:
-    """on_stopping drains RUNNING clips but drops the still-queued backlog, so
-    shutdown latency is bounded by max_workers clips, not the whole queue."""
+    """on_stopping drains all accepted work before disconnecting the bus."""
 
-    def test_on_stopping_drops_queued_backlog(
+    def test_on_stopping_preserves_queued_backlog(
         self, agent_with_fake_model: AudioEventsAgent
     ) -> None:
         agent = agent_with_fake_model
         agent._executor = MagicMock()
         asyncio.run(agent.on_stopping())
-        agent._executor.shutdown.assert_called_once_with(wait=True, cancel_futures=True)
+        agent._executor.shutdown.assert_called_once_with(wait=True, cancel_futures=False)
 
     def test_callback_after_shutdown_is_counted_without_executor_error(
         self, agent_with_fake_model: AudioEventsAgent, tmp_path: Path

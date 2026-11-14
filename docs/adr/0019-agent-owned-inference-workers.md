@@ -38,9 +38,11 @@ runtime and configure its own policy. The in-process backend remains available.
 
 ## Queue capacity and detection stream
 
-One PANNs subprocess runs one inference at a time across the microphones
-feeding that audio-events agent. The agent queues clip references and decodes
-one clip at a time. Microphone count and queue capacity are independent.
+One PANNs subprocess runs one inference at a time across the inputs feeding
+that audio-events agent. The agent queues clip references in FIFO order and
+decodes one clip at a time. It accepts work during temporary overload and
+worker recovery. This queue is in memory: it does not survive an agent or host
+crash. Input count and queue depth are independent.
 The agent publishes and persists `audio.classified` with its existing lineage.
 The correlator owns temporal correlation, including whether a detection
 enriches a previously emitted entity.
@@ -49,22 +51,16 @@ An earlier revision applied a three-second cutoff after recording end. That
 cutoff hurt coverage and was unrelated to the correlator's inactivity timer.
 The default now has no age cutoff. A deployment can explicitly set
 `clip_ttl_seconds` if it wants to trade coverage for bounded age. The
-request timeout independently bounds an exchange with the subprocess, and
-the storage sweep owns recording retention.
-
-| Pending slots | Effect |
-|---:|---|
-| 0 | One active clip. Every arrival while that slot is occupied is refused. |
-| 2 (default) | One active plus two waiting. The `e83e2eb` trial refused a clip in each of two four-channel bursts. |
-| 3 | One active plus three waiting. Can hold a burst from four microphones when the queue starts empty. At the trial's roughly 0.8 seconds per clip, a batch of four takes about 3.2 seconds of serial processing. |
-| N − 1 for N sources | Holds one simultaneous clip per source from an empty queue. At the same illustrative rate, batches of eight and twenty take about 6.4 and 16 seconds. |
-
-Deeper queues absorb brief bursts and increase how long a detection can
-take. They cannot keep up if demand persistently exceeds throughput. Size
-the queue using workload measurements and the deployment's latency and
-coverage needs. If serial processing cannot meet those needs, measure
-batching or concurrent inference on the same hardware before adding model
-processes, which would have separate model allocations.
+request timeout independently bounds one exchange with the subprocess, and
+the storage sweep owns recording retention. The legacy `max_pending_clips`
+setting remains accepted for YAML compatibility but no longer rejects work.
+Persistent demand above throughput increases classification latency and
+in-memory backlog. Durable admission and replay require explicit event
+acknowledgement and idempotency semantics; this queue does not claim them. If
+an IPC/child failure occurs before inference returns, the agent retains that
+accepted clip and retries after the supervised worker recovers. Domain output
+begins only after a complete inference result, so this retry does not repeat a
+publication. A configured TTL remains the only age-based rejection policy.
 
 The `e83e2eb` trial could turn clip expiry during inference into a worker
 restart. `f8ca37b` separates any configured cutoff from the hard exchange
@@ -106,9 +102,11 @@ silently downgrades to CPU. PANNs refuses MPS and indexed CUDA selections becaus
 its current wrapper does not implement them. Required CUDA plus explicit CPU
 is a configuration error. Clip length validation now follows OGW1 input/output
 payload capacity rather than an arbitrary 120-second ceiling. The default
-40-second model budget remains deployment policy. Shutdown cancellation is
-counted alongside other rejection reasons. No new age cutoff, automatic replay,
-implicit CPU recovery, model service or host scheduler is introduced.
+40-second model budget remains deployment policy. The GPU agent queues received
+callbacks through temporary worker unavailability and drains accepted work
+before closing the child at graceful shutdown. It does not claim crash-durable
+admission or automatic event replay. No new age cutoff, implicit CPU recovery,
+model service or host scheduler is introduced.
 
 On the next candidate revision, measure overload and expiry separately,
 recording-to-publication age, worker reloads, and minimum available memory

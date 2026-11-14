@@ -200,8 +200,8 @@ do not add RSS, allocator reservations and MemAvailable drops together.
 | Setting | Default | Meaning |
 |---|---:|---|
 | `start_memory_mib` | 8704 | Minimum MemAvailable before starting/loading a worker. |
-| `floor_memory_mib` | 3800 | Worker watchdog stop and agent admission floor. |
-| `max_pending_clips` | 2 | Waiting clip references, in addition to one active clip. |
+| `floor_memory_mib` | 3800 | Worker watchdog stop threshold. Queued work waits while the worker recovers from memory pressure. |
+| `max_pending_clips` | 2 | Legacy YAML compatibility only; it no longer rejects accepted clips. |
 | `clip_ttl_seconds` | unset | Optional maximum age after recording ends for PANNs to classify a clip. Set a positive number of seconds to enable it. |
 | `max_clip_seconds` | 40 | Maximum decoded clip duration; header checked before decoding. |
 | `startup_timeout_seconds` | 60 | Model load and warm-up deadline. |
@@ -225,14 +225,12 @@ Increasing duration also increases warm-up and peak memory. Revalidate those
 measurements and the request/startup timeouts for longer recordings.
 
 `max_concurrent_clips` is a positive integer controlling the in-process executor
-(default 2); it does not change the isolated worker's serial execution. The
-worker queue is controlled by `max_pending_clips`, not by a microphone count.
-
-The worker processes one clip at a time. A full queue refuses new clips.
-With two waiting slots, a burst of four clips can fill the queue and leave a
-clip unprocessed. More waiting slots let the worker absorb longer bursts and
-increase how long clips can wait. Size the queue using clip arrival rates,
-classification latency, and overload counts on your deployment. See
+(default 2); it does not change the isolated worker's serial execution. The GPU
+agent keeps accepted clip references in FIFO order while the worker is busy,
+recovering or memory-blocked. `max_pending_clips` remains accepted so existing
+configuration files continue to load, but it no longer imposes a rejection
+limit. Sustained demand above inference throughput increases queue age and
+memory use. See
 [ADR 0019](../adr/0019-agent-owned-inference-workers.md).
 
 The agent publishes and persists `audio.classified` detections for completed
@@ -242,23 +240,20 @@ recording ends and includes delivery, queueing and classification. The
 correlator manages its own timing. The
 [storage retention policy](index.md#7-data-retention) governs recording deletion.
 
-The request timeout bounds the exchange with the worker. A worker reload took
-12–15 seconds in the prototype. The agent refuses clips while the worker is
-unavailable and resumes when it is ready. The agent does not automatically
-replay refused clips.
+The request timeout bounds an exchange with the worker. A worker reload took
+12–15 seconds in the prototype. Accepted clips wait through temporary worker
+unavailability, then resume in FIFO order. Graceful shutdown drains active and
+queued work before closing the worker. The queue is process memory and cannot
+survive a host or agent crash. The input bus and shadow stream do not provide
+the durable acknowledgement/idempotency contract needed for automatic replay;
+see the existing [replay contract](../designs/event-sourcing-determinism-contract.md).
+An IPC or child failure before inference returns retries that same accepted
+clip after worker recovery; no detection is published until inference completes.
 
-Selecting this optional backend selects bounded, best-effort admission. The
-queue bounds decoded memory and absorbs short bursts; it sacrifices coverage
-when arrivals exceed capacity or the worker is unavailable. Rejections are
-reported by reason in `clips_rejected`: `overload`, `expired` (only with an
-explicit TTL), `unavailable`, `memory`, `too_long` and `shutdown`. Shutdown counts
-both running work interrupted before completion and queued futures cancelled
-while draining. An exchange/model failure increments error counters and worker
-health; it emits no synthetic detection. Valid old clips can be resubmitted once
-the worker is ready. No automatic replay or exactly-once processing is implied.
-If your deployment requires every recording to be classified, do not treat this
-queue as durable storage: durable admission/retry remains future work under the
-existing [replay contract](../designs/event-sourcing-determinism-contract.md).
+`clips_rejected` reports deliberate TTL expiry and overlength recordings.
+Non-recoverable worker or model failures update error counters and worker
+health; no synthetic detection is emitted. Configuring `clip_ttl_seconds`
+explicitly trades coverage for a bounded age. No age cutoff is applied by default.
 
 The agent resolves these settings through normal YAML/KV/environment precedence;
 for example `ORPHEUS_AUDIO_EVENTS__GPU_WORKER__FLOOR_MEMORY_MIB` reaches both the
