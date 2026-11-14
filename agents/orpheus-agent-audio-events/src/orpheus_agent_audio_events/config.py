@@ -17,7 +17,7 @@ class GPUWorkerConfig:
     python: str = ""
     startup_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 5.0
-    clip_ttl_seconds: float = 3.0
+    clip_ttl_seconds: float | None = None
     max_clip_seconds: float = 40.0
     max_pending_clips: int = 2
     start_memory_mib: int = 8704
@@ -38,17 +38,21 @@ class GPUWorkerConfig:
         for value in (
             self.startup_timeout_seconds,
             self.request_timeout_seconds,
-            self.clip_ttl_seconds,
             self.max_clip_seconds,
             self.restart_backoff_seconds,
             self.restart_window_seconds,
         ):
             if not math.isfinite(value) or value <= 0:
                 raise ValueError("GPU worker timeouts/lengths must be positive and finite")
+        ttl = self.clip_ttl_seconds
+        if ttl is not None and (not math.isfinite(ttl) or ttl <= 0):
+            raise ValueError("GPU clip TTL must be positive and finite when set")
         if self.max_clip_seconds > 120 or self.max_pending_clips < 0 or self.max_starts < 1:
             raise ValueError("invalid GPU clip length, pending limit or restart budget")
-        if self.floor_memory_mib < 3800 or self.start_memory_mib < self.floor_memory_mib + 4702:
-            raise ValueError("GPU start memory must cover the >=3800 MiB floor plus 4702 MiB load")
+        if not 0 < self.floor_memory_mib < self.start_memory_mib:
+            raise ValueError(
+                "GPU memory floor must be positive and start memory must exceed the floor"
+            )
 
 
 @dataclass

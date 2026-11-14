@@ -110,7 +110,7 @@ class AudioEventsAgent(Actor):
             self._worker_backend = auto_worker_available(self.config.gpu_worker)
         self._accepting = True
         self._submission_lock = threading.Lock()
-        self._pending_deadlines: set[float] = set()
+        self._queued_at: dict[object, float] = {}
         self.clips_rejected = {
             "overload": 0,
             "expired": 0,
@@ -165,13 +165,9 @@ class AudioEventsAgent(Actor):
         counts, rolling latency percentiles, recent error info. Cheap to compute."""
         worker = self.model.health() if isinstance(self.model, WorkerSEDModel) else None
         with self._stats_lock:
-            pending = len(self._pending_deadlines)
-            oldest = min(self._pending_deadlines, default=None)
-        queue_age = (
-            max(0.0, time.monotonic() - oldest + self.config.gpu_worker.clip_ttl_seconds)
-            if oldest is not None
-            else 0.0
-        )
+            pending = len(self._queued_at)
+            oldest = min(self._queued_at.values(), default=None)
+        queue_age = time.monotonic() - oldest if oldest is not None else 0.0
         return {
             "status": "online",
             "model_loaded": worker["ready"] if worker is not None else self.model is not None,
@@ -389,7 +385,7 @@ class AudioEventsAgent(Actor):
             future = self._executor.submit(self._process_safely, audio_path, source)
         else:
             deadline = self._clip_deadline(source)
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 self._reject_clip("expired")
                 return
             if not self._worker_admissible():
@@ -397,19 +393,20 @@ class AudioEventsAgent(Actor):
             if not self._admission.acquire(blocking=False):
                 self._reject_clip("overload")
                 return
+            ticket = object()
             with self._stats_lock:
-                self._pending_deadlines.add(deadline)
+                self._queued_at[ticket] = time.monotonic()
             try:
                 future = self._executor.submit(
-                    self._process_worker_clip, audio_path, source, deadline
+                    self._process_worker_clip, audio_path, source, deadline, ticket
                 )
             except RuntimeError:
-                self._forget_pending(deadline)
+                self._forget_pending(ticket)
                 self._admission.release()
                 self._reject_clip("shutdown")
                 return
             future.add_done_callback(lambda _future: self._admission.release())
-            future.add_done_callback(lambda _future: self._forget_pending(deadline))
+            future.add_done_callback(lambda _future: self._forget_pending(ticket))
         with self._stats_lock:
             self._inflight.add(future)
         future.add_done_callback(self._on_processing_done)
@@ -418,13 +415,15 @@ class AudioEventsAgent(Actor):
         with self._stats_lock:
             self.clips_rejected[reason] += 1
 
-    def _forget_pending(self, deadline: float) -> None:
+    def _forget_pending(self, ticket: object) -> None:
         with self._stats_lock:
-            self._pending_deadlines.discard(deadline)
+            self._queued_at.pop(ticket, None)
 
-    def _clip_deadline(self, source: Detection) -> float:
-        # Motion timestamp marks clip START. Include its recorded duration so
-        # a 35 s clip gets a full TTL, while stale broker deliveries still expire.
+    def _clip_deadline(self, source: Detection) -> float | None:
+        ttl = self.config.gpu_worker.clip_ttl_seconds
+        if ttl is None:
+            return None
+        # Motion timestamp marks clip start. Measure the age from recording end.
         duration = float((source.metadata or {}).get("duration_seconds", 0.0))
         if (
             not math.isfinite(duration)
@@ -432,7 +431,7 @@ class AudioEventsAgent(Actor):
         ):
             return time.monotonic()
         age = max(0.0, (datetime.now(timezone.utc) - source.timestamp).total_seconds() - duration)
-        return time.monotonic() + self.config.gpu_worker.clip_ttl_seconds - age
+        return time.monotonic() + ttl - age
 
     def _worker_admissible(self) -> bool:
         if not isinstance(self.model, WorkerSEDModel) or not self.model.health()["ready"]:
@@ -446,14 +445,16 @@ class AudioEventsAgent(Actor):
             return False
         return True
 
-    def _process_worker_clip(self, path: Path, source: Detection, deadline: float) -> None:
-        """Check admission again before decoding, then honor the clip deadline."""
-        self._forget_pending(deadline)
+    def _process_worker_clip(
+        self, path: Path, source: Detection, deadline: float | None, ticket: object
+    ) -> None:
+        """Check readiness and memory again before decoding a queued clip."""
+        self._forget_pending(ticket)
         try:
             if not self._accepting:
                 self._reject_clip("shutdown")
                 return
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 self._reject_clip("expired")
                 return
             if not self._worker_admissible():
@@ -468,7 +469,7 @@ class AudioEventsAgent(Actor):
             if not self._accepting:
                 self._reject_clip("shutdown")
                 return
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 self._reject_clip("expired")
                 return
             self._record_error(exc)
@@ -550,10 +551,10 @@ class AudioEventsAgent(Actor):
             num_labels=len(classified_clips),
         )
 
+        if deadline is not None and time.monotonic() >= deadline:
+            self._reject_clip("expired")
+            return
         for clip in classified_clips:
-            if deadline is not None and time.monotonic() >= deadline:
-                self._reject_clip("expired")
-                return
             self._emit_detection(clip, audio_path, source, inference_time_ms)
 
     def _load_and_preprocess(self, audio_path: Path) -> np.ndarray | None:

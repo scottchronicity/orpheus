@@ -14,11 +14,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--parent-pid", type=int, required=True)
-    parser.add_argument("--floor-mib", type=int, default=3800)
+    parser.add_argument("--floor-mib", type=int, required=True)
     parser.add_argument("--max-seconds", type=float, default=40)
     args = parser.parse_args()
-    if args.floor_mib < 3800 or not 0 < args.max_seconds <= 120:
-        parser.error("floor must be >=3800 MiB and max-seconds within (0,120]")
+    if args.floor_mib <= 0 or not 0 < args.max_seconds <= 120:
+        parser.error("floor-mib must be positive and max-seconds within (0,120]")
     runtime = PannsRuntime(args.checkpoint, args.max_seconds)
     serve(incoming, outgoing, args.parent_pid, args.floor_mib, runtime.load, runtime.infer)
 

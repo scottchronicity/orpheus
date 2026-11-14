@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -117,7 +118,7 @@ def test_bounded_admission_precedes_decode(gpu_agent, clip_source, monkeypatch):
     entered, release = threading.Event(), threading.Event()
 
     def block(_path, _source, *, deadline):
-        assert deadline > 0
+        assert deadline is None
         entered.set()
         release.wait(timeout=5)
 
@@ -129,25 +130,33 @@ def test_bounded_admission_precedes_decode(gpu_agent, clip_source, monkeypatch):
         for _ in range(20):
             gpu_agent._submit_processing(path, source)
         assert len(gpu_agent._inflight) == 3
+        assert gpu_agent.health_payload("heartbeat")["pending_clips"] == 2
         assert gpu_agent.clips_rejected["overload"] == 18
     finally:
         release.set()
         gpu_agent.wait_inflight(timeout=5)
 
 
-def test_stale_clip_is_rejected_before_decoding(gpu_agent, clip_source):
+@pytest.mark.parametrize("ttl", [None, 3.0])
+def test_clip_age_cutoff_applies_only_when_configured(gpu_agent, clip_source, ttl):
+    gpu_agent.config.gpu_worker = replace(gpu_agent.config.gpu_worker, clip_ttl_seconds=ttl)
     path, source = clip_source
     source.timestamp -= timedelta(seconds=20)
-    with patch.object(gpu_agent, "_load_and_preprocess") as decode:
-        gpu_agent._submit_processing(path, source)
-        decode.assert_not_called()
-    assert gpu_agent.clips_rejected["expired"] == 1
+    gpu_agent._submit_processing(path, source)
+    gpu_agent.wait_inflight(timeout=5)
+    if ttl is None:
+        detection = gpu_agent.detection_db.save.call_args.args[0]
+        assert detection.source_event_id == source.event_id
+        assert gpu_agent.clips_rejected["expired"] == 0
+    else:
+        gpu_agent.detection_db.save.assert_not_called()
+        assert gpu_agent.clips_rejected["expired"] == 1
 
 
 def test_queue_expiry_before_decode(gpu_agent, clip_source):
     path, source = clip_source
     with patch.object(gpu_agent, "_load_and_preprocess") as decode:
-        gpu_agent._process_worker_clip(path, source, time.monotonic() - 1)
+        gpu_agent._process_worker_clip(path, source, time.monotonic() - 1, object())
         decode.assert_not_called()
     assert gpu_agent.clips_rejected["expired"] == 1
 
@@ -158,7 +167,7 @@ def test_header_duration_limit_before_decode(gpu_agent, clip_source):
         patch("orpheus_agent_audio_events.main.sf.info", return_value=MagicMock(duration=121)),
         patch.object(gpu_agent, "_load_and_preprocess") as decode,
     ):
-        gpu_agent._process_worker_clip(path, source, time.monotonic() + 3)
+        gpu_agent._process_worker_clip(path, source, None, object())
         decode.assert_not_called()
     assert gpu_agent.clips_rejected["too_long"] == 1
 
@@ -270,8 +279,9 @@ async def test_auto_cpu_fallback_uses_cpu(gpu_agent):
         {"clip_ttl_seconds": 0},
         {"clip_ttl_seconds": float("nan")},
         {"max_pending_clips": -1},
-        {"floor_memory_mib": 2000},
-        {"start_memory_mib": 7168},
+        {"floor_memory_mib": 0},
+        {"start_memory_mib": 3800},
+        {"start_memory_mib": 3799},
         {"max_clip_seconds": 121},
         {"max_pending_clips": 1.5},
     ],

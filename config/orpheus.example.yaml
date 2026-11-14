@@ -6,11 +6,11 @@
 #   device: cpu              # CPU rollback for inprocess; worker always uses CUDA
 #   gpu_worker:
 #     python: /data/orpheus/venvs/panns-gpu/bin/python # default follows ORPHEUS_DATA_ROOT
-#     clip_ttl_seconds: 3.0
+#     clip_ttl_seconds: null # optional classification cutoff after recording ends
 #     max_pending_clips: 2
 #     max_clip_seconds: 40.0
-#     start_memory_mib: 8704
-#     floor_memory_mib: 3800
+#     start_memory_mib: 8704 # host MemAvailable before model load
+#     floor_memory_mib: 3800 # host MemAvailable reserved during operation
 # =========================================
 # Canonical configuration for the Orpheus Observe stack.
 # Used on Jetson in production; macOS overrides go in config/.env.orpheus.
