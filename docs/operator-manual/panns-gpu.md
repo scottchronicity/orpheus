@@ -49,7 +49,6 @@ Add this to your local `orpheus.yaml`:
 audio_events:
   backend: auto
   gpu_worker:
-    clip_ttl_seconds: 3.0
     max_pending_clips: 2
 ```
 
@@ -170,21 +169,17 @@ audio-motion event; `root_event_id` remains the original acoustic lineage. Dupli
 deliveries of the same source/class use the last captured result in the report.
 The comparison reads scratch JSONL only and never opens the production database.
 
-The normal clip TTL still applies: by default, three seconds after the source
-recording ends, including queueing, preprocessing and inference. A motion timestamp
-marks the start; its recorded duration is included, so a 35-second recording is
-not immediately stale. Expired or overloaded clips are skipped before decoding;
-clips received during loading/recovery are refused. Reload takes 12–15 seconds,
-so those clips expire rather than waiting for recovery. Use the health counters
-and input readiness markers to distinguish missing work from numerical differences.
+A full queue or unavailable worker can cause a clip to be skipped before
+decoding. Use the health counters and input readiness markers to distinguish
+skipped clips from differences in model output. The experiment uses the
+configured `clip_ttl_seconds` if you set one.
 An unmatched label alone does not prove a model disagreement, and zero matched
 labels is not a parity result. This is a live observation experiment, not replay.
 
-CPU and GPU share the Jetson's physical RAM. This test adds a roughly 4,702 MiB
-startup footprint while the CPU model remains resident. The existing 8,704 MiB
-start gate and 3,800 MiB running floor remain in force (or stricter live settings).
-If the station lacks that headroom, the experiment stays memory-blocked; do not
-lower the protections to force it to load.
+CPU and GPU share the Jetson's physical RAM. This test adds the GPU model
+while the CPU model remains resident. It uses the start gate and running floor
+from the resolved experiment configuration. If the station lacks the configured
+headroom, the experiment waits in `memory_blocked`.
 
 ## Budget memory and overload
 
@@ -199,33 +194,38 @@ do not add RSS, allocator reservations and MemAvailable drops together.
 | `start_memory_mib` | 8704 | Minimum MemAvailable before starting/loading a worker. |
 | `floor_memory_mib` | 3800 | Worker watchdog stop and agent admission floor. |
 | `max_pending_clips` | 2 | Waiting clip references, in addition to one active clip. |
-| `clip_ttl_seconds` | 3 | Lifetime after the source recording ends, including queueing, preprocessing and inference. |
+| `clip_ttl_seconds` | unset | Optional maximum age after recording ends for PANNs to classify a clip. Set a positive number of seconds to enable it. |
 | `max_clip_seconds` | 40 | Maximum decoded clip duration; header checked before decoding. |
 | `startup_timeout_seconds` | 60 | Model load and warm-up deadline. |
 | `request_timeout_seconds` | 5 | Hard timeout for a worker request. |
 | `restart_backoff_seconds` | 2 | Initial restart delay, increasing to 30 seconds. |
 | `max_starts` | 3 | Maximum starts within `restart_window_seconds` (default 300). |
 
-Configuration cannot lower the floor below 3800 MiB or the start gate below the
-floor plus 4702 MiB. These are provisional guards, not a guarantee against OOM.
-Validate maximum clips with the complete station workload. The worker checks
-host memory during loading, inference and idle time and exits on pressure or an
-unreadable memory source. The parent stops admitting clips before decoding them.
+Set the budgets under `audio_events.gpu_worker` for your deployment. Specify
+positive whole MiB values and set the start gate above the running floor. Use
+measured memory during model load and maximum-length clips alongside the
+station's other models and encodes to choose the gap. The worker checks host
+memory during loading, inference and idle time and exits on pressure or an
+unreadable memory source. The parent checks memory before decoding clips.
 
-Only one inference runs at a time. A full queue refuses new clips. A request that
-already reached the worker can finish within its hard timeout. The agent discards
-late results. With the default queue, four simultaneous clips can fill one
-active slot and two waiting slots, leaving one clip unprocessed. Increasing
-the queue can absorb short bursts within the clip lifetime. It leaves the
-worker's processing rate unchanged. Requests never wait for a model reload
-or automatically retry. See [ADR 0019](../adr/0019-agent-owned-inference-workers.md)
-for the capacity tradeoffs.
-Reload took 12–15 seconds in the prototype, longer than a clip's default lifetime:
-clips arriving during recovery are refused, and new clips resume after readiness.
-Recorded audio remains available under normal retention; refused work is not
-automatically replayed. Core NATS delivery is not a durable inference-job queue.
-Late results can fragment correlation when late enrichment is disabled; keep
-queue age short and inspect rejection counts before increasing the TTL.
+The worker processes one clip at a time. A full queue refuses new clips.
+With two waiting slots, a burst of four clips can fill the queue and leave a
+clip unprocessed. More waiting slots let the worker absorb longer bursts and
+increase how long clips can wait. Size the queue using clip arrival rates,
+classification latency, and overload counts on your deployment. See
+[ADR 0019](../adr/0019-agent-owned-inference-workers.md).
+
+The agent publishes and persists `audio.classified` detections for completed
+clips using its usual thresholds and source lineage. By default it applies
+no age cutoff. If you configure `clip_ttl_seconds`, its budget starts when
+recording ends and includes delivery, queueing and classification. The
+correlator manages its own timing. The
+[storage retention policy](index.md#7-data-retention) governs recording deletion.
+
+The request timeout bounds the exchange with the worker. A worker reload took
+12–15 seconds in the prototype. The agent refuses clips while the worker is
+unavailable and resumes when it is ready. The agent does not automatically
+replay refused clips.
 
 ## Check health and roll back
 

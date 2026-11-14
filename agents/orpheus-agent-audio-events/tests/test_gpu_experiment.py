@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -181,14 +182,28 @@ def test_inherited_instance_cannot_collide(experiment_args, monkeypatch):
         prepare_experiment(**experiment_args)
 
 
-def test_custom_live_topics_and_stricter_memory_policy_preserved(experiment_args, monkeypatch):
+@pytest.mark.parametrize(("start_mib", "floor_mib"), [(10000, 4200), (7000, 3000)])
+async def test_custom_live_topics_and_memory_policy_preserved(
+    experiment_args, monkeypatch, start_mib, floor_mib
+):
     monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__INPUT_TOPIC", "station/audio/motion/events")
     monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__OUTPUT_TOPIC", "station/detection/audio/events")
-    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__START_MEMORY_MIB", "10000")
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__START_MEMORY_MIB", str(start_mib))
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__FLOOR_MEMORY_MIB", str(floor_mib))
     selected = prepare_experiment(**experiment_args)
     assert selected.input_topic == "station/audio/motion/events"
     assert selected.cpu_topic == "station/detection/audio/events"
-    assert selected.config._raw["audio_events"]["gpu_worker"]["start_memory_mib"] == 10000
+
+    agent = ExperimentAgent(selected)
+    try:
+        with patch("orpheus_agent_audio_events.worker_model.WorkerClient") as client:
+            await agent.on_setup()
+            command, _, options = client.call_args.args[:3]
+            assert options.start_memory_mib == start_mib
+            assert options.floor_memory_mib == floor_mib
+            assert command[command.index("--floor-mib") + 1] == str(floor_mib)
+    finally:
+        await agent.on_stopping()
 
 
 @pytest.mark.parametrize("flag", ["--backend", "--instance-id"])
@@ -455,6 +470,7 @@ async def test_same_clip_reaches_cpu_and_gpu_with_separate_writes(
 
 def test_expiry_uses_clip_end_and_comparison_uses_source_ids(plan):
     agent = ExperimentAgent(plan)
+    agent.config.gpu_worker = replace(agent.config.gpu_worker, clip_ttl_seconds=3.0)
     try:
         source = Detection(
             detection_type="audio.motion",

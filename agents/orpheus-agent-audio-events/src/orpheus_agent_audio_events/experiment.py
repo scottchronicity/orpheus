@@ -122,11 +122,7 @@ def prepare_experiment(
     config.event_sourcing = replace(live.event_sourcing, shadow_publish_enabled=False)
     config.config_service = replace(live.config_service, enabled=False)
     config.storage = replace(live.storage, base_path=str(root))
-    worker = replace(
-        audio.gpu_worker,
-        python=str(worker_python),
-        start_memory_mib=max(8704, audio.gpu_worker.start_memory_mib),
-    )
+    worker = replace(audio.gpu_worker, python=str(worker_python))
     isolated = replace(
         audio,
         enabled=True,

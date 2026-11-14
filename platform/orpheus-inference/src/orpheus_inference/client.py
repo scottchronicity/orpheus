@@ -31,8 +31,9 @@ class WorkerOptions:
 
     startup_timeout: float = 60.0
     request_timeout: float = 5.0
-    start_memory_mib: int = 8704
-    floor_memory_mib: int = 3800
+    # The owning agent supplies host memory limits for its model.
+    start_memory_mib: int = 0
+    floor_memory_mib: int = 0
     restart_backoff: float = 2.0
     max_starts: int = 3
     restart_window: float = 300.0

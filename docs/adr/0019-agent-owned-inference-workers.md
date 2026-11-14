@@ -30,39 +30,40 @@ runtime and configure its own policy. The in-process backend remains available.
 | Shared inference service | Can share model residency when several agents need the same model and can schedule across callers. | Adds a service failure domain and ties callers to its supported runtimes. Moving different models into one service does not itself reduce their memory usage. |
 | Run workloads on different hosts | Separates memory and compute budgets while retaining the existing agent and event-bus boundaries. | Adds hardware and requires access to each agent's inputs, including clip files. See [distributed deployment](../designs/distributed-deployment.md). |
 
-## Queue and deadline
+## Queue capacity and detection stream
 
-The PANNs worker runs one inference at a time across all microphones feeding
-that agent instance. `max_pending_clips` counts waiting clip references in
-addition to that one active slot. It does not allocate one slot per mic or
-buffer decoded audio for every admitted clip. The default clip lifetime is
-3 seconds from the end of recording, including delivery, queueing,
-preprocessing and inference. Extending it can affect correlation because a
-cluster may have closed when the result arrives and late enrichment defaults off.
+One PANNs subprocess runs one inference at a time across the microphones
+feeding that audio-events agent. The agent queues clip references and decodes
+one clip at a time. Microphone count and queue capacity are independent.
+The agent publishes and persists `audio.classified` with its existing lineage.
+The correlator owns temporal correlation, including whether a detection
+enriches a previously emitted entity.
+
+An earlier revision applied a three-second cutoff after recording end. That
+cutoff hurt coverage and was unrelated to the correlator's inactivity timer.
+The default now has no age cutoff. A deployment can explicitly set
+`clip_ttl_seconds` if it wants to trade coverage for bounded age. The
+request timeout independently bounds an exchange with the subprocess, and
+the storage sweep owns recording retention.
 
 | Pending slots | Effect |
 |---:|---|
-| 0 | Admit one clip at a time. Gives up burst capacity and avoids waiting behind another clip. |
-| 2 (current default) | Admit up to three clips. At 0.8 seconds each, three close arrivals take about 2.4 seconds of serial processing, leaving about 0.6 seconds of a 3-second lifetime for other delays. A fourth can be refused immediately. |
-| 3 | Admit up to four clips. The fourth can finish on time if arrivals are staggered or inference is fast. With simultaneous arrivals at 0.8 seconds each, four take about 3.2 seconds. A late request can occupy the worker while other clips wait. |
-| N − 1 for N sources | Holds one simultaneous clip per source. At the same illustrative rate, eight simultaneous clips take 6.4 seconds and twenty take 16 seconds. Long queues can turn overload rejections into expiries. |
+| 0 | One active clip. Every arrival while that slot is occupied is refused. |
+| 2 (default) | One active plus two waiting. The `e83e2eb` trial refused a clip in each of two four-channel bursts. |
+| 3 | One active plus three waiting. Can hold a burst from four microphones when the queue starts empty. At the trial's roughly 0.8 seconds per clip, a batch of four takes about 3.2 seconds of serial processing. |
+| N − 1 for N sources | Holds one simultaneous clip per source from an empty queue. At the same illustrative rate, batches of eight and twenty take about 6.4 and 16 seconds. |
 
-Two pending is a provisional default for the measured PANNs workload and
-lifetime. Microphone count alone cannot size the queue. Use burst overlap,
-clip lengths and end-to-end age at publication under the full station load.
-If timely coverage is insufficient, evaluate a longer lifetime with the
-correlator, batching or parallel inference with measured GPU and memory cost,
-or distributing the workload. A shared scheduler would coordinate contention
-between models. It would not make one serial model process clips faster.
+Deeper queues absorb brief bursts and increase how long a detection can
+take. They cannot keep up if demand persistently exceeds throughput. Size
+the queue using workload measurements and the deployment's latency and
+coverage needs. If serial processing cannot meet those needs, measure
+batching or concurrent inference on the same hardware before adding model
+processes, which would have separate model allocations.
 
-The live run used `e83e2eb`. It dropped one clip in each of two four-channel
-bursts. Estimated from recording and inference timestamps, an extra slot
-would have been marginal on the first burst and likely useful on the second.
-That revision could turn a mid-inference clip expiry into a worker restart.
-`f8ca37b` separates clip expiry from the hard IPC timeout: a late result can
-be discarded while the worker stays healthy. A hung exchange still causes
-recovery. The restart budget is rolling and permits new starts as earlier
-attempts age out. The live burst results do not validate the new timeout path.
+The `e83e2eb` trial could turn clip expiry during inference into a worker
+restart. `f8ca37b` separates any configured cutoff from the hard exchange
+timeout. A hung exchange still causes recovery. The rolling restart budget
+permits new starts as earlier attempts age out.
 
 ## Memory and deployment
 
@@ -81,13 +82,15 @@ video inference model. A worker's host memory checks are not reservations.
 Two workers can see the same headroom and start together. Once GPU inference
 has been selected, recovery does not load a second CPU model under pressure.
 
-**Open configuration issue.** The branch exposes the limits through
-`audio_events.gpu_worker`, but the agent and worker validate against fixed
-prototype values, the experiment separately clamps the start gate, and the
-shared library has PANNs memory defaults. Resolve the deployment-level
-values once through the existing config path and pass them through to the
-checks. Review the validation rules and required headroom before changing
-production policy. Keep the watchdog active.
+Resolve PANNs limits through `audio_events.gpu_worker` and pass them to the
+parent checks and child watchdog. Both budgets are positive and the start
+gate exceeds the running floor. The isolated experiment uses the budgets
+from its resolved configuration. The shared library takes memory budgets
+from each caller, so a future inference agent can choose policy for its own
+model and deployment. At the host level, budget for the sum of measured
+resident model and peak workload demands, including simultaneous cold starts.
+The earlier trial does not establish the required headroom for a different
+mix of models or input sources.
 
 On the next candidate revision, measure overload and expiry separately,
 recording-to-publication age, worker reloads, and minimum available memory

@@ -79,9 +79,13 @@ def test_worker_entrypoint_isolates_stdout_before_serving(monkeypatch):
     serve = MagicMock()
     monkeypatch.setattr(entry, "isolate_stdio", lambda: (100, 101))
     monkeypatch.setattr(entry, "serve", serve)
-    monkeypatch.setattr(sys, "argv", ["worker", "--checkpoint", "unused", "--parent-pid", "12"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["worker", "--checkpoint", "unused", "--parent-pid", "12", "--floor-mib", "3000"],
+    )
     entry.main()
-    assert serve.call_args.args[:4] == (100, 101, 12, 3800)
+    assert serve.call_args.args[:4] == (100, 101, 12, 3000)
 
 
 def test_worker_cli_refuses_unsafe_floor(monkeypatch):
