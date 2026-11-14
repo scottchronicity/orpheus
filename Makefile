@@ -11,12 +11,12 @@
 #   make clean          - Remove build artifacts
 
 .PHONY: help install test coverage-all lint format clean mbake venv-all \
-	install-common install-ui install-gps install-audio-motion install-audio-playback install-audio-events install-video-motion install-video-snapshotter install-video-timelapser install-bird-detection install-crow-detection install-event-correlator install-backplane install-bluetooth \
-	test-common test-ui test-gps test-audio-motion test-audio-playback test-audio-events test-video-motion test-video-snapshotter test-video-timelapser test-bird-detection test-crow-detection test-event-correlator \
-	coverage-common coverage-ui coverage-gps coverage-audio-motion coverage-audio-playback coverage-audio-events coverage-video-motion coverage-video-snapshotter coverage-video-timelapser coverage-bird-detection coverage-crow-detection coverage-event-correlator \
-	lint-common lint-ui lint-gps lint-audio-motion lint-audio-playback lint-audio-events lint-video-motion lint-video-snapshotter lint-video-timelapser lint-bird-detection lint-crow-detection lint-event-correlator lint-backplane \
-	format-common format-ui format-gps format-audio-motion format-audio-playback format-audio-events format-video-motion format-video-snapshotter format-video-timelapser format-bird-detection format-crow-detection format-event-correlator format-backplane \
-	clean-common clean-ui clean-gps clean-audio-motion clean-audio-playback clean-audio-events clean-video-motion clean-video-snapshotter clean-video-timelapser clean-bird-detection clean-crow-detection clean-event-correlator clean-backplane clean-bluetooth \
+	install-common install-ui install-gps install-audio-motion install-audio-playback install-audio-events install-video-motion install-video-snapshotter install-video-timelapser install-bird-detection install-crow-detection install-event-correlator install-backplane install-audio-output \
+	test-common test-ui test-gps test-audio-output test-audio-motion test-audio-playback test-audio-events test-video-motion test-video-snapshotter test-video-timelapser test-bird-detection test-crow-detection test-event-correlator \
+	coverage-common coverage-ui coverage-gps coverage-audio-output coverage-audio-motion coverage-audio-playback coverage-audio-events coverage-video-motion coverage-video-snapshotter coverage-video-timelapser coverage-bird-detection coverage-crow-detection coverage-event-correlator \
+	lint-common lint-ui lint-gps lint-audio-output lint-audio-motion lint-audio-playback lint-audio-events lint-video-motion lint-video-snapshotter lint-video-timelapser lint-bird-detection lint-crow-detection lint-event-correlator lint-backplane \
+	format-common format-ui format-gps format-audio-output format-audio-motion format-audio-playback format-audio-events format-video-motion format-video-snapshotter format-video-timelapser format-bird-detection format-crow-detection format-event-correlator format-backplane \
+	clean-common clean-ui clean-gps clean-audio-motion clean-audio-playback clean-audio-events clean-video-motion clean-video-snapshotter clean-video-timelapser clean-bird-detection clean-crow-detection clean-event-correlator clean-backplane clean-audio-output \
 	services-install services-start services-stop services-restart \
 	install-host install-backbone install-log-bounds upsert-backbone-env check-installable \
 	update-services \
@@ -31,7 +31,7 @@
 	dev-stack dev-stop dev-restart dev-status dev-logs
 
 # Python projects in the monorepo
-PYTHON_PROJECTS = platform/orpheus-common services/orpheus_ui services/orpheus-gps agents/orpheus-agent-audio-motion agents/orpheus-agent-audio-playback agents/orpheus-agent-audio-events agents/orpheus-agent-video-motion agents/orpheus-agent-video-snapshotter agents/orpheus-agent-video-timelapser agents/orpheus-agent-bird-detection agents/orpheus-agent-crow-detection agents/orpheus-agent-event-correlator
+PYTHON_PROJECTS = platform/orpheus-common services/orpheus_ui services/orpheus-gps services/orpheus-audio-output agents/orpheus-agent-audio-motion agents/orpheus-agent-audio-playback agents/orpheus-agent-audio-events agents/orpheus-agent-video-motion agents/orpheus-agent-video-snapshotter agents/orpheus-agent-video-timelapser agents/orpheus-agent-bird-detection agents/orpheus-agent-crow-detection agents/orpheus-agent-event-correlator
 # All projects (including non-Python)
 ALL_PROJECTS = $(PYTHON_PROJECTS) services/orpheus-backplane
 
@@ -115,7 +115,7 @@ help:
 #==============================================================================
 # Install Targets
 #==============================================================================
-install: install-common install-ui install-gps install-audio-motion install-audio-playback install-audio-events install-video-motion install-video-snapshotter install-video-timelapser install-bird-detection install-crow-detection install-event-correlator
+install: install-common install-ui install-gps install-audio-output install-audio-motion install-audio-playback install-audio-events install-video-motion install-video-snapshotter install-video-timelapser install-bird-detection install-crow-detection install-event-correlator
 	@echo "✅ All components installed"
 
 install-common:
@@ -132,6 +132,11 @@ install-gps: install-common
 	@echo "Installing orpheus-gps..."
 	@$(MAKE) -C services/orpheus-gps install
 	@echo "✅ orpheus-gps installed"
+
+install-audio-output: install-common
+	@echo "Installing orpheus-audio-output..."
+	@$(MAKE) -C services/orpheus-audio-output install
+	@echo "✅ orpheus-audio-output installed"
 
 install-audio-motion: install-common
 	@echo "Installing orpheus-agent-audio-motion..."
@@ -202,7 +207,7 @@ COMPONENT_DIRS := \
 	common:platform/orpheus-common \
 	ui:services/orpheus_ui \
 	gps:services/orpheus-gps \
-	bluetooth-autoconnect:services/orpheus-bluetooth-autoconnect \
+	audio-output:services/orpheus-audio-output \
 	audio-motion:agents/orpheus-agent-audio-motion \
 	audio-playback:agents/orpheus-agent-audio-playback \
 	audio-events:agents/orpheus-agent-audio-events \
@@ -231,7 +236,7 @@ install-host:
 	@echo "Installing subset on this host: $(COMPONENTS)"
 	@$(MAKE) install-common
 	@for c in $(COMPONENTS); do \
-	  case "$$c" in common|bluetooth-autoconnect) continue;; esac; \
+	  [ "$$c" = common ] && continue; \
 	  $(MAKE) install-$$c || exit $$?; \
 	done
 	@if [ -n "$(BACKBONE)" ]; then $(MAKE) upsert-backbone-env BACKBONE="$(BACKBONE)"; fi
@@ -306,8 +311,8 @@ upsert-backbone-env:
 # check-installable — anti-rot guard (run in CI). Asserts the per-host install set
 #   (COMPONENT_DIRS / INSTALLABLE) and the all-in-one `services-install` agree, so
 #   a component added to one but not the other can't silently fall out of a
-#   per-host install. Catches service-only members (e.g. bluetooth-autoconnect)
-#   that have no dev install-<name> target. The broker is install-backbone, not a
+#   per-host install. Catches service-only members that have no dev
+#   install-<name> target. The broker is install-backbone, not a
 #   per-host component, so it's excluded.
 check-installable:
 	@echo "Checking COMPONENT_DIRS/INSTALLABLE vs services-install..."
@@ -351,6 +356,11 @@ test-gps:
 	@echo "Testing orpheus-gps..."
 	@$(MAKE) -C services/orpheus-gps test
 	@echo "✅ orpheus-gps tests passed"
+
+test-audio-output:
+	@echo "Testing orpheus-audio-output..."
+	@$(MAKE) -C services/orpheus-audio-output test
+	@echo "✅ orpheus-audio-output tests passed"
 
 test-audio-motion:
 	@echo "Testing orpheus-agent-audio-motion..."
@@ -418,7 +428,7 @@ test-event-correlator:
 #==============================================================================
 # Coverage Targets
 #==============================================================================
-coverage-all: coverage-common coverage-ui coverage-gps coverage-audio-motion coverage-audio-playback coverage-audio-events coverage-video-motion coverage-video-snapshotter coverage-video-timelapser coverage-bird-detection coverage-crow-detection coverage-event-correlator
+coverage-all: coverage-common coverage-ui coverage-gps coverage-audio-output coverage-audio-motion coverage-audio-playback coverage-audio-events coverage-video-motion coverage-video-snapshotter coverage-video-timelapser coverage-bird-detection coverage-crow-detection coverage-event-correlator
 	@echo ""
 	@echo "============================================"
 	@echo "✅ Coverage reports generated for all projects"
@@ -457,6 +467,18 @@ coverage-gps:
 			. venv/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_gps $(COV_REPORTS) --cov-fail-under=70; \
 		else \
 			echo "⚠️  No venv found. Run 'make install-gps' first."; \
+			exit 1; \
+		fi
+
+coverage-audio-output:
+	@echo ""
+	@echo "📊 Coverage for orpheus-audio-output..."
+	@echo "============================================"
+	@cd services/orpheus-audio-output && \
+		if [ -d venv ]; then \
+			. venv/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_audio_output $(COV_REPORTS) --cov-fail-under=70; \
+		else \
+			echo "⚠️  No venv found. Run 'make install-audio-output' first."; \
 			exit 1; \
 		fi
 
@@ -571,7 +593,7 @@ coverage-event-correlator:
 #==============================================================================
 # Lint Targets
 #==============================================================================
-lint: lint-common lint-ui lint-gps lint-audio-motion lint-audio-playback lint-audio-events lint-video-motion lint-video-snapshotter lint-video-timelapser lint-bird-detection lint-crow-detection lint-event-correlator lint-backplane
+lint: lint-common lint-ui lint-gps lint-audio-output lint-audio-motion lint-audio-playback lint-audio-events lint-video-motion lint-video-snapshotter lint-video-timelapser lint-bird-detection lint-crow-detection lint-event-correlator lint-backplane
 	@echo "✅ All linting complete"
 
 lint-common:
@@ -588,6 +610,11 @@ lint-gps:
 	@echo "Linting orpheus-gps..."
 	@$(MAKE) -C services/orpheus-gps lint
 	@echo "✅ orpheus-gps linted"
+
+lint-audio-output:
+	@echo "Linting orpheus-audio-output..."
+	@$(MAKE) -C services/orpheus-audio-output lint
+	@echo "✅ orpheus-audio-output linted"
 
 lint-audio-motion:
 	@echo "Linting orpheus-agent-audio-motion..."
@@ -642,7 +669,7 @@ lint-backplane:
 #==============================================================================
 # Format Targets
 #==============================================================================
-format: format-common format-ui format-gps format-audio-motion format-audio-playback format-audio-events format-video-motion format-video-snapshotter format-video-timelapser format-bird-detection format-crow-detection format-event-correlator format-backplane
+format: format-common format-ui format-gps format-audio-output format-audio-motion format-audio-playback format-audio-events format-video-motion format-video-snapshotter format-video-timelapser format-bird-detection format-crow-detection format-event-correlator format-backplane
 	@echo "✅ All formatting complete"
 
 mbake:
@@ -664,6 +691,11 @@ format-gps:
 	@echo "Formatting orpheus-gps..."
 	@$(MAKE) -C services/orpheus-gps format
 	@echo "✅ orpheus-gps formatted"
+
+format-audio-output:
+	@echo "Formatting orpheus-audio-output..."
+	@$(MAKE) -C services/orpheus-audio-output format
+	@echo "✅ orpheus-audio-output formatted"
 
 format-audio-motion:
 	@echo "Formatting orpheus-agent-audio-motion..."
@@ -718,7 +750,7 @@ format-backplane:
 #==============================================================================
 # Clean Targets
 #==============================================================================
-clean: clean-common clean-ui clean-gps clean-audio-motion clean-audio-playback clean-audio-events clean-video-motion clean-video-snapshotter clean-video-timelapser clean-bird-detection clean-crow-detection clean-event-correlator clean-backplane
+clean: clean-common clean-ui clean-gps clean-audio-output clean-audio-motion clean-audio-playback clean-audio-events clean-video-motion clean-video-snapshotter clean-video-timelapser clean-bird-detection clean-crow-detection clean-event-correlator clean-backplane
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
@@ -740,6 +772,11 @@ clean-gps:
 	@echo "Cleaning orpheus-gps..."
 	@$(MAKE) -C services/orpheus-gps clean 2>/dev/null || true
 	@echo "✅ orpheus-gps cleaned"
+
+clean-audio-output:
+	@echo "Cleaning orpheus-audio-output..."
+	@$(MAKE) -C services/orpheus-audio-output clean 2>/dev/null || true
+	@echo "✅ orpheus-audio-output cleaned"
 
 clean-audio-motion:
 	@echo "Cleaning orpheus-agent-audio-motion..."
@@ -800,7 +837,7 @@ services-install:
 	@$(MAKE) -C services/orpheus-backplane install-service
 	@$(MAKE) -C services/orpheus-gps install-service
 	@$(MAKE) -C services/orpheus_ui install-service
-	@$(MAKE) -C services/orpheus-bluetooth-autoconnect install-service
+	@$(MAKE) -C services/orpheus-audio-output install-service
 	@$(MAKE) -C agents/orpheus-agent-audio-motion install-service
 	@$(MAKE) -C agents/orpheus-agent-audio-playback install-service
 	@$(MAKE) -C agents/orpheus-agent-audio-events install-service
@@ -818,7 +855,7 @@ services-start:
 	@sleep 2  # Wait for MQTT to be ready
 	@$(MAKE) -C services/orpheus-gps service-start
 	@$(MAKE) -C services/orpheus_ui service-start
-	@$(MAKE) -C services/orpheus-bluetooth-autoconnect service-start
+	@$(MAKE) -C services/orpheus-audio-output service-start
 	@$(MAKE) -C agents/orpheus-agent-audio-motion service-start
 	@$(MAKE) -C agents/orpheus-agent-audio-playback service-start
 	@$(MAKE) -C agents/orpheus-agent-audio-events service-start
@@ -841,7 +878,7 @@ services-stop:
 	@$(MAKE) -C agents/orpheus-agent-audio-events service-stop 2>/dev/null || true
 	@$(MAKE) -C agents/orpheus-agent-audio-playback service-stop 2>/dev/null || true
 	@$(MAKE) -C agents/orpheus-agent-audio-motion service-stop 2>/dev/null || true
-	@$(MAKE) -C services/orpheus-bluetooth-autoconnect service-stop 2>/dev/null || true
+	@$(MAKE) -C services/orpheus-audio-output service-stop 2>/dev/null || true
 	@$(MAKE) -C services/orpheus_ui service-stop 2>/dev/null || true
 	@$(MAKE) -C services/orpheus-backplane service-stop 2>/dev/null || true
 	@echo "✅ Services stopped"
@@ -970,12 +1007,12 @@ update-services:
 	@# would fail its _deploy-check. Install-or-update per component so new agents
 	@# actually land instead of aborting the run or being silently skipped.
 	@# Every deployed component, not just UI + agents: gps and
-	@# bluetooth-autoconnect must ride the same upgrade or they keep running
+	@# audio-output must ride the same upgrade or they keep running
 	@# old code against a transport the upgrade may have replaced.
 	@# `|| exit $$?` on both branches: a for-loop's exit status is its LAST
 	@# iteration's, so without it a mid-loop failure still prints the
 	@# success banner while a component runs stale code.
-	@for c in services/orpheus_ui services/orpheus-gps services/orpheus-bluetooth-autoconnect $(filter agents/%,$(PYTHON_PROJECTS)); do \
+	@for c in services/orpheus_ui services/orpheus-gps services/orpheus-audio-output $(filter agents/%,$(PYTHON_PROJECTS)); do \
 		name=$$(basename $$c); \
 		case "$$c" in \
 			services/orpheus_ui) root="$(DEPLOY_PREFIX)/ui";; \
@@ -1018,7 +1055,7 @@ update-all:
 	@$(MAKE) -C agents/orpheus-agent-audio-events service-stop 2>/dev/null || true
 	@$(MAKE) -C agents/orpheus-agent-audio-playback service-stop 2>/dev/null || true
 	@$(MAKE) -C agents/orpheus-agent-audio-motion service-stop 2>/dev/null || true
-	@$(MAKE) -C services/orpheus-bluetooth-autoconnect service-stop 2>/dev/null || true
+	@$(MAKE) -C services/orpheus-audio-output service-stop 2>/dev/null || true
 	@$(MAKE) -C services/orpheus-backplane service-stop 2>/dev/null || true
 	@echo ""
 	@echo "Step 2: Updating orpheus-common library..."
@@ -1027,7 +1064,7 @@ update-all:
 	@echo "Step 3: Updating services (MQTT first, then others)..."
 	@cd services/orpheus-backplane && $(MAKE) update || true
 	@cd services/orpheus_ui && $(MAKE) update || true
-	@cd services/orpheus-bluetooth-autoconnect && $(MAKE) update || true
+	@cd services/orpheus-audio-output && $(MAKE) update || true
 	@echo ""
 	@echo "Step 4: Updating agents..."
 	@cd agents/orpheus-agent-audio-motion && $(MAKE) update || true
@@ -1485,7 +1522,7 @@ test-all:
 	@echo "  Running All Tests (continues on error to show all failures)"
 	@echo "══════════════════════════════════════════════════════════════"
 	@failed=""; \
-	for dir in platform/orpheus-common services/orpheus_ui services/orpheus-gps agents/orpheus-agent-*; do \
+	for dir in platform/orpheus-common services/orpheus_ui services/orpheus-gps services/orpheus-audio-output agents/orpheus-agent-*; do \
 		if [ -f "$$dir/Makefile" ]; then \
 			echo ""; \
 			echo "Testing $$dir..."; \

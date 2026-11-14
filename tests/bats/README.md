@@ -18,13 +18,12 @@ target in the root Makefile. Later runs skip the bootstrap. Reset with
 
 ## What's tested
 
-- **`bluetooth-autoconnect.bats`** — the Bluetooth speaker supervisor
-  (`services/orpheus-bluetooth-autoconnect/scripts/orpheus-bluetooth-connect.sh`):
-  connect and audio routing, reconnect after a drop, backoff while the speaker,
-  controller or bluetoothd is unavailable, recovery from each, a missing
-  PulseAudio socket never blocking a connect,
-  pairing and trust handling, config loading, and SIGTERM. Uses stateful mocks
-  of `bluetoothctl` / `su` / `id` under `BATS_TEST_TMPDIR`.
+- **`audio-output-lifecycle.bats`** — the host steps of the audio output
+  installer and rollback (`services/orpheus-audio-output/systemd/lifecycle.sh`):
+  lingering for the audio user, masking its stock PulseAudio units, retiring
+  `orpheus-bluetooth-autoconnect` and units connecting the same speaker, and
+  undoing exactly what was recorded. Runs against a sandbox root with mocked
+  `systemctl` / `loginctl` / `getent` / `id`.
 - **`bump-version.bats`** — `scripts/bump-version.sh`: patch/minor/patch
   SemVer bumps, argument + VERSION-file validation, and the CHANGELOG stub
   (create + prepend). Tests run a sandbox copy under `BATS_TEST_TMPDIR`;

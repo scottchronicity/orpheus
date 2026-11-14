@@ -481,7 +481,7 @@ orpheus/
 │   │   └── systemd/
 │   │
 │   ├── orpheus-gps/          # GPS time + location service
-│   ├── orpheus-bluetooth-autoconnect/  # Audio-out routing
+│   ├── orpheus-audio-output/           # Audio-out readiness
 │   ├── orpheus-dashboard/    # RETIRED — superseded by orpheus_ui; not deployed
 │   └── orpheus_ui/           # Web-based UI
 │       ├── backend/          # FastAPI backend (port 8082)

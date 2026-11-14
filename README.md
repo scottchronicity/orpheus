@@ -241,7 +241,7 @@ orpheus/
 │   ├── orpheus-backplane/          # Messaging backplane (NATS+JetStream; mqtt fallback)
 │   ├── orpheus_ui/                 # Web UI (FastAPI + React + TypeScript)
 │   ├── orpheus-gps/                # GPS location service
-│   └── orpheus-bluetooth-autoconnect/ # Bluetooth speaker auto-connection
+│   └── orpheus-audio-output/        # Audio output: speaker, audio server, reconnect
 │
 ├── make/                           # Shared Makefile includes (deploy, python, lint, service)
 ├── hardware/                       # Hardware abstraction layer (audio/video device wrappers)

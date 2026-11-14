@@ -211,10 +211,11 @@ request whose playback never started.
 }
 ```
 
-Keeping the speaker connected is the job of the
-[Bluetooth auto-connect service](../../services/orpheus-bluetooth-autoconnect/README.md);
-see [Bluetooth speaker](../../docs/operator-manual/bluetooth-speaker.md) when
-sounds do not play.
+This agent chooses and plays sounds. Keeping the speaker connected and the
+audio server routed to it is the job of the
+[audio output service](../../services/orpheus-audio-output/README.md); see
+[Audio output](../../docs/operator-manual/audio-output.md) when sounds do not
+play.
 
 ### Health Status
 

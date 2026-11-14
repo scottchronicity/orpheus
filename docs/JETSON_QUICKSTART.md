@@ -153,7 +153,7 @@ On a station, install the whole set in one line:
 ```bash
 cd ~/orpheus
 make services-install    # every component, including audio-events, audio-playback,
-                         # gps and bluetooth-autoconnect, which the list below omits
+                         # gps and audio-output, which the list below omits
 make services-start
 ```
 

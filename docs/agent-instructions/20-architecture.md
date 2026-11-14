@@ -34,7 +34,7 @@ services/
   orpheus-gps/                GPS time + location service
   orpheus-dashboard/          DEAD — superseded by orpheus_ui. Not in
                               COMPONENT_DIRS, not built, not tested. Don't extend it.
-  orpheus-bluetooth-autoconnect/  Audio-out routing
+  orpheus-audio-output/           Audio-out readiness (output device, audio server, reconnect)
 agents/
   orpheus-agent-audio-motion/      Layer 1: detect audio events from mic
   orpheus-agent-video-motion/      Layer 1: detect video events from camera

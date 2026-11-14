@@ -182,7 +182,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 | --- | --- | --- |
 | No GPU path for BirdNET | BirdNET is CPU-only on every platform, so it is the slowest step | Nothing to configure; the two torch models use a GPU if one is present |
 | systemd production path is Jetson-tuned | Services' `install.sh` scripts may not work cleanly on non-Jetson Linux | Use `make dev-stack` for development; adapt `systemd/install.sh` per-service if you need production |
-| Bluetooth auto-connect is Jetson-focused | `orpheus-bluetooth-autoconnect` may not work on your distro | Disable or skip the service if Bluetooth isn't needed |
+| Audio output needs BlueZ + PulseAudio | `orpheus-audio-output` supports a Bluetooth speaker with PulseAudio only | Leave `audio_output.enabled: false` if you have no speaker |
 | Package names vary by distro | `libportaudio2` / `libsndfile1` are Debian/Ubuntu names | Fedora: `portaudio-devel`, `libsndfile`. Arch: `portaudio`, `libsndfile`. |
 
 ---

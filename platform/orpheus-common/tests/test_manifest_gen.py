@@ -42,6 +42,14 @@ class TestEnabledComponents:
         assert names == {"backplane", "audio-playback", "event-correlator", "gps", "ui"}
 
 
+    def test_audio_output_section_adds_the_output_manager(self):
+        cfg = _cfg(audio=False, cameras=False)
+        cfg._raw = {"audio_output": {"output": {"bluetooth": {"address": "FC:58:FA:02:AF:28"}}}}
+        assert "audio-output" in {c.name for c in enabled_components(cfg)}
+        cfg._raw = {"audio_output": {"enabled": False}}
+        assert "audio-output" not in {c.name for c in enabled_components(cfg)}
+
+
 class TestSystemd:
     def test_target_wants_enabled_units_sorted(self):
         out = SystemdGenerator().generate(_cfg(audio=True, cameras=False))
