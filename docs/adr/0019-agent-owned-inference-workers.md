@@ -40,9 +40,11 @@ runtime and configure its own policy. The in-process backend remains available.
 
 One PANNs subprocess runs one inference at a time across the inputs feeding
 that audio-events agent. The agent queues clip references in FIFO order and
-decodes one clip at a time. It accepts work during temporary overload and
-worker recovery. This queue is in memory: it does not survive an agent or host
-crash. Input count and queue depth are independent.
+decodes one clip at a time. Its capacity is one active plus the configured
+`max_pending_clips`; when full, the event callback blocks until a slot opens.
+This bounds agent memory without capacity-based rejection. Work remains in
+process memory through temporary overload and worker recovery, but does not
+survive an agent or host crash. Input count and queue depth are independent.
 The agent publishes and persists `audio.classified` with its existing lineage.
 The correlator owns temporal correlation, including whether a detection
 enriches a previously emitted entity.
@@ -52,10 +54,10 @@ cutoff hurt coverage and was unrelated to the correlator's inactivity timer.
 The default now has no age cutoff. A deployment can explicitly set
 `clip_ttl_seconds` if it wants to trade coverage for bounded age. The
 request timeout independently bounds one exchange with the subprocess, and
-the storage sweep owns recording retention. The legacy `max_pending_clips`
-setting remains accepted for YAML compatibility but no longer rejects work.
-Persistent demand above throughput increases classification latency and
-in-memory backlog. Durable admission and replay require explicit event
+the storage sweep owns recording retention. Persistent demand above throughput
+backpressures the callback path. NATS core delivery remains at-most-once and its
+shared dispatch queue can overflow before the callback; this is not end-to-end
+durable admission. Durable delivery and replay require explicit event
 acknowledgement and idempotency semantics; this queue does not claim them. If
 an IPC/child failure occurs before inference returns, the agent retains that
 accepted clip and retries after the supervised worker recovers. Domain output

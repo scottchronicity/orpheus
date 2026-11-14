@@ -132,16 +132,26 @@ def test_gpu_queue_preserves_every_received_clip_under_overload(
 
     monkeypatch.setattr(gpu_agent, "_process_audio_file", block)
     path, source = clip_source
+    producer = threading.Thread(
+        target=lambda: [gpu_agent._submit_processing(path, source) for _ in range(20)],
+        daemon=True,
+    )
     try:
         gpu_agent._submit_processing(path, source)
         assert entered.wait(timeout=2)
-        for _ in range(20):
-            gpu_agent._submit_processing(path, source)
-        assert len(gpu_agent._inflight) == 21
+        producer.start()
+        end = time.monotonic() + 2
+        while time.monotonic() < end and len(gpu_agent._inflight) < 3:
+            time.sleep(0.01)
+        assert len(gpu_agent._inflight) == 3
+        assert producer.is_alive()  # callback is backpressured at configured capacity
         assert gpu_agent.clips_rejected["overload"] == 0
     finally:
         release.set()
+        if producer.ident is not None:
+            producer.join(timeout=10)
         gpu_agent.wait_inflight(timeout=5)
+    assert not producer.is_alive()
     assert len(processed) == 21
 
 
@@ -314,6 +324,8 @@ async def test_auto_backend_preserves_inprocess_device_discovery(gpu_agent):
         {"max_clip_seconds": 400},
         {"max_clip_seconds": 1e308},
         {"max_pending_clips": 1.5},
+        {"shutdown_drain_timeout_seconds": 0},
+        {"shutdown_drain_timeout_seconds": float("nan")},
     ],
 )
 def test_invalid_gpu_configuration(settings):
@@ -504,7 +516,8 @@ def test_configured_queue_can_admit_bursts_beyond_four_sources(
     worker_factory, tiny_labels, clip_source, source_count,
 ):
     cfg = OrpheusConfig.from_dict({"audio_events": {
-        "backend": "gpu_worker", "gpu_worker": {"max_pending_clips": source_count - 1},
+        "backend": "gpu_worker",
+        "gpu_worker": {"max_pending_clips": min(source_count - 1, 1)},
     }})
     agent = AudioEventsAgent(
         orpheus_config=cfg, model=worker_factory(), labels=tiny_labels, detection_db=MagicMock(),
@@ -520,15 +533,32 @@ def test_configured_queue_can_admit_bursts_beyond_four_sources(
     agent._process_audio_file = gated
     agent.bus = MagicMock()
     path, source = clip_source
+    submitted = []
+    producer = threading.Thread(
+        target=lambda: [
+            (agent._submit_processing(path, source.model_copy(update={"channel": channel + 1})),
+             submitted.append(channel))
+            for channel in range(source_count)
+        ],
+        daemon=True,
+    )
     with patch("orpheus_inference.resources.mem_available_mib", return_value=10000):
         try:
-            for channel in range(source_count):
-                agent._submit_processing(path, source.model_copy(update={"channel": channel + 1}))
-                assert entered.wait(timeout=2)
-            assert len(agent._inflight) == source_count
+            producer.start()
+            assert entered.wait(timeout=2)
+            capacity = 1 + min(source_count - 1, 1)
+            end = time.monotonic() + 2
+            while time.monotonic() < end and len(agent._inflight) < min(source_count, capacity):
+                time.sleep(0.01)
+            assert len(agent._inflight) == min(source_count, capacity)
+            if source_count > capacity:
+                assert producer.is_alive()
             assert agent.clips_rejected["overload"] == 0
             release.set()
+            producer.join(timeout=10)
+            assert not producer.is_alive()
             agent.wait_inflight(timeout=10)
+            assert len(submitted) == source_count
             assert agent.detections_emitted == source_count
         finally:
             release.set()
@@ -566,3 +596,22 @@ async def test_shutdown_drains_running_and_queued_clips_before_closing_worker(
     assert gpu_agent.clips_rejected["shutdown"] == 0
     assert not gpu_agent._inflight
     assert gpu_agent.bus.publish.call_count == 3
+
+
+async def test_shutdown_bounds_wait_for_permanently_unavailable_worker(gpu_agent, clip_source):
+    gpu_agent.config.gpu_worker = replace(
+        gpu_agent.config.gpu_worker, shutdown_drain_timeout_seconds=0.1
+    )
+    gpu_agent.model.health = lambda: {"ready": False, "failures": 0, "state": "circuit_open"}
+    gpu_agent._submit_processing(*clip_source)
+    end = time.monotonic() + 2
+    while time.monotonic() < end and not gpu_agent._inflight:
+        await asyncio.sleep(0.01)
+    assert gpu_agent._inflight
+
+    await asyncio.wait_for(gpu_agent.on_stopping(), timeout=2)
+
+    assert not gpu_agent._inflight
+    assert gpu_agent.clips_rejected["shutdown"] == 1
+    gpu_agent.bus.publish.assert_not_called()
+    gpu_agent.detection_db.save.assert_not_called()

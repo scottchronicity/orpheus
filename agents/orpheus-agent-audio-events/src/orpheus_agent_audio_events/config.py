@@ -20,10 +20,10 @@ class GPUWorkerConfig:
     python: str = ""
     startup_timeout_seconds: float = 60.0
     request_timeout_seconds: float = 5.0
+    shutdown_drain_timeout_seconds: float = 60.0
     clip_ttl_seconds: float | None = None
     max_clip_seconds: float = 40.0
-    # Retained for YAML compatibility. Admission no longer rejects on this
-    # setting: accepted audio.motion work stays queued until processed.
+    # Maximum queued clip references beyond the worker's active inference.
     max_pending_clips: int = 2
     start_memory_mib: int = 8704
     floor_memory_mib: int = 3800
@@ -43,6 +43,7 @@ class GPUWorkerConfig:
         for value in (
             self.startup_timeout_seconds,
             self.request_timeout_seconds,
+            self.shutdown_drain_timeout_seconds,
             self.max_clip_seconds,
             self.restart_backoff_seconds,
             self.restart_window_seconds,
@@ -61,7 +62,7 @@ class GPUWorkerConfig:
         if self.max_clip_seconds > min(input_seconds, output_seconds):
             raise ValueError("GPU max_clip_seconds exceeds IPC payload capacity")
         if self.max_pending_clips < 0 or self.max_starts < 1:
-            raise ValueError("invalid legacy GPU pending setting or restart budget")
+            raise ValueError("invalid GPU pending limit or restart budget")
         if not 0 < self.floor_memory_mib < self.start_memory_mib:
             raise ValueError(
                 "GPU memory floor must be positive and start memory must exceed the floor"

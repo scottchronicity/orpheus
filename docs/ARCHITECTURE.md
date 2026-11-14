@@ -102,9 +102,11 @@ Any queue rejection, expiry, retry, shutdown cancellation or degradation policy
 must name its owner, reason, configuration, defaults and observability, and have
 behavioral tests. IPC exchange timeouts bound a faulty exchange; worker recovery
 does not authorize discarding work by recording age, silently loading another
-model or inventing retries. The PANNs agent queues callbacks it receives through
-temporary worker unavailability and drains accepted work before graceful
-shutdown. This in-memory queue does not survive an agent/host crash, and the
+model or inventing retries. The PANNs agent bounds waiting clip references by
+configuration and blocks its callback when that capacity is full; it waits
+through temporary worker unavailability. Graceful shutdown drains within its
+configured lifecycle budget and logs/counts unfinished clips if that budget
+expires. This in-memory queue does not survive an agent/host crash, and the
 core event bus does not make it a durable work queue. See the
 [operator guide](operator-manual/panns-gpu.md#budget-memory-and-overload) for
 the explicit TTL/clip-length policies and operational limits.
