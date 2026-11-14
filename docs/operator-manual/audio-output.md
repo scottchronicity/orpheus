@@ -22,7 +22,9 @@ manages three things separately, each configured on its own:
   to 60 s while something is down, then drop back as soon as it recovers.
 
 Each poll it makes the speaker's sink PulseAudio's default and moves any
-playing sound to it.
+playing sound to it. If PulseAudio restarts while the speaker stays connected
+and the new server gets no sink for it, the service reconnects the speaker
+once so it renegotiates with the new server.
 
 **The managed PulseAudio never touches the recording interface.** It loads
 only the native-protocol and Bluetooth modules, and no ALSA or udev module, so
@@ -163,7 +165,7 @@ The health snapshot is also published on `orpheus/audio/output/health` every
 | `server.state` / `server.managed` | `ready` / `failed` / `isolation_violation`; `true` if the service started this server, `false` if it is using one that was already running |
 | `routing.state` | `routed`, `waiting_for_sink`, `route_failed`, `not_ready` |
 | `capture_isolation.ok` | `false` if any PulseAudio holds an ALSA device or loads an ALSA module; `problems` and `other_audio_servers` say which |
-| `counters` | speaker reconnects, server recoveries, routing changes since start |
+| `counters` | speaker reconnects, server recoveries, routing changes, and speaker resets after a server restart, since start |
 
 A healthy service logs nothing. It logs when a state changes, and repeats an
 unchanged failure at most every 10 minutes.

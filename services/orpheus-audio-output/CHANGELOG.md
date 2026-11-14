@@ -7,4 +7,5 @@
 - Reads `/etc/orpheus/bluetooth-autoconnect/config.env` for any values `orpheus.yaml` does not set. The installer retires the old unit.
 - The installer is transactional. Preflight (staged build, config, user, tools, PulseAudio modules, mask paths) changes nothing on the host. Any later failure, including no ready server or broken capture isolation within 60 s of starting, restores the previous deployment, unit file and host changes. Each touched unit returns to its previous enabled and running state, and rollback restores those states too.
 - The user's stock PulseAudio masks are verified through that user's systemd manager after a reload (`LoadState=masked`, socket inactive).
+- If PulseAudio restarts while the speaker stays connected and no sink appears, the speaker is reconnected once so A2DP renegotiates with the new server.
 - Reports health on `orpheus/audio/output/health` and in `/run/orpheus-audio-output/health.json`.

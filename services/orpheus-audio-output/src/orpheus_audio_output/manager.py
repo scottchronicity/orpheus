@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from .config import AudioOutputConfig
-from .outputs import OutputDevice, OutputState
+from .outputs import DISCONNECTED, OutputDevice, OutputState
 from .policy import Backoff, LogThrottle
 from .servers import FAILED, ISOLATION_VIOLATION, STOPPED, AudioServer, ServerState
 
@@ -39,6 +39,9 @@ class OutputManager:
         self.clock = clock
         self.server_backoff = Backoff(config.reconnect)
         self.output_backoff = Backoff(config.reconnect)
+        # Re-establishing an output whose sink is missing has its own backoff,
+        # cleared only once playback is routed (the reconnect itself succeeds).
+        self.reset_backoff = Backoff(config.reconnect)
         self.server_state = ServerState(STOPPED)
         self.output_state = OutputState("unknown")
         self.route_state = "not_ready"
@@ -46,9 +49,15 @@ class OutputManager:
         self.routed_sink: Optional[str] = None
         self.isolation_problems: list[str] = []
         self.other_servers: list[dict] = []
-        self.counters = {"output_reconnects": 0, "server_recoveries": 0, "routes": 0}
+        self.counters = {
+            "output_reconnects": 0,
+            "server_recoveries": 0,
+            "routes": 0,
+            "output_resets": 0,
+        }
         self._ever_connected = False
         self._server_starts = 0
+        self._starts_at_connect = 0  # server starts when the output last connected
         self._sink_missing_polls = 0
         self._throttle = LogThrottle()
 
@@ -169,6 +178,8 @@ class OutputManager:
             self.output_backoff.success(now)
         if state.connected:
             self._ever_connected = True
+            if not before.connected:
+                self._starts_at_connect = self._server_starts
         self.output_state = state
         self._transition("output", before.state, state.state, state.detail)
 
@@ -190,7 +201,28 @@ class OutputManager:
                     "output connected but the server has no sink for it; another audio "
                     "server may hold the A2DP endpoint"
                 )
-                self._failure("routing", self.route_detail, None)
+                now = self.clock()
+                restarted_since_connect = self._server_starts > self._starts_at_connect
+                if restarted_since_connect and self.reset_backoff.due(now):
+                    # The server restarted while the link stayed up, and a
+                    # restarted server does not always get a sink for it:
+                    # re-establish the output so it renegotiates. Only after a
+                    # restart (never to wrest a sink from another user's
+                    # server), once per restart, under its own backoff.
+                    self.output.reset()
+                    self.output_state = OutputState(
+                        DISCONNECTED, "reconnecting after a server restart"
+                    )
+                    self._sink_missing_polls = 0
+                    wait = self.reset_backoff.failure(now)
+                    self.counters["output_resets"] += 1
+                    self._failure(
+                        "routing",
+                        self.route_detail + "; reconnecting the output",
+                        wait if self.config.reconnect.enabled else None,
+                    )
+                else:
+                    self._failure("routing", self.route_detail, None)
             self._transition("routing", before, self.route_state, self.route_detail)
             return
         self._sink_missing_polls = 0
@@ -203,6 +235,7 @@ class OutputManager:
                 self._transition("routing", before, self.route_state, detail)
                 return
             self.counters["routes"] += 1
+            self.reset_backoff = Backoff(self.config.reconnect)
             self.routed_sink = sink
             self.route_detail = detail
         self.route_state = "routed"

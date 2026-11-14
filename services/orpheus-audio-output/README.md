@@ -51,7 +51,12 @@ keys in `config.py`.
 4. **Routing.** Once the output is connected and the server ready, the
    output's sink becomes the default, and playing streams are moved to it.
    Routing is repeated whenever the default sink changes (for example, after a
-   server restart).
+   server restart). If the server restarted while the output stayed connected
+   and no sink appears within `SINK_GRACE_POLLS`, `OutputDevice.reset()` drops
+   the link once so the output renegotiates with the new server (Bluetooth:
+   `bluetoothctl disconnect`). A sink missing without a restart is only
+   reported, so the service never takes an endpoint from another user's
+   server.
 
 `pactl` always runs as the server's user with `PULSE_SERVER` set explicitly,
 so a client never autospawns a stock PulseAudio. Every external command runs

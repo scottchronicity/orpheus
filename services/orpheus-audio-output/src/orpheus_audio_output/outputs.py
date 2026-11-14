@@ -61,6 +61,10 @@ class OutputDevice:
         """Try to bring the output up; returns the state afterwards."""
         raise NotImplementedError
 
+    def reset(self) -> None:
+        """Drop the output so the next ``establish`` sets it up afresh (used
+        when the server lost the output's sink, e.g. after a server restart)."""
+
     def endpoint(self) -> Endpoint:  # pragma: no cover - interface
         raise NotImplementedError
 
@@ -128,6 +132,11 @@ class BluetoothOutput(OutputDevice):
             return state
         reason = _connect_reason(second) or _connect_reason(first) or state.detail
         return OutputState(state.state, reason)
+
+    def reset(self) -> None:
+        # A restarted PulseAudio may not get an A2DP transport for a link that
+        # stayed up; reconnecting renegotiates the profile with the new server.
+        self._bt("disconnect", self.address)
 
     def endpoint(self) -> Endpoint:
         return Endpoint(kind="bluetooth", address=self.address)

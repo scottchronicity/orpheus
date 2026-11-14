@@ -72,6 +72,13 @@ def test_failed_establish_reports_the_bluez_reason():
     assert "br-connection-page-timeout" in state.detail
 
 
+def test_reset_disconnects_the_speaker():
+    world = BluetoothWorld(device="connected")
+    output, runner = make(world)
+    output.reset()
+    assert runner.argvs("bluetoothctl")[-1] == ["disconnect", ADDRESS]
+
+
 def test_no_scan_when_the_stack_itself_is_down():
     output, runner = make(BluetoothWorld(controller="absent"))
     assert output.establish().state == NO_CONTROLLER

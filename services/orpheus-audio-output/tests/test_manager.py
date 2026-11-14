@@ -64,6 +64,12 @@ class FakeOutput(OutputDevice):
             return OutputState(CONNECTED)
         return OutputState(DISCONNECTED, "Failed to connect: org.bluez.Error.Failed")
 
+    resets: int = 0
+
+    def reset(self):
+        self.resets += 1
+        self.state = DISCONNECTED
+
     def endpoint(self):
         return Endpoint("bluetooth", ADDRESS)
 
@@ -277,6 +283,39 @@ def test_connected_but_sink_missing_is_reported_after_grace(setup):
     assert health["routing"]["state"] == "waiting_for_sink"
     assert "another audio server may hold the A2DP endpoint" in health["routing"]["detail"]
     assert any(line[1] == "routing not ready" for line in log.lines)
+
+
+def test_lost_sink_after_a_server_restart_reconnects_the_output(setup):
+    manager, output, server, clock, _ = setup()
+    run(manager, clock, 1)
+    assert manager.ready
+    # The server restarts; the link stays up but the new server has no sink.
+    server.crash()
+    server.sink_present = False
+    run(manager, clock, SINK_GRACE_POLLS)
+    assert output.resets == 1 and manager.counters["output_resets"] == 1
+    # Reconnecting renegotiates A2DP with the new server: the sink appears.
+    server.sink_present = True
+    run(manager, clock, 3)
+    assert manager.ready and server.default == SINK
+
+
+def test_a_sink_missing_without_a_server_restart_is_reported_not_fought(setup):
+    # e.g. another user's audio server holds the A2DP endpoint
+    server = FakeServer(up=True, sink_present=False)
+    manager, output, server, clock, _ = setup(server=server)
+    run(manager, clock, 60)
+    assert output.resets == 0
+    assert "another audio server may hold" in manager.health()["routing"]["detail"]
+
+
+def test_one_reset_per_server_restart(setup):
+    manager, output, server, clock, _ = setup()
+    run(manager, clock, 1)
+    server.crash()
+    server.sink_present = False  # and it never comes back
+    run(manager, clock, 60)
+    assert output.resets == 1
 
 
 def test_capture_isolation_violation_stops_the_managed_server(setup):
