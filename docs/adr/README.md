@@ -35,6 +35,7 @@ it has shipped.
 | [0020](0020-portable-capabilities-and-runtime-boundaries.md) | Portable capabilities and independent runtime boundaries | Governing contract; implementation awaits independent review |
 | [0021](0021-birdnet-onnx-execution-providers.md) | BirdNET ONNX execution providers | Live — per-agent provider selection with isolated runtime dependencies |
 | [0022](0022-birdnet-onnx-provider-fail-closed-runtime.md) | BirdNET ONNX provider fail-closed runtime | Live — exclusive per-agent runtime choice and explicit accelerator failure semantics |
+| [0023](0023-portable-crow-torch-device-selection.md) | Portable crow Torch device selection | Live — shared resolved device, opt-in MPS, and video model boundary |
 
 Records are immutable once accepted: a decision that changes gets a new record
 and a `Superseded` line on the old one, rather than an edit.

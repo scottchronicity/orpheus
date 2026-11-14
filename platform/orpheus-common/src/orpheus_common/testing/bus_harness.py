@@ -23,6 +23,7 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from typing import Any, Callable, List, Optional, Tuple
@@ -30,11 +31,13 @@ from typing import Any, Callable, List, Optional, Tuple
 from orpheus_common.config import OrpheusConfig
 from orpheus_common.event_bus import EventBus, create_event_bus
 
-DEFAULT_NATS_URL = "nats://127.0.0.1:4222"
+DEFAULT_NATS_URL = os.environ.get("ORPHEUS_TEST_NATS_URL")
 
 
-def nats_config(nats_url: str = DEFAULT_NATS_URL, **extra: Any) -> OrpheusConfig:
+def nats_config(nats_url: Optional[str] = DEFAULT_NATS_URL, **extra: Any) -> OrpheusConfig:
     """An ``OrpheusConfig`` wired to the NATS backend for e2e tests."""
+    if not nats_url:
+        raise ValueError("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
     data: dict[str, Any] = {
         "mqtt": {"broker_host": "localhost"},
         "event_bus": {"backend": "nats", "nats_url": nats_url},
@@ -43,9 +46,11 @@ def nats_config(nats_url: str = DEFAULT_NATS_URL, **extra: Any) -> OrpheusConfig
     return OrpheusConfig.from_dict(data, source="<e2e>")
 
 
-def broker_reachable(nats_url: str = DEFAULT_NATS_URL, timeout: float = 2.0) -> bool:
+def broker_reachable(nats_url: Optional[str] = DEFAULT_NATS_URL, timeout: float = 2.0) -> bool:
     """True iff a NATS broker accepts a connection within ``timeout`` — use to
     ``pytest.skip`` when no broker is running (the established convention)."""
+    if not nats_url:
+        return False
     from orpheus_common.event_bus_nats import NatsBus
 
     bus = NatsBus(nats_url, client_id="e2e-probe", connect_timeout=timeout)
@@ -237,9 +242,6 @@ class AgentRunner:
             self._thread.join(timeout=self._shutdown_timeout)
 
 
-DEFAULT_NATS_URL = "nats://127.0.0.1:4222"
-
-
 def reset_orpheus_config_singleton():
     """Body of the autouse fixture every suite needs: OrpheusConfig caches its
     instance, so tests that read config see the previous test's config unless
@@ -257,7 +259,7 @@ def reset_orpheus_config_singleton():
 
 
 def require_broker(
-    url: str = DEFAULT_NATS_URL,
+    url: Optional[str] = DEFAULT_NATS_URL,
     *,
     hint: str = "run a local nats-server or `make sim-up`",
 ) -> str:
@@ -265,6 +267,8 @@ def require_broker(
     the url otherwise. The one broker-gate every e2e conftest shares."""
     import pytest
 
+    if not url:
+        pytest.skip("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
     if not broker_reachable(url):
-        pytest.skip(f"no nats-server on {url} ({hint})")
+        pytest.skip(f"isolated test NATS broker not reachable at {url} ({hint})")
     return url

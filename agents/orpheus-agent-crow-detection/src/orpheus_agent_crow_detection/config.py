@@ -36,11 +36,19 @@ class CrowDetectionConfig:
             embedder_model_path=crow_config.get("embedder_model_path", default_embedder_path),
             classifier_model_path=crow_config.get("classifier_model_path", default_classifier_path),
             embedder_sample_rate=crow_config.get("embedder_sample_rate", 16000),
-            # Torch device for the AVES embedder + classifier on the shared Jetson GPU
-            # ("auto"/"cpu"/"cuda"); parity with audio-events. Default "auto" preserves
-            # today's behavior. select_torch_device resolves it at model load.
-            device=str(crow_config.get("device", "auto")),
+            device=_device_setting(crow_config.get("device", "auto")),
         )
+
+
+def _device_setting(value: object) -> str:
+    """Validate the Torch devices implemented by both crow model stages."""
+    device = str(value).strip().lower()
+    if device not in {"auto", "cpu", "cuda", "mps"}:
+        raise ValueError(
+            "crow_detection.device must be one of auto, cpu, cuda, mps; "
+            f"got {device!r}"
+        )
+    return device
 
 
 def load_config(config_path: Path | None = None) -> CrowDetectionConfig:

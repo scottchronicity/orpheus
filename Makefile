@@ -889,7 +889,7 @@ $(SIM_VALIDATE_PYTHON):
 
 sim-validate: $(SIM_VALIDATE_PYTHON)
 	@echo "Validating the real-audio cascade against the running fleet..."
-	@ORPHEUS_E2E_REAL_AUDIO=1 $(SIM_VALIDATE_PYTHON) -m pytest tests/e2e_bdd -v -m real_audio
+	@ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:4222 ORPHEUS_E2E_REAL_AUDIO=1 $(SIM_VALIDATE_PYTHON) -m pytest tests/e2e_bdd -v -m real_audio
 
 sim-down:
 	@echo "Stopping the Orpheus Simulacrum (all profiles)..."
