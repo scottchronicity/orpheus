@@ -4,43 +4,24 @@ Thank you for your interest in contributing to Orpheus. This document covers eve
 
 ---
 
-## Python 3.9 Is Not Optional
+## Architecture and runtime compatibility
 
-**This constraint is not negotiable — read it before you write any code.**
+Read [AGENTS.md](AGENTS.md), then the [architecture contract](docs/ARCHITECTURE.md#architecture-contract)
+and [ADR 0020](docs/adr/0020-portable-capabilities-and-runtime-boundaries.md)
+before changing architecture, configuration, runtimes or deployment.
+**Configure the capability, not the machine.** Agents own domain behavior;
+model/backend implementations and their runtimes remain replaceable.
 
-This project targets **Python 3.9.5** exclusively. This is a hard constraint imposed by NVIDIA JetPack, the firmware stack on the Jetson Orin NX hardware where Orpheus is deployed. JetPack ships a specific Python version and we cannot deviate from it.
+Python versions belong to components. Most current agents/services declare
+Python 3.9; the validated Jetson PANNs CUDA worker declares Python 3.8 with its
+pinned NVIDIA stack; shared IPC supports 3.8+. Follow each package's metadata,
+constraints, Makefile and Ruff target. This assignment does not modernize those
+runtimes, and the worker does not prevent future agent modernization.
 
-**Pull requests containing Python 3.10+ syntax will be rejected without review.**
-
-In **annotations**, `X | None` and `list[X]` are fine: every module starts with
-`from __future__ import annotations`, so annotations are strings at runtime and
-never evaluated. The codebase uses both forms throughout.
-
-They are **not** fine anywhere the expression is evaluated at runtime —
-`isinstance()`, `cast()`, a Pydantic `TypeAdapter`, or a bare union alias at
-module scope. And `match`/`case`, `except*` and parenthesized context managers
-are banned outright: those are syntax, not annotations, and 3.9 cannot parse
-them.
-
-```python
-# CORRECT — Python 3.9 compatible
-from typing import Optional, Union
-
-def find_species(code: str) -> Optional[str]:
-    ...
-
-def process(value: Union[str, int]) -> None:
-    ...
-
-# WRONG — Python 3.10+ only, PR will be rejected
-def find_species(code: str) -> str | None:
-    ...
-
-def process(value: str | int) -> None:
-    ...
-```
-
-If you are unsure whether a syntax feature is 3.9-compatible, check [docs.python.org/3.9](https://docs.python.org/3.9/whatsnew/3.9.html) or run `python3.9 -c "import ast; ast.parse(open('yourfile.py').read())"`.
+For current Python 3.9 components, postponed annotations permit `X | None` and
+`list[X]`; expressions evaluated at runtime still need compatible types. Syntax
+and dependencies must work on the component's declared interpreters. Do not use
+newer language features merely because your development interpreter accepts them.
 
 ---
 
@@ -117,14 +98,14 @@ Spikes exist because we'd rather have a well-reasoned decision document than a s
 
 ### Prerequisites
 
-- **Python 3.9.5** — must be the version you use locally (use `uv` — recommended — or `pyenv`)
+- **The component-compatible Python interpreter** — the current default developer toolchain is 3.9.5 (uv recommended); optional CUDA workers use their own pinned runtime
 - **Git LFS** — for ML models and audio samples: `git lfs install && git lfs pull`
 - **Make** — build automation
 - **libportaudio2** and **libsndfile1** — audio I/O for local testing: `sudo apt install libportaudio2 libsndfile1` (macOS: `brew install portaudio libsndfile`)
 
 ### Quick Setup
 
-> Ensure Python 3.9.5 is active (`python3 --version`). See Prerequisites above or the [macOS Quick Start](docs/MACOS_QUICKSTART.md) for installation via uv or pyenv.
+> For the current default agent setup, ensure Python 3.9.5 is active (`python3 --version`). See Prerequisites above or the [macOS Quick Start](docs/MACOS_QUICKSTART.md) for installation via uv or pyenv.
 
 ```bash
 git clone https://github.com/scottchronicity/orpheus.git
@@ -148,25 +129,33 @@ The monorepo is organized around a strict separation of concerns:
 | `platform/orpheus-common/` | No | Shared Python library: config, MQTT, logging, storage, DetectionDB |
 | `agents/` | **No** | Detection and analysis agents — pure Python, no hardware assumptions |
 | `services/` | **No** | Infrastructure services — MQTT broker, dashboards, GPS, Bluetooth |
-| `hardware/` | No | Hardware abstraction layer (device wrappers used by agents) |
+| `hardware/` | No | Hardware interface design notes; implemented capture adapters live with their agents |
+| `platform/orpheus-inference/` | No | Dependency-free subprocess IPC and supervision |
+| `workers/` | Backend-specific | Optional model implementations with independent runtimes |
 
 ### Hardware Porting Strategy
 
-If you want to run Orpheus on a different single-board computer (e.g., Raspberry Pi, Orange Pi, Radxa Rock), the correct approach is:
+Preserve domain agents when porting to another platform. Hardware setup belongs
+in the platform configuration; capture and inference differences belong behind
+replaceable backends in their owning components. Existing audio source factories,
+camera registry and `SEDModel` interface are the seams to inspect. The `hardware/`
+folder describes intended interfaces; it is not a shipped universal driver package.
 
-1. **Create `platform/raspberry-pi/`** (or the appropriate name) for your hardware-specific configuration
-2. **Do not modify any agent or service code** — `agents/` and `services/` are already hardware-agnostic
-3. Port only what differs: ALSA device aliases, GPIO mappings, service installation paths, systemd unit files
-
-The existing agents subscribe to MQTT topics and publish to MQTT topics. They have no opinions about what hardware generated the audio or video streams. As long as the upstream agents (audio-motion, video-motion) are producing events on the correct topics, every downstream agent works unchanged.
-
-This pattern means a Raspberry Pi deployment and a Jetson deployment can share 100% of their agent code. Only the `platform/` directory differs.
+Do not claim a port works until its dependencies and backend have been validated.
+A Raspberry Pi may use CPU inference; a Jetson may select the isolated CUDA worker.
+Those choices must preserve event/detection semantics and use Orpheus configuration.
+See the [architecture contract](docs/ARCHITECTURE.md#architecture-contract).
 
 ---
 
 ## Making Changes
 
-### 1. Create a Branch
+### 1. Reconcile or create a branch
+
+For an existing feature, use its shared remote branch. Fetch and compare local
+and remote history before edits; preserve all commits and uncommitted work.
+Fast-forward when possible, and reconcile divergence without rewriting remote
+history. One branch has one PR. Create a branch only for new work:
 
 ```bash
 git checkout -b feature/your-feature-name
@@ -210,11 +199,21 @@ git commit -m "feat(<scope>): <imperative summary>"
 git push origin your-branch-name
 ```
 
-### 5. Open a Pull Request
+### 5. Open a draft PR and hand off independent review
 
-- Use the PR template
-- Link related issues
-- Request review from maintainers
+Use the [shared development and independent review workflow](docs/agent-instructions/12-git-and-lfs.md#shared-development-and-independent-review).
+Keep one draft PR as the implementation record. Include architecture/ADR decisions,
+exact check commands/results, hardware evidence tied to its tested SHA/config,
+known limitations, and full base/head SHAs with the exact review range.
+Explicitly present the PR/range to the independent reviewer; a push does not notify
+a separate review conversation automatically. Tests and self-review are not
+independent acceptance. Address findings in new commits and hand off a new range.
+Keep draft until architecture, implementation and tests are accepted; merge and
+production deployment need separate explicit authorization.
+
+Hardware validators test an agreed revision in a separate checkout and return
+evidence/fixes to the shared branch. They do not become a competing development
+owner or gain authorization to change production by running a trial.
 
 ---
 
@@ -225,7 +224,7 @@ git push origin your-branch-name
 - **Formatter**: Ruff (not Black)
 - **Linter**: Ruff
 - **Line length**: 100 characters
-- **Python version**: **3.9 compatible only** — see the warning at the top of this document
+- **Python version**: compatible with the changed component and all consumers of shared code
 
 ### Type Hints
 
@@ -288,9 +287,9 @@ async def test_audio_source_starts():
 
 | Constraint | Reason |
 |---|---|
-| Python 3.9.5 | NVIDIA JetPack system Python — non-negotiable |
-| ARM64 compatible dependencies | Target deployment is ARM64 Jetson |
-| No `X \| Y` type union syntax | Python 3.10+ only |
+| Per-component Python versions | Preserve declared runtime and dependency compatibility |
+| Backend/platform-compatible dependencies | Validate every claimed supported path |
+| Runtime-compatible syntax and evaluated types | Follow package metadata and Ruff targets |
 | `requirements.txt` for all components | Jetson deployment uses pip, not Poetry/uv |
 | Ruff for formatting and linting | Faster than Black/flake8 on Jetson |
 
@@ -298,21 +297,21 @@ async def test_audio_source_starts():
 
 ## Pull Request Checklist
 
-- [ ] Python 3.9 compatible syntax throughout
+- [ ] Runtime compatibility preserved for each changed component
 - [ ] Tests pass (`make test`)
 - [ ] Linting passes (`make lint`) with zero errors
 - [ ] Coverage maintained or improved (`make coverage`)
 - [ ] Guardrails pass (`make guardrails`)
 - [ ] Documentation updated if behavior changed
 - [ ] No hardcoded hardware assumptions in `agents/` or `services/`
-- [ ] If porting to new hardware, changes are in a new `platform/` subdirectory
+- [ ] Platform setup and backend implementations preserve agent/domain semantics
 
 ### Review Process
 
 1. Automated CI checks must pass
 2. At least one maintainer review required
 3. Address all review feedback
-4. Squash merge when approved
+4. Leave draft only after independent acceptance; merge/deploy only with separate authorization
 
 ---
 

@@ -5,6 +5,14 @@ local subprocess per owning agent. It supplies the verified OGW1 pipe framing,
 deadline I/O, background supervision, host-memory admission, worker-side guards
 and stdout isolation. It does not depend on `orpheus-common`, numpy, CUDA or NATS.
 
+The [architecture contract](../../docs/ARCHITECTURE.md#architecture-contract) and
+[ADR 0020](../../docs/adr/0020-portable-capabilities-and-runtime-boundaries.md)
+separate domain, model, hardware execution, IPC and host coordination. This
+package keeps its current name and infrastructure boundary. Callers own resource
+budgets and domain admission/retry decisions; exchange timeouts and recovery
+never supply a recording-age cutoff. The current serial client does not impose
+a platform-wide count of models, workers, accelerators or inputs.
+
 The client requires a ready worker before accepting a request. Model reloads
 never happen on a clip request path. A whole exchange is serialized, faults
 kill/reap the child, and a rolling start budget bounds restart storms. The

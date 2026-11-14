@@ -44,8 +44,10 @@ class WorkerSEDModel(SEDModel):
 
     def __init__(self, checkpoint: Path, config: GPUWorkerConfig) -> None:
         self.config = config
-        if not Path(config.python).is_file():
-            raise FileNotFoundError("GPU worker Python missing; see the opt-in install guide")
+        if not Path(config.python).is_file() or not os.access(config.python, os.X_OK):
+            raise FileNotFoundError(
+                "GPU worker Python missing or not executable; see the opt-in install guide"
+            )
         data_root = Path(os.environ.get("ORPHEUS_DATA_ROOT", "/data/orpheus"))
         home = data_root / "gpu-workers" / "panns"
         labels = home / "panns_data" / "class_labels_indices.csv"

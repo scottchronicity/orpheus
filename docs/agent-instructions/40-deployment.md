@@ -4,6 +4,11 @@ Operator-side procedures live in
 [`docs/runbooks/`](https://github.com/scottchronicity/orpheus/blob/main/runbooks/). This file orients you when an agent
 needs to think about deployment (rare — mostly tests + design).
 
+First read the [architecture contract](../ARCHITECTURE.md#architecture-contract)
+and [review workflow](12-git-and-lfs.md#shared-development-and-independent-review).
+Backend/runtime/resource policy is per component and deployment. A hardware
+trial tests an agreed revision and does not authorize a production deployment.
+
 ## The current major deploy
 
 [`docs/runbooks/cross-classifier-identity-deploy.md`](../runbooks/cross-classifier-identity-deploy.md)

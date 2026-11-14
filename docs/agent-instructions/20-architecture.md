@@ -2,7 +2,12 @@
 
 For the full design narrative, read
 [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) and
-[`docs/designs/`](https://github.com/scottchronicity/orpheus/blob/main/designs/). This file is the orientation shortcut.
+[`docs/designs/`](../designs/README.md). This file is the orientation shortcut.
+Read the [architecture contract](../ARCHITECTURE.md#architecture-contract) and
+[ADR 0020](../adr/0020-portable-capabilities-and-runtime-boundaries.md) before
+changing boundaries, configuration, runtimes or deployment. Configure the capability,
+not the machine. The canonical page owns that contract; this shortcut does not
+define a separate one.
 
 ## Holonic agents
 
@@ -12,7 +17,8 @@ runs in its own process, owns its own data, and communicates with
 others via the event bus (NATS + JetStream by default; MQTT fallback —
 ADR 0017). **No agent depends on internal state of another.**
 
-Run on a Jetson Orin NX (production) or a Mac dev box (development).
+Run on platforms supported by the selected backend and dependencies. Jetson and
+Mac are validated deployments, not an exhaustive architecture boundary.
 
 ## Components
 
@@ -20,6 +26,8 @@ Run on a Jetson Orin NX (production) or a Mac dev box (development).
 platform/orpheus-common/      Shared library: config, EventBus (NATS/JetStream),
                               Detection / Entity / TaxonomyRef models,
                               equivalence graph, structlog, schema migrations
+platform/orpheus-inference/   Dependency-free local IPC + process supervision
+workers/orpheus-worker-panns/ Optional, separately pinned Jetson CUDA model runtime
 services/
   orpheus-backplane/          Messaging backplane (NATS + JetStream; legacy mqtt fallback)
   orpheus_ui/                 FastAPI + React UI (port 8082)
@@ -83,9 +91,9 @@ Full design: [`docs/designs/cross-classifier-identity.md`](../designs/cross-clas
 
 | Constraint | Value | Reason |
 |---|---|---|
-| Python version | 3.9.5 | Jetson Orin NX system Python |
-| Type syntax | `X \| None` is fine in annotations (`from __future__ import annotations`); use `Optional[X]` anywhere evaluated at runtime | 3.9 compatibility |
-| Architecture | ARM64 (Jetson) + x86_64 (Mac dev) | Both must work |
+| Python version | Per-component metadata: currently agents generally 3.9, isolated PANNs CUDA 3.8, IPC 3.8+ | Independent runtimes; no global version lock |
+| Type syntax | Match the component's supported interpreter and evaluated annotations | Shared IPC must still run on 3.8 |
+| Architecture | Backend/dependency specific | Keep portable agents separate from hardware implementations |
 | Test coverage | Per-component floor; see [Testing](../TESTING.md) | CI gate |
 | Schema migrations | Additive only | Forward-rollback compat |
 

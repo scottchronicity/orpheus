@@ -5,6 +5,11 @@ Themed deep-dives for anyone changing Orpheus, human or coding agent. Start at
 pages are what it routes to. Numbered by theme, not by reading order — open the
 one that matches the work.
 
+For architecture, config, runtime or deployment work, start with the
+[architecture contract](../ARCHITECTURE.md#architecture-contract). For a shared
+implementation milestone, follow the
+[independent review workflow](12-git-and-lfs.md#shared-development-and-independent-review).
+
 | Page | Read it when |
 |---|---|
 | [00 — Non-negotiables](00-non-negotiables.md) | Before anything else. Twelve rules, most tied to a specific past incident |

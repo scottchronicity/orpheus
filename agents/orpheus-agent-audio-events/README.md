@@ -3,7 +3,7 @@
 General-purpose audio event classification agent. Tags every audio-motion-triggered
 clip against the **AudioSet 527-class ontology** using **PANNs Sound Event
 Detection** with native frame-level outputs. Runs in parallel with bird-detection,
-crow-detection, and audio-motion on the Jetson Orin NX.
+crow-detection, and audio-motion on supported platforms.
 
 This agent is what lets the system answer "what else was in that clip?" —
 dog barks, vehicles, human voices, rain, lawn mowers, anything in the AudioSet
@@ -19,7 +19,7 @@ Detection carries:
 - `taxonomy`: `{namespace: "audioset", id: "/m/...", common_name: "..."}` per ADR 0011
 - `species_code`: `"audioset_<machine_id>"` (correlator-friendly)
 - `intervals`: list of `TemporalInterval(start_seconds, end_seconds, confidence)`
-  describing *when* in the clip the label fired (frame-level, ~31 ms granularity)
+  describing *when* in the clip the label fired (10 ms PANNs frame granularity)
 - `source_event_id`: the immediate parent (the audio.motion event_id)
 - `root_event_id`: the chain root (the audio.motion event_id at the
   top of the source-chain). One-hop downstream of audio-motion, so
@@ -66,7 +66,7 @@ Add (or omit — defaults are sensible) an `audio_events` section to `orpheus.ya
 ```yaml
 audio_events:
   enabled: true
-  model_variant: cnn14_sed         # or "cnn10_sed" for the lighter fallback
+  model_variant: cnn14_sed         # implemented production model; fake is for tests
   model_path: /data/orpheus/models/panns_cnn14_decision_level_max.pth
   sample_rate: 32000
   device: auto                     # auto (cuda if available, else cpu) | cuda | cpu
@@ -98,21 +98,15 @@ class — a synthesizable, reproducible SED implementation that lets us
 exercise post-processing, MQTT lifecycle, and Detection construction without
 loading PyTorch or downloading the 300+ MB PANNs checkpoint.
 
-**Jetson smoke test before deployment:**
+**Hardware validation and acceptance:** follow the
+[PANNs operator guide](../../docs/operator-manual/panns-gpu.md) for isolated
+comparison, supported runtime and remaining validation. Record tested SHA,
+configuration, hardware/runtime and results in the draft PR. A test pass is
+not independent acceptance or authorization to deploy.
 
-1. `make install` + `make download-models` on the Jetson.
-2. Deploy via `sudo ./systemd/install-service.sh`.
-3. `sudo systemctl start orpheus-agent-audio-events`.
-4. Trigger 10 audio-motion events from real microphones over 5 minutes.
-5. Confirm:
-   - Each clip gets at least one `audio.classified` Detection emitted within
-     ~250 ms of the audio-motion event.
-   - GPU memory headroom remains ≥1 GB alongside BirdNET + AVES + crow-tools.
-   - CPU temperature stays under 80 °C (no thermal regression vs baseline).
-6. Confirm in the UI that intervals render and playback seeks correctly.
-
-If Cnn14 doesn't fit the budget, swap to Cnn10 via the `model_variant` config
-key — same code path, no schema change.
+The lighter Cnn10 discussed in the original design is not implemented by the
+model factory; selecting `cnn10_sed` fails. Measure a different implementation
+before proposing it as a fallback.
 
 ## Open questions
 

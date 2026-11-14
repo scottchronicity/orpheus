@@ -1,12 +1,15 @@
 """PANNs-only loading and array validation, derived from the verified prototype."""
 
 import hashlib
+import math
 import os
 import platform
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
+
+from orpheus_inference.protocol import MAX_PAYLOAD
 
 TORCH_VERSION = "2.1.0a0+41361538.nv23.06"
 CHECKPOINT_SHA256 = "dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142"
@@ -21,6 +24,14 @@ class PannsRuntime:
     """Load only the validated Python/framework/checkpoint combination."""
 
     def __init__(self, checkpoint: str, max_seconds: float) -> None:
+        # Matches Cnn14's 32 kHz input, 10 ms frames and 527 output classes.
+        # Keep the two-frame tolerance used by the parent result validator.
+        if not math.isfinite(max_seconds) or max_seconds <= 0:
+            raise ValueError("max-seconds must be positive and finite")
+        input_seconds = (MAX_PAYLOAD // 4) / 32000
+        output_seconds = (MAX_PAYLOAD // (527 * 4) - 3) * 0.01
+        if max_seconds > min(input_seconds, output_seconds):
+            raise ValueError("max-seconds exceeds IPC payload capacity")
         self.checkpoint = Path(checkpoint)
         self.max_seconds = max_seconds
         self.sed = None

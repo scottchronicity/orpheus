@@ -3,6 +3,12 @@
 **Read [`AGENTS.md`](./AGENTS.md) — it's the canonical entry point for
 all AI coding agents in this repo (Claude, Copilot, Cursor, etc.).**
 
+Before architecture, config, runtime or deployment changes, follow its route to
+the [architecture contract](docs/ARCHITECTURE.md#architecture-contract) and
+[shared development/review workflow](docs/agent-instructions/12-git-and-lfs.md#shared-development-and-independent-review).
+Hardware validation reports an exact revision and returns fixes to the shared
+feature branch; passing tests or a hardware trial is not independent acceptance.
+
 `AGENTS.md` is short by design. It contains:
 
 1. The non-negotiable rules (deliberately not counted here — AGENTS.md's

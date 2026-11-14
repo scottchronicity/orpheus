@@ -30,11 +30,11 @@
 - **Platform**: `orpheus-common` shared library (config, MQTT, storage, logging)
 - **Agents**: Independent processing agents (audio/video motion, bird detection, crow detection, playback)
 - **Services**: Supporting infrastructure (MQTT broker, web dashboard, Bluetooth autoconnect)
-- **Hardware**: 4-channel USB audio interface (Behringer UMC404HD), 4 IP cameras, Samsung T7 SSD storage
+- **Hardware**: deployment-configured audio/video inputs and storage; no fixed sensor count
 
 ### Technology Stack
 
-- **Language**: Python 3.9.5 (locked for Jetson JetPack compatibility)
+- **Language**: component-owned Python runtimes; see [architecture contract](docs/ARCHITECTURE.md#architecture-contract)
 - **Communication**: event bus — NATS + JetStream via the EventBus abstraction (legacy mqtt fallback)
 - **ML Framework**: PyTorch with ONNX inference
 - **Testing**: pytest with 70% minimum coverage
@@ -193,7 +193,11 @@ Ask yourself:
 
 ### Python Version Constraints
 
-**CRITICAL**: Python 3.9.5 compatibility is non-negotiable due to Jetson JetPack requirements.
+Read the [runtime contract](docs/ARCHITECTURE.md#runtimes-and-hardware-resources)
+and each changed package's metadata. Current agent packages generally require
+3.9, the isolated PANNs CUDA worker requires 3.8, and IPC supports 3.8+.
+The examples below illustrate compatibility with those existing runtimes;
+they do not impose one global interpreter or prevent future modernization.
 
 **DO:**
 
@@ -206,8 +210,8 @@ def process(items: List[str]) -> Optional[str]:
 **DO NOT:**
 
 ```python
-# ❌ Python 3.10+ syntax - FORBIDDEN
-def process(items: list[str]) -> str | None:  # NO!
+# Evaluated unions and match require newer runtimes; annotations can be postponed
+Result = str | None  # runtime expression, incompatible with Python 3.9
     ...
 match value:  # NO!
     case 1: ...
@@ -562,7 +566,7 @@ Use **`agents/orpheus-agent-audio-motion/`** as the template for new agents:
 
 ### Code
 
-- ❌ Use Python 3.10+ syntax (`match`, `X | None`, bare `list[X]`)
+- ❌ Use syntax or evaluated types unsupported by the changed component runtime
 - ❌ Add Black as a dependency (use ruff only)
 - ❌ Hardcode paths (use storage helpers from orpheus_common)
 - ❌ Duplicate MQTT/config code (use orpheus_common)

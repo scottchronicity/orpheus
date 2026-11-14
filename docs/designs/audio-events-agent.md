@@ -6,7 +6,7 @@ with `agents/orpheus-agent-audio-events/`.
 
 **Author:** scott + claude
 
-**Last updated:** 2026-07-02
+**Last updated:** 2026-11-14
 
 **Doc-sync contract:** per non-negotiable #12 (AGENTS.md), changes to this
 agent update this doc in the same commit.
@@ -343,7 +343,7 @@ class AudioEventsConfig:
     bridge_ms: int = 100
     min_interval_ms: int = 150
     max_labels_per_clip: int | None = None # top-K cap per clip; unset = no cap
-    device: str = "auto"                   # "auto" | "cuda" | "cpu" | passthrough
+    device: str = "auto"                   # "auto" | "cuda" | "cpu"
     # MQTT (defaults also overridable via mqtt.topics.* in orpheus.yaml)
     input_topic: str = "orpheus/audio/motion/events"
     output_topic: str = "orpheus/detection/audio/events"
@@ -358,7 +358,21 @@ Defaults are conservative; expect tuning during field validation.
 `orpheus_common.utils.select_torch_device` seam: `"auto"` (the default) picks
 CUDA when available, else CPU — survivable on a GPU-less host; an explicit
 `"cuda"` with no CUDA **fails loud at startup** (the operator demanded a GPU);
-anything more specific (`"cuda:1"`, `"mps"`) passes through untouched.
+PANNs rejects other device selections (`"cuda:1"`, `"mps"` included) during
+configuration validation because this wrapper does not implement them. The
+shared selector's pass-through behavior does not extend this model's support.
+
+**Optional subprocess execution** — `backend: gpu_worker` selects the separately
+pinned Jetson CUDA implementation, and `backend: auto` discovers that supported
+implementation before falling back to the in-process model. Explicit device/model
+choices remain authoritative. See the [operator guide](../operator-manual/panns-gpu.md)
+for precise selection, queue, memory, expiry, failure and rollback semantics, and
+[ADR 0019](../adr/0019-agent-owned-inference-workers.md) for hardware evidence.
+The agent still owns the common post-processing, lineage and publication/persistence
+path. The [architecture contract](../ARCHITECTURE.md#architecture-contract) and
+[ADR 0020](../adr/0020-portable-capabilities-and-runtime-boundaries.md) govern
+runtime separation and future backend changes. A recording's age is not a reason
+to skip classification unless an operator explicitly configures the optional TTL.
 
 **`max_concurrent_clips`** (bounded worker pool) — the agent dispatches each
 `audio.motion` clip to a bounded `ThreadPoolExecutor`; a new tick starts a fresh

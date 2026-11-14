@@ -77,8 +77,11 @@ this repo, remember these.
     exist for this work. Don't create a second PR for the same branch.
 
 11. **Read CLAUDE.md / AGENTS.md / project skill instructions at the
-    start of every session.** Don't skim. The user's prior session
-    cost was paid because past agents skimmed.
+    start of every session.** Before changing architecture, configuration,
+    runtimes or deployment, read the [architecture contract](docs/ARCHITECTURE.md#architecture-contract),
+    [ADR 0020](docs/adr/0020-portable-capabilities-and-runtime-boundaries.md)
+    and the affected component's docs. Configure capabilities, preserve domain
+    semantics, and respect independent runtime/resource ownership. Don't skim.
 
 12. **When you add or change a feature, you MUST update the docs in the
     same change** — the [Operator's Manual](docs/operator-manual/index.md)
@@ -111,6 +114,13 @@ architectural understanding which trumps deployment knowledge.
 | [`docs/agent-instructions/13-ci-cd.md`](docs/agent-instructions/13-ci-cd.md) | The pr-tests.yml workflow structure, what to update when adding components, CodeQL status. |
 
 ### Architecture (read when the task touches data flow)
+
+Start with the [canonical architecture contract](docs/ARCHITECTURE.md#architecture-contract).
+Backend changes must preserve publication, persistence and lineage; the correlator's
+inactivity window is not a classification deadline. Python versions belong to
+components. Unsupported selections fail clearly; `auto` respects explicit choices.
+Use the [shared-branch and independent-review workflow](docs/agent-instructions/12-git-and-lfs.md#shared-development-and-independent-review)
+for implementation milestones. Tests and self-review are not independent acceptance.
 
 | File | What it covers |
 |---|---|

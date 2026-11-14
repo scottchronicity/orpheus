@@ -3,6 +3,12 @@
 **Status:** Implemented for PANNs on the feature branch. Capacity and
 deployment policy remain open.
 
+**Contract clarification:** [ADR 0020](0020-portable-capabilities-and-runtime-boundaries.md)
+governs portability, independent runtimes and review. This record retains the
+PANNs trial measurements and design history; its queue/memory examples are not
+platform limits. The implementation milestone remains subject to independent
+acceptance and production validation.
+
 **Date:** 2026-11-14
 
 ## Context
@@ -91,6 +97,18 @@ model and deployment. At the host level, budget for the sum of measured
 resident model and peak workload demands, including simultaneous cold starts.
 The earlier trial does not establish the required headroom for a different
 mix of models or input sources.
+
+### Contract audit (2026-11-14)
+
+The audit retains the worker/agent/shared-library boundaries. Backend `auto`
+now respects explicit CPU placement and the selected model; explicit CUDA never
+silently downgrades to CPU. PANNs refuses MPS and indexed CUDA selections because
+its current wrapper does not implement them. Required CUDA plus explicit CPU
+is a configuration error. Clip length validation now follows OGW1 input/output
+payload capacity rather than an arbitrary 120-second ceiling. The default
+40-second model budget remains deployment policy. Shutdown cancellation is
+counted alongside other rejection reasons. No new age cutoff, automatic replay,
+implicit CPU recovery, model service or host scheduler is introduced.
 
 On the next candidate revision, measure overload and expiry separately,
 recording-to-publication age, worker reloads, and minimum available memory

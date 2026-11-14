@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from orpheus_agent_audio_events.config import AudioEventsConfig
 
 
@@ -12,6 +14,14 @@ def _orpheus_config_with(raw: dict) -> MagicMock:
     mock = MagicMock()
     mock._raw = raw
     return mock
+
+
+@pytest.mark.parametrize("count", [0, -1, True, 1.5])
+def test_invalid_concurrency_is_rejected_instead_of_silently_clamped(count):
+    with pytest.raises(ValueError, match="max_concurrent_clips"):
+        AudioEventsConfig.from_orpheus_config(
+            _orpheus_config_with({"audio_events": {"max_concurrent_clips": count}})
+        )
 
 
 class TestAudioEventsConfigDefaults:

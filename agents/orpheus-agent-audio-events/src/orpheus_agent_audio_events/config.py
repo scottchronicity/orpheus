@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from orpheus_common.config import OrpheusConfig
+from orpheus_inference.protocol import MAX_PAYLOAD
+
+from .model import PANNsCnn14SED
 
 
 @dataclass(frozen=True)
@@ -47,8 +50,16 @@ class GPUWorkerConfig:
         ttl = self.clip_ttl_seconds
         if ttl is not None and (not math.isfinite(ttl) or ttl <= 0):
             raise ValueError("GPU clip TTL must be positive and finite when set")
-        if self.max_clip_seconds > 120 or self.max_pending_clips < 0 or self.max_starts < 1:
-            raise ValueError("invalid GPU clip length, pending limit or restart budget")
+        # Bound allocations by the actual OGW1 frame capacity, not a station's
+        # recording length. Allow the proxy's two-frame output tolerance too.
+        input_seconds = (MAX_PAYLOAD // 4) / PANNsCnn14SED.PANNS_SAMPLE_RATE
+        output_seconds = (
+            MAX_PAYLOAD // (PANNsCnn14SED.PANNS_NUM_CLASSES * 4) - 3
+        ) * PANNsCnn14SED.PANNS_FRAME_DURATION_SECONDS
+        if self.max_clip_seconds > min(input_seconds, output_seconds):
+            raise ValueError("GPU max_clip_seconds exceeds IPC payload capacity")
+        if self.max_pending_clips < 0 or self.max_starts < 1:
+            raise ValueError("invalid GPU pending limit or restart budget")
         if not 0 < self.floor_memory_mib < self.start_memory_mib:
             raise ValueError(
                 "GPU memory floor must be positive and start memory must exceed the floor"
@@ -85,6 +96,14 @@ class AudioEventsConfig:
     def __post_init__(self) -> None:
         if self.backend not in {"inprocess", "gpu_worker", "auto"}:
             raise ValueError("audio_events.backend must be inprocess, gpu_worker or auto")
+        # panns_inference supports these placements only; its wrapper silently
+        # treats other strings (including mps and cuda:1) as CPU.
+        if self.device not in {"auto", "cpu", "cuda"}:
+            raise ValueError("audio_events.device supports only auto, cpu or cuda")
+        if self.backend == "gpu_worker" and self.device == "cpu":
+            raise ValueError("audio_events.backend=gpu_worker requires device auto or cuda")
+        if type(self.max_concurrent_clips) is not int or self.max_concurrent_clips < 1:
+            raise ValueError("audio_events.max_concurrent_clips must be a positive integer")
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> AudioEventsConfig:
@@ -115,7 +134,7 @@ class AudioEventsConfig:
             device=str(agent_config.get("device", "auto")),
             input_topic=str(agent_config.get("input_topic", default_input_topic)),
             output_topic=str(agent_config.get("output_topic", default_output_topic)),
-            max_concurrent_clips=int(agent_config.get("max_concurrent_clips", 2)),
+            max_concurrent_clips=agent_config.get("max_concurrent_clips", 2),
             backend=str(agent_config.get("backend", "inprocess")),
             gpu_worker=GPUWorkerConfig(**worker_raw),
         )

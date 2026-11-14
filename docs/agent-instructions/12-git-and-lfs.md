@@ -91,7 +91,10 @@ actually wanted to ship). Don't guess.
 
 **The pattern:**
 - Commit locally as you work, freely.
-- When you reach what FEELS like a stopping point, ask: "Want me to
+- Existing explicit authorization for the task persists: when the user has
+  already asked you to push/open a PR, complete the checks and push the coherent
+  milestone without asking again. This authorizes neither merge nor deployment.
+- Without existing authorization, when you reach a stopping point, ask: "Want me to
   push these N commits?" or similar. Don't just push.
 - The user will say "push it," "open the PR," or "yes" → then push.
 - If the user says "keep going" or doesn't reply, keep committing
@@ -130,6 +133,41 @@ available number in the repo — don't read meaning into the number.
 
 When a PR is open and you push new commits to the branch, CI re-runs
 automatically. Don't open a second PR for the same branch.
+
+## Shared development and independent review
+
+Use the remote feature branch as the shared implementation history and keep one
+draft PR targeting the intended base. The development owner reconciles local and
+remote commits before edits, preserves uncommitted work, and appends coherent
+commits. If histories diverge, reconcile without rewriting either shared history;
+do not discard changes to make synchronization easier. Fetch and recheck before
+pushing; never overwrite another contributor's commits.
+
+Hardware validators use an agreed exact commit in a separate checkout. They report
+the revision, resolved configuration, hardware/runtime, commands, results and
+limitations in the PR. Discoveries and fixes return as commits on the shared
+feature branch; a station checkout is not a competing source of truth. Keep
+secrets out of reports. Access to hardware does not authorize production changes.
+
+For each coherent milestone:
+
+1. Finish code, behavioral contracts and operator/user docs; run applicable
+   `make lint-*`, `make test-*`/`coverage-*`, `make guardrails` and `make docs-build`.
+2. Commit and, when authorized, push to the same branch. Verify the remote HEAD.
+3. Create or update its draft PR with the final behavior, architecture/ADR
+   decisions, exact commands/results, hardware evidence and remaining limitations.
+4. Record the full base/head SHAs and reviewable commit range (`base..head`),
+   distinguishing the full PR from any incremental checkpoint. Explicitly hand
+   off that PR/range to the independent reviewer; a push does not notify a
+   separate review conversation automatically.
+5. Stop at the review checkpoint before merge or deployment. Local tests and
+   self-review are evidence, not independent acceptance. Keep the PR draft until
+   architecture, implementation and tests are accepted. Address review findings
+   in new commits on the same branch and present another exact checkpoint.
+
+This workflow assigns roles per task, not permanently to a computer, agent tool,
+branch name or model. Merge and production deployment need separate explicit
+authorization after review.
 
 ## When CI is failing because of a small problem
 

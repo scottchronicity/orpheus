@@ -1,6 +1,8 @@
 # ADR 0009: uv for Python Version Management
 
-**Status:** Accepted
+**Status:** Accepted; the system-wide Python constraint is superseded by
+[ADR 0020](0020-portable-capabilities-and-runtime-boundaries.md). The uv tooling
+decision and per-component override mechanisms remain in force.
 
 **Date:** 2026-04-04
 

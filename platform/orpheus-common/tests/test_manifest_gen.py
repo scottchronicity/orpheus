@@ -102,3 +102,22 @@ def test_catalog_covers_every_shipped_agent():
     cataloged = {c.name for c in CATALOG if c.kind == "agent"}
     missing = shipped - cataloged
     assert not missing, f"agents shipped but absent from manifest CATALOG: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("count", [1, 8, 20])
+def test_real_config_and_manifests_do_not_cap_sensor_counts(count):
+    from orpheus_common.config import OrpheusConfig
+
+    config = OrpheusConfig.from_dict({
+        "audio": {"channels": [{"id": n, "name": f"mic{n}"} for n in range(count)]},
+        "cameras": {
+            "auth": {"username": "test", "password": "test"},
+            **{f"cam{n}": {"type": "rtsp", "host": f"camera{n}"} for n in range(count)},
+        },
+    })
+    assert len(config.get_enabled_audio_channels()) == count
+    assert len(config.get_enabled_cameras()) == count
+    for target in ("systemd", "docker-compose"):
+        manifest = generate_manifest(config, target)
+        assert "orpheus-agent-audio-events" in manifest
+        assert "orpheus-agent-video-motion" in manifest
