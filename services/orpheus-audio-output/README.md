@@ -83,7 +83,11 @@ runs the steps in `lifecycle.sh`:
   install fails;
 - stop a stock instance;
 - retire the old unit;
-- disable competing units.
+- disable competing units;
+- route the playback agent to the managed server, with a drop-in that sets
+  `PULSE_SERVER`/`XDG_RUNTIME_DIR` for the user's UID and
+  `SDL_AUDIODRIVER=pulseaudio`, then restart the agent. The agent's own unit
+  cannot derive the UID: `%U` in a system unit is the manager's UID, 0.
 
 It then starts the service, and requires a ready server with capture
 isolation intact within `HEALTH_WAIT_SECONDS`. If anything fails,

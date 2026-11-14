@@ -21,6 +21,14 @@ echo "systemctl $*" >> "$MOCK_LOG"
 u="$MOCK/units"
 [ "$1" = --user ] && { echo "unexpected direct --user" >> "$MOCK_LOG"; exit 1; }
 cmd="$1"; shift
+if [ "$cmd" = show ]; then   # show -p <Prop> --value <unit>
+  prop="$2"; name="$4"
+  case "$prop" in
+    LoadState) [ -f "$SYSROOT/etc/systemd/system/$name" ] && echo loaded || echo not-found ;;
+    User) [ "$name" = orpheus-agent-audio-playback.service ] && echo "${FAKE_PLAYBACK_USER:-orpheus}" ;;
+  esac
+  exit 0
+fi
 [ "${1:-}" = --quiet ] && shift
 [ "${1:-}" = --now ] && { now=1; shift; }
 name="${1:-}"
@@ -33,6 +41,7 @@ case "$cmd" in
   disable) rm -f "$u/$name.enabled"; [ -n "${now:-}" ] && rm -f "$u/$name.active" ;;
   start|restart)
     touch "$u/$name.active"
+    [ "$cmd" = restart ] && echo "restarted $name" >> "$MOCK/restarts"
     if [ "$name" = orpheus-audio-output.service ]; then
       if [ -n "${FAKE_UNIT_DIES:-}" ]; then rm -f "$u/$name.active"; exit 0; fi
       if [ -n "${FAKE_HEALTH:-}" ]; then
@@ -41,6 +50,7 @@ case "$cmd" in
       fi
     fi ;;
   stop) rm -f "$u/$name.active" ;;
+  try-restart) [ -f "$u/$name.active" ] && echo "restarted $name" >> "$MOCK/restarts" ;;
 esac
 exit 0
 EOF
@@ -154,6 +164,11 @@ legacy_installed() {
   printf '[Service]\nExecStart=/usr/local/bin/orpheus-bluetooth-connect\n' \
     > "$SYSROOT/etc/systemd/system/orpheus-bluetooth-autoconnect.service"
   echo '#!/bin/bash' > "$SYSROOT/usr/local/bin/orpheus-bluetooth-connect"
+}
+
+playback_installed() {
+  printf '[Service]\nUser=orpheus\n' > "$SYSROOT/etc/systemd/system/orpheus-agent-audio-playback.service"
+  unit_on orpheus-agent-audio-playback.service enabled active
 }
 
 competing_unit() {

@@ -7,6 +7,7 @@
 #   unit:<name>:<was-enabled>:<was-active> a competing unit stopped/disabled
 #   retired:<name>:<was-enabled>:<was-active> the legacy service, moved to backup
 #   pulseaudio-stopped:<user>             a stock PulseAudio the installer stopped
+#   dropin:<path> / dropin-replaced:<path>  the playback agent's routing drop-in
 # A run writes to $RUN_CHANGES; only a successful install merges it into
 # $CHANGES, so a failed run undoes its own changes and nothing older.
 #
@@ -23,6 +24,8 @@ HEALTH_FILE="${SYSROOT}/run/orpheus-audio-output/health.json"
 LEGACY_UNIT="orpheus-bluetooth-autoconnect.service"
 LEGACY_SCRIPT="${SYSROOT}/usr/local/bin/orpheus-bluetooth-connect"
 NEW_UNIT="orpheus-audio-output.service"
+PLAYBACK_UNIT="orpheus-agent-audio-playback.service"
+PLAYBACK_DROPIN="${UNIT_DIR}/${PLAYBACK_UNIT}.d/50-orpheus-audio-output.conf"
 
 say() { echo "[audio-output] $*"; }
 
@@ -149,6 +152,58 @@ stop_stock_pulseaudio() {
     fi
 }
 
+# --- routing the playback agent to the managed server ------------------------------
+playback_unit_user() {
+    if [[ "$(systemctl show -p LoadState --value "${PLAYBACK_UNIT}" 2>/dev/null)" != "loaded" ]]; then
+        return 1
+    fi
+    systemctl show -p User --value "${PLAYBACK_UNIT}" 2>/dev/null
+}
+
+playback_dropin_content() {
+    local uid="$1"
+    cat <<EOF
+# Written by orpheus-audio-output (removed by its uninstall/rollback).
+# Points the playback agent's player at the managed audio server. The unit's
+# own "/run/user/%U" resolves to the service manager's UID (0) on this
+# systemd, not to User=, so it never reached the user's PulseAudio.
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/user/${uid}
+Environment=PULSE_SERVER=unix:/run/user/${uid}/pulse/native
+# ffplay (SDL) must fail rather than fall back to ALSA, which could open a
+# card the recording agents use.
+Environment=SDL_AUDIODRIVER=pulseaudio
+EOF
+}
+
+# route_playback_to_server <user>: install the drop-in and restart the playback
+# agent if it is running, so its next sound goes to the managed server.
+route_playback_to_server() {
+    local user="$1" uid content
+    uid="$(user_uid "${user}")"
+    content="$(playback_dropin_content "${uid}")"
+    if [[ -f "${PLAYBACK_DROPIN}" && "$(cat "${PLAYBACK_DROPIN}")" == "${content}" ]]; then
+        say "playback agent already routed to ${user}'s audio server"
+        return 0
+    fi
+    mkdir -p "$(dirname "${PLAYBACK_DROPIN}")" "${STATE_DIR}"
+    if [[ -f "${PLAYBACK_DROPIN}" ]]; then
+        cp -p "${PLAYBACK_DROPIN}" "${STATE_DIR}/previous-playback-dropin.conf"
+        record "dropin-replaced:${PLAYBACK_DROPIN}"
+    else
+        record "dropin:${PLAYBACK_DROPIN}"
+    fi
+    printf '%s\n' "${content}" > "${PLAYBACK_DROPIN}"
+    chmod 0644 "${PLAYBACK_DROPIN}"
+    systemctl daemon-reload
+    if [[ "$(unit_active "${PLAYBACK_UNIT}")" == "yes" ]]; then
+        systemctl restart "${PLAYBACK_UNIT}"
+        say "routed the playback agent to ${user}'s audio server (restarted it)"
+    else
+        say "routed the playback agent to ${user}'s audio server (applies when it starts)"
+    fi
+}
+
 # --- retiring competing supervisors -----------------------------------------------
 retire_legacy_autoconnect() {
     local enabled active
@@ -241,6 +296,21 @@ undo_changes() {
                     # Not restored: keep the backup and the record for a later rollback.
                     kept="${line}"$'\n'"${kept}"
                 fi
+                ;;
+            dropin:*)
+                rm -f "${line#dropin:}"
+                rmdir "$(dirname "${line#dropin:}")" 2>/dev/null || true
+                systemctl daemon-reload 2>/dev/null || true
+                systemctl try-restart "${PLAYBACK_UNIT}" 2>/dev/null || true
+                say "removed the playback agent's routing drop-in"
+                ;;
+            dropin-replaced:*)
+                if [[ -f "${STATE_DIR}/previous-playback-dropin.conf" ]]; then
+                    mv "${STATE_DIR}/previous-playback-dropin.conf" "${line#dropin-replaced:}"
+                fi
+                systemctl daemon-reload 2>/dev/null || true
+                systemctl try-restart "${PLAYBACK_UNIT}" 2>/dev/null || true
+                say "restored the playback agent's previous drop-in"
                 ;;
             pulseaudio-stopped:*)
                 say "note: a stock PulseAudio for ${line#pulseaudio-stopped:} was stopped at install; it is not restarted (it takes the capture interface)"

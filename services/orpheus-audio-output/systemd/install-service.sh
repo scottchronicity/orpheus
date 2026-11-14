@@ -10,7 +10,8 @@
 #   swap the staged deployment in, install the unit, prepare the PulseAudio
 #   user (masks verified through its systemd manager, lingering, stop a stock
 #   instance), retire orpheus-bluetooth-autoconnect and competing units
-#   (recording whether each was enabled and running), start, and require a
+#   (recording whether each was enabled and running), point the playback
+#   agent at the managed server (drop-in), start, and require a
 #   ready server with capture isolation intact in the first health snapshot.
 # On failure: the new unit is stopped, the previous deployment and unit file
 # come back, this run's host changes are undone, and every service returns to
@@ -87,6 +88,9 @@ if [[ "${ENABLED}" == "True" ]]; then
         for module in "${modules[@]}"; do
             find_pulse_module "${module}" || fail_preflight "PulseAudio module ${module} not found (install pulseaudio-module-bluetooth)"
         done
+        if PLAYBACK_USER="$(playback_unit_user)" && [[ "${PLAYBACK_USER}" != "${PA_USER}" ]]; then
+            fail_preflight "the playback agent runs as '${PLAYBACK_USER:-root}' but audio_output.server.pulseaudio.user is '${PA_USER}'; its sounds could not reach that server"
+        fi
         link_dir="${SYSROOT}$(user_home "${PA_USER}")/.config/systemd/user"
         for unit in pulseaudio.socket pulseaudio.service; do
             if [[ -e "${link_dir}/${unit}" && "$(readlink "${link_dir}/${unit}")" != "/dev/null" ]]; then
@@ -173,6 +177,9 @@ fi
 retire_legacy_autoconnect
 disable_competing_units "${BT_ADDRESS}"
 systemctl daemon-reload
+if [[ "${SERVER_TYPE}" == "pulseaudio" ]]; then
+    route_playback_to_server "${PA_USER}"
+fi
 
 systemctl enable "${NEW_UNIT}"
 rm -f "${HEALTH_FILE}"
