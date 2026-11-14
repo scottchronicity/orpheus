@@ -166,6 +166,7 @@ nav:
           - adr/0018-distributed-backplane-and-config-service.md
           - adr/0019-agent-owned-inference-workers.md
           - adr/0020-portable-capabilities-and-runtime-boundaries.md
+          - adr/0021-birdnet-onnx-execution-providers.md
       - Design Docs:
           - designs/README.md
           - designs/actor-model-and-control-plane.md

@@ -193,7 +193,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 
 | Limitation | Impact | Workaround |
 | --- | --- | --- |
-| No GPU acceleration assumed | Only affects the two torch models; BirdNET is CPU everywhere | Acceptable for demo/dev |
+| BirdNET uses CPU | The installed ONNX Runtime build exposes no supported accelerator | Configure `bird_detection.execution_provider` and install a compatible runtime in the BirdNET agent environment |
 | Audio capture from Windows host | Requires `usbipd-win` or network audio | Skip audio; rest of stack still works |
 | No Bluetooth auto-connect | `orpheus-bluetooth-autoconnect` is Linux/Jetson-focused | Untested on WSL2; likely won't work |
 | `/mnt/c/` performance | Git LFS and `make install` stall on Windows-mounted drives | Clone inside `~` (WSL2 native filesystem) |

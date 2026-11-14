@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 import onnxruntime as ort
@@ -51,6 +51,12 @@ class BirdNETModel:
     The model expects audio input at 48kHz sample rate in 3-second windows.
     """
 
+    _PROVIDERS: ClassVar[dict[str, str]] = {
+        "cpu": "CPUExecutionProvider",
+        "cuda": "CUDAExecutionProvider",
+        "coreml": "CoreMLExecutionProvider",
+    }
+
     def __init__(
         self,
         model_path: str | Path,
@@ -58,6 +64,7 @@ class BirdNETModel:
         geo_filter_weak_admit_prob: float = 0.0005,
         geo_filter_weak_admit_conf: float = 0.85,
         site_species_whitelist: Optional[list[str]] = None,
+        execution_provider: str = "auto",
     ) -> None:
         """
         Initialize BirdNET model.
@@ -89,8 +96,49 @@ class BirdNETModel:
             msg = f"Model file not found: {model_path}"
             raise FileNotFoundError(msg)
 
-        logger.info("Loading BirdNET model", model_path=model_path)
-        self.session = ort.InferenceSession(str(self.model_path))
+        available = set(ort.get_available_providers())
+        if execution_provider == "auto":
+            selected = next(
+                (
+                    provider
+                    for provider in ("cuda", "coreml", "cpu")
+                    if self._PROVIDERS[provider] in available
+                ),
+                None,
+            )
+        elif execution_provider in self._PROVIDERS:
+            selected = execution_provider
+            if self._PROVIDERS[selected] not in available:
+                raise RuntimeError(
+                    f"BirdNET execution provider {execution_provider!r} is not "
+                    f"available; ONNX Runtime reports {sorted(available)}. "
+                    "Install a compatible provider in this agent's runtime or "
+                    "select an available provider."
+                )
+        else:
+            raise ValueError(
+                "execution_provider must be one of auto, cpu, cuda, coreml; "
+                f"got {execution_provider!r}"
+            )
+        if selected is None:
+            raise RuntimeError(
+                "BirdNET has no supported ONNX Runtime execution provider; "
+                f"available providers: {sorted(available)}"
+            )
+
+        self.execution_provider = selected
+        provider_names = [self._PROVIDERS[selected]]
+        if selected != "cpu" and self._PROVIDERS["cpu"] in available:
+            provider_names.append(self._PROVIDERS["cpu"])
+
+        logger.info(
+            "Loading BirdNET model",
+            model_path=model_path,
+            execution_provider=selected,
+        )
+        self.session = ort.InferenceSession(
+            str(self.model_path), providers=provider_names
+        )
 
         # Get model input/output metadata
         self.input_name = self.session.get_inputs()[0].name

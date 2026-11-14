@@ -511,6 +511,9 @@ detection:
 
 bird_detection:
   model_path: "/data/orpheus/models/birdnet.onnx"
+  # ONNX Runtime provider: auto selects an installed CUDA, CoreML, or CPU EP.
+  # CUDA/CoreML require a compatible ONNX Runtime build in this agent's runtime.
+  execution_provider: auto
   confidence_threshold: 0.1
   location_lat: 42.970151
   location_lon: -85.660179
