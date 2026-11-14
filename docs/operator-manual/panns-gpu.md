@@ -214,7 +214,12 @@ unreadable memory source. The parent stops admitting clips before decoding them.
 
 Only one inference runs at a time. A full queue refuses new clips. A request that
 already reached the worker can finish within its hard timeout. The agent discards
-late results. Requests never wait for a model reload or automatically retry.
+late results. With the default queue, four simultaneous clips can fill one
+active slot and two waiting slots, leaving one clip unprocessed. Increasing
+the queue can absorb short bursts within the clip lifetime. It leaves the
+worker's processing rate unchanged. Requests never wait for a model reload
+or automatically retry. See [ADR 0019](../adr/0019-agent-owned-inference-workers.md)
+for the capacity tradeoffs.
 Reload took 12–15 seconds in the prototype, longer than a clip's default lifetime:
 clips arriving during recovery are refused, and new clips resume after readiness.
 Recorded audio remains available under normal retention; refused work is not

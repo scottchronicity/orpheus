@@ -164,6 +164,7 @@ nav:
           - adr/0016-entity-type-taxonomy.md
           - adr/0017-actor-model-nats-backplane.md
           - adr/0018-distributed-backplane-and-config-service.md
+          - adr/0019-agent-owned-inference-workers.md
       - Design Docs:
           - designs/README.md
           - designs/actor-model-and-control-plane.md

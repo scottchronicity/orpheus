@@ -767,6 +767,8 @@ The opt-in isolated GPU backend uses shared pipe IPC/supervision with a Python
 3.8 NVIDIA Torch worker; the agent and default in-process backend stay on Python
 3.9. Backend selection, installation, bounded admission, expiry, recovery and host
 memory guards are documented in the [operator guide](../operator-manual/panns-gpu.md).
+See [ADR 0019](../adr/0019-agent-owned-inference-workers.md) for the worker
+boundary, queue tradeoffs and limits of the field evidence.
 Its prototype measured 15.2 ms median IPC overhead and 12–15 s reload; recovery
 runs independently of clip requests because it exceeds their default lifetime.
 Repository integration still needs the on-device validation listed in that guide.
