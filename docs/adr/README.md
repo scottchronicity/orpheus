@@ -31,6 +31,7 @@ it has shipped.
 | [0016](0016-entity-type-taxonomy.md) | Entity-type state-space taxonomy | Live |
 | [0017](0017-actor-model-nats-backplane.md) | Hand-rolled actors on a NATS + JetStream backplane | Live — supersedes 0015's transport posture |
 | [0018](0018-distributed-backplane-and-config-service.md) | Distributed backplane and config service | **Partially implemented** — the config backends, KV layer and `orpheus-config-push` shipped; install profiles and cert lifecycle have not |
+| [0019](0019-agent-owned-inference-workers.md) | Agent-owned inference workers | Implemented on the PANNs feature branch. Capacity and deployment policy remain open. |
 
 Records are immutable once accepted: a decision that changes gets a new record
 and a `Superseded` line on the old one, rather than an edit.

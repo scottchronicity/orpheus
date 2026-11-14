@@ -4,8 +4,11 @@ You are an AI coding agent working in the Orpheus repository. **Read this
 file completely before doing anything else.** It is short by design.
 
 After reading the non-negotiables below, follow the **navigation map**
-to the deep-dive doc relevant to your task. Don't try to memorise
-everything — just know where to look.
+to the deep-dive doc relevant to your task. Then use the [documentation
+index](docs/index.md) to find the feature design, decision records, and operator
+guide for the work. Read the applicable pages before proposing changes. If you
+arrived from outside the repository, start from the target checkout's
+instructions and docs.
 
 ---
 
@@ -123,6 +126,18 @@ architectural understanding which trumps deployment knowledge.
 | [`docs/agent-instructions/31-recipes-schema-changes.md`](docs/agent-instructions/31-recipes-schema-changes.md) | Step-by-step: every spot you must update when adding a schema field. |
 | [`docs/agent-instructions/32-recipes-frontend-page.md`](docs/agent-instructions/32-recipes-frontend-page.md) | Step-by-step: adding a new page or panel to the React UI. |
 
+### Configuration
+
+Before changing an agent's settings, defaults, validation or resource limits,
+read the [Operator's Manual configuration section](docs/operator-manual/index.md#2-configuration),
+the affected feature's operator guide and design, and
+[ADR 0018](docs/adr/0018-distributed-backplane-and-config-service.md).
+Trace the agent's `OrpheusConfig` values from YAML, optional distributed config
+and host environment overrides to the code that uses them. Keep deployment
+policy in the owning agent's configuration. Use measurements from a single
+installation to inform defaults, and justify any limits that apply to every
+deployment.
+
 ### Deployment
 
 | File | What it covers |
@@ -147,7 +162,7 @@ for the schema half and the [runbooks](docs/runbooks/) for the deploy half.
 
 ---
 
-## Other documentation in this repo (FYI, not required reading)
+## Documentation by audience
 
 **One tree, two audiences.** The `docs/` tree is the documentation — for people and
 for you. There is no separate agent doc set to keep in sync: this file holds what is
