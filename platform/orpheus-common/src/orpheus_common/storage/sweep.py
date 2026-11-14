@@ -39,7 +39,7 @@ import os
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -145,7 +145,7 @@ class CategoryOutcome:
         """
         if not files:
             return
-        stamps = [datetime.fromtimestamp(f.mtime).astimezone() for f in files]
+        stamps = [datetime.fromtimestamp(f.mtime, tz=timezone.utc) for f in files]
         oldest = min(stamps).isoformat()
         newest = max(stamps).isoformat()
         self.oldest_removed = min([s for s in (self.oldest_removed, oldest) if s])
@@ -307,7 +307,7 @@ class StorageSweep:
         minimum file age protects a clip that is still being written. Both are
         hard, and the sweep never deletes a file newer than either.
         """
-        now = self._now()
+        now = self._now().astimezone(timezone.utc)
         floor = (now - timedelta(days=floor_days)).timestamp()
         min_age = (
             now - timedelta(hours=float(getattr(self.retention, "min_file_age_hours", 1.0)))

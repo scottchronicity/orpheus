@@ -116,7 +116,7 @@ class WorkerSEDModel(SEDModel):
         )
 
     def predict_before(self, audio_mono: np.ndarray, deadline: float) -> np.ndarray:
-        """Infer within the clip's remaining lifetime; never wait for a reload."""
+        """Start before the clip expires and finish within the worker request timeout."""
         audio = np.ascontiguousarray(audio_mono, dtype="<f4")
         if (
             audio.ndim != 1
@@ -146,7 +146,7 @@ class WorkerSEDModel(SEDModel):
         header, body = self.client.request(
             {"type": "infer", "dtype": "<f4", "shape": [int(audio.size)]},
             audio,
-            deadline=deadline,
+            start_deadline=deadline,
             validate=validate,
         )
         return np.frombuffer(body, dtype="<f4").reshape(header["shape"])

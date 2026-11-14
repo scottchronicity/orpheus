@@ -219,30 +219,36 @@ class WorkerClient:
         payload: Any = b"",
         *,
         deadline: Optional[float] = None,
+        start_deadline: Optional[float] = None,
         validate: Optional[Callable[[dict, bytearray], None]] = None,
     ) -> Tuple[dict, bytearray]:
-        """Exchange one request, bounded by the caller and request deadlines."""
+        """Exchange within the hard deadline, with an optional earlier cutoff to start."""
         end = min(
             deadline if deadline is not None else float("inf"),
             time.monotonic() + self.options.request_timeout,
         )
-        if not self._io.acquire(timeout=max(0.0, end - time.monotonic())):
+        begin_by = min(end, start_deadline) if start_deadline is not None else end
+        if not self._io.acquire(timeout=max(0.0, begin_by - time.monotonic())):
             raise WorkerUnavailable("worker busy or loading")
         try:
             if self._stop.is_set() or not self.snapshot()["ready"] or self._proc is None:
                 raise WorkerUnavailable("worker not ready")
-            if time.monotonic() >= end:
+            if time.monotonic() >= begin_by:
                 raise WorkerUnavailable("request expired before exchange")
             rid = self._next_id
             self._next_id += 1
             hb = p.encode_header(dict(header, id=rid))
             view = p.as_bytes_view(payload)
             p.parse_prefix(p.pack_prefix(hb, view.nbytes))
-            if time.monotonic() >= end:
-                raise WorkerUnavailable("request expired before exchange")
             try:
                 if self.options.floor_memory_mib:
                     require_memory(self.options.floor_memory_mib)
+            except MemoryError as exc:
+                self._fail(exc)
+                raise
+            if time.monotonic() >= begin_by:
+                raise WorkerUnavailable("request expired before exchange")
+            try:
                 p.write_all_deadline(
                     self._proc.stdin.fileno(), (p.pack_prefix(hb, view.nbytes), hb, view), end
                 )

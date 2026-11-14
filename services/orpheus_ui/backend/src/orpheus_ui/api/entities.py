@@ -847,7 +847,7 @@ def get_entities(
         None, description="Time-of-day end, HH:MM. If start > end the window wraps midnight."
     ),
     tz: Optional[str] = Query(
-        None, description="IANA timezone for interpreting start_time/end_time."
+        None, description="IANA timezone for calendar dates and time-of-day filters."
     ),
     limit: int = Query(
         2000,
@@ -892,7 +892,7 @@ def get_entities(
         # (leaving that side of the query unbounded), matching the original
         # inline behaviour here. Bad input -> HTTPException(400).
         start_dt, end_dt = resolve_date_range(
-            None, start_date, end_date, default_days=None
+            None, start_date, end_date, default_days=None, tz=tz
         )
 
         start_hhmm = parse_hhmm(start_time)

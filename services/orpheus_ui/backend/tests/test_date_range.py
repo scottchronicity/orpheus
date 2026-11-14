@@ -24,6 +24,16 @@ class TestResolveDateRange:
             2026, 1, 7, 23, 59, 59, 999999, tzinfo=timezone.utc
         )
 
+    @pytest.mark.parametrize(
+        ("day", "start_hour", "end_hour"),
+        [("2026-03-08", 5, 3), ("2026-11-01", 4, 4)],
+    )
+    def test_local_day_bounds_across_dst(self, day, start_hour, end_hour):
+        start, end = resolve_date_range(None, day, day, tz="America/Detroit")
+        midnight = datetime.fromisoformat(day).replace(tzinfo=timezone.utc)
+        assert start == midnight + timedelta(hours=start_hour)
+        assert end == midnight + timedelta(days=1, hours=end_hour + 1, microseconds=-1)
+
     def test_z_suffix_is_accepted(self):
         """A trailing ``Z`` parses (Python 3.9 fromisoformat would reject it)."""
         start_dt, end_dt = resolve_date_range(

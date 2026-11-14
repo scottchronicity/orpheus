@@ -213,6 +213,24 @@ def test_expired_unsent_request_keeps_ready_worker(clients):
     assert client.snapshot()["starts"] == 1
 
 
+def test_exchange_can_finish_after_start_deadline(clients, monkeypatch):
+    client = clients(request_timeout=1)
+    ready = wait_for(client, lambda state: state["ready"])
+    read_frame = client._read_frame
+    start_deadline = time.monotonic() + 0.25
+
+    def read_after_admission_deadline(deadline):
+        time.sleep(max(0, start_deadline - time.monotonic()) + 0.01)
+        return read_frame(deadline)
+
+    monkeypatch.setattr(client, "_read_frame", read_after_admission_deadline)
+    header, _ = client.request({"type": "ping"}, start_deadline=start_deadline)
+    assert header["type"] == "pong"
+    with pytest.raises(WorkerUnavailable, match="expired"):
+        client.request({"type": "ping"}, start_deadline=start_deadline)
+    assert client.snapshot()["pid"] == ready["pid"]
+
+
 @pytest.mark.parametrize("inflight", [False, True])
 def test_worker_exits_when_parent_process_is_killed(tmp_path, inflight):
     pidfile = tmp_path / "child.pid"

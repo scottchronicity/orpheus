@@ -73,24 +73,14 @@ setup_venv() {
   "${PYTHON_BIN}" -m venv "${INSTALL_ROOT}/venv"
   "${INSTALL_ROOT}/venv/bin/pip" install --upgrade pip
   
-  # Install orpheus-common from central installation
-  local orpheus_common_path="/opt/orpheus/platform/orpheus-common"
-  if [[ -d "${orpheus_common_path}" ]]; then
-    log "Installing orpheus-common from ${orpheus_common_path}"
-    "${INSTALL_ROOT}/venv/bin/pip" install "${orpheus_common_path}"
-  else
-    warn "orpheus-common not found at ${orpheus_common_path}"
-    warn "Run: sudo /opt/orpheus/platform/orpheus-common/systemd/install.sh first"
-    warn "Attempting to install from requirements.txt (may fail in production)"
-  fi
-  
-  # Install other dependencies (excluding orpheus-common editable install)
-  local source_root
+  local source_root orpheus_common_path
   source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-  local tmp_req="$(mktemp)"
-  grep -vE '^-e[[:space:]]+\.\./\.\./platform/orpheus-common' "${source_root}/requirements.txt" > "${tmp_req}"
-  "${INSTALL_ROOT}/venv/bin/pip" install -r "${tmp_req}"
-  rm -f "${tmp_req}"
+  orpheus_common_path="/opt/orpheus/platform/orpheus-common"
+  if [[ ! -d "${orpheus_common_path}" ]]; then
+    orpheus_common_path="${source_root}/../../platform/orpheus-common"
+  fi
+  "${INSTALL_ROOT}/venv/bin/python" -m pip install \
+    "${orpheus_common_path}" "${source_root}/../../platform/orpheus-inference" "${INSTALL_ROOT}[dev]"
 }
 
 install_service() {

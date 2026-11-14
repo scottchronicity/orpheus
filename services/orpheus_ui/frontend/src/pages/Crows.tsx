@@ -229,6 +229,7 @@ export default function CrowsPage() {
       const params = new URLSearchParams({
         start_date: startDate,
         end_date: endDate,
+        tz: browserTz,
         page: String(page),
         page_size: String(ITEMS_PER_PAGE),
       })
@@ -342,7 +343,7 @@ export default function CrowsPage() {
       {/* Trends over time + call types */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Detections per Day</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Detections per Day (UTC)</h2>
           <p className="text-xs text-slate-500 mb-3">All crow detections across selected date range</p>
           <DailyActivityChart data={data?.daily_activity ?? []} />
         </Card>
@@ -363,7 +364,7 @@ export default function CrowsPage() {
         </Card>
 
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Hourly Activity</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
           <p className="text-xs text-slate-500 mb-3">Total crow detections per hour of day, across selected date range</p>
           <HourlyActivityChart data={data?.hourly_activity || []} />
         </Card>

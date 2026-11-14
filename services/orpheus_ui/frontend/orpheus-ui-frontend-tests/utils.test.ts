@@ -4,7 +4,12 @@
  * These tests verify utility functions work correctly in isolation.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { cn, fetchWithAuth, formatDateTime } from '../src/lib/utils'
+import { cn, fetchWithAuth, formatDateTime, localDateKey } from '../src/lib/utils'
+
+it('uses the local calendar date for date inputs', () => {
+  const date = new Date(2026, 10, 13, 23, 59)
+  expect(localDateKey(date)).toBe('2026-11-13')
+})
 
 describe('cn (class name utility)', () => {
   it('merges multiple class names', () => {

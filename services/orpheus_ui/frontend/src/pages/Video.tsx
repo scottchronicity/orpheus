@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime, localDateKey } from '../lib/utils'
 import { fetchJson } from '../lib/api'
 import { CAMERA_IDS, POLLING_INTERVALS } from '../config'
 import { Video, Activity, Camera, FolderOpen } from 'lucide-react'
@@ -53,13 +53,13 @@ interface VideoClipsResponse {
 function getDaysAgo(n: number): string {
   const d = new Date()
   d.setDate(d.getDate() - n)
-  return d.toISOString().split('T')[0]
+  return localDateKey(d)
 }
 
 export default function VideoPage() {
   const [selectedClipCamera, setSelectedClipCamera] = useState<string>(CAMERA_IDS[0])
   const [clipStartDate, setClipStartDate] = useState(() => getDaysAgo(7))
-  const [clipEndDate, setClipEndDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [clipEndDate, setClipEndDate] = useState(() => localDateKey(new Date()))
   const [clipPage, setClipPage] = useState(1)
 
   const { data: diagnostics, isLoading: diagLoading } = useQuery<VideoDiagnostics>({
@@ -245,7 +245,7 @@ export default function VideoPage() {
         {(() => {
           const filteredClips = (clips?.clips ?? [])
             .filter((clip) => {
-              const d = new Date(clip.modified_time * 1000).toISOString().split('T')[0]
+              const d = localDateKey(new Date(clip.modified_time * 1000))
               return d >= clipStartDate && d <= clipEndDate
             })
             .sort((a, b) => b.modified_time - a.modified_time)

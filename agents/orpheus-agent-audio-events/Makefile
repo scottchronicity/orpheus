@@ -92,6 +92,12 @@ clean:
 	@find . -type f -name '*.pyc' -delete 2>/dev/null || true
 	@echo "✓ Clean complete"
 
+# Resolve the monorepo dependency before replacing the deployed agent source.
+.PHONY: _deploy-inference
+deploy: _deploy-inference
+_deploy-inference: _deploy-check
+	@sudo "$(DEPLOY_ROOT)/venv/bin/python" -m pip install "$(abspath ../../platform/orpheus-inference)"
+
 update:
 	@echo "Updating $(SERVICE_NAME)..."
 	git pull

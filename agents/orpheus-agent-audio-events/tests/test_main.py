@@ -576,6 +576,18 @@ class TestShutdownDrain:
         asyncio.run(agent.on_stopping())
         agent._executor.shutdown.assert_called_once_with(wait=True, cancel_futures=True)
 
+    def test_callback_after_shutdown_is_counted_without_executor_error(
+        self, agent_with_fake_model: AudioEventsAgent, tmp_path: Path
+    ) -> None:
+        agent = agent_with_fake_model
+        path = tmp_path / "clip.wav"
+        path.touch()
+        asyncio.run(agent.on_stopping())
+        agent._on_audio_motion_event(agent.config.input_topic, _audio_motion_payload(path))
+
+        assert agent.clips_rejected["shutdown"] == 1
+        assert agent.errors_count == 0
+
 
 class TestMainEntryPoint:
     """The CLI entry configures logging BEFORE the enabled() gate — a disabled
