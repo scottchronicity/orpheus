@@ -14,6 +14,7 @@ from orpheus_common.config import (
     _deep_merge_config,
     _unflatten_dotted,
 )
+from orpheus_common.testing import DEFAULT_NATS_URL
 
 
 class _FakeNatsBus:
@@ -165,11 +166,13 @@ class TestConfigServiceKvLayer:
         assert cfg.mqtt.broker_host == "localhost"  # KV distribution is nats-only
 
 
-NATS_URL = "nats://127.0.0.1:4222"
+NATS_URL = DEFAULT_NATS_URL
 
 
 class TestConfigServiceLive:
     def test_host_reads_base_config_from_kv(self):
+        if not NATS_URL:
+            pytest.skip("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
         from orpheus_common.config_backend import MISSING, JetStreamKvConfigBackend
         from orpheus_common.config_store import ConfigStore
         from orpheus_common.event_bus_nats import NatsBus

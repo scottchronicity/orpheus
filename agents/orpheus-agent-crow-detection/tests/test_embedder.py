@@ -23,7 +23,7 @@ class TestAVESEmbedder:
         # fairseq loader returns (models, cfg, task)
         mock_load_ensemble.return_value = ([mock_model], None, None)
 
-        embedder = AVESEmbedder("/path/to/model.pt", sample_rate=16000)
+        embedder = AVESEmbedder("/path/to/model.pt", sample_rate=16000, device="cpu")
 
         assert embedder.model == mock_model
         assert embedder.sample_rate == 16000
@@ -53,7 +53,7 @@ class TestAVESEmbedder:
         mock_output = torch.randn(1, 768)
         mock_model.return_value = {"x": mock_output}  # FIX: return dict, not tensor
 
-        embedder = AVESEmbedder("/path/to/model.pt")
+        embedder = AVESEmbedder("/path/to/model.pt", device="cpu")
         audio = np.random.randn(16000).astype(np.float32)
 
         embedding = embedder.generate_embedding(audio)
@@ -77,7 +77,7 @@ class TestAVESEmbedder:
         mock_output = torch.randn(1, 768)
         mock_model.return_value = {"x": mock_output}  # FIX: return dict, not tensor
 
-        embedder = AVESEmbedder("/path/to/model.pt")
+        embedder = AVESEmbedder("/path/to/model.pt", device="cpu")
         audio = np.random.randn(16000).astype(np.float32)
 
         embedder.generate_embedding(audio)
@@ -98,7 +98,7 @@ class TestAVESEmbedder:
         mock_model = MagicMock()
         mock_load_ensemble.return_value = ([mock_model], None, None)
 
-        embedder = AVESEmbedder("/path/to/model.pt")
+        embedder = AVESEmbedder("/path/to/model.pt", device="cpu")
         assert embedder.embedding_dim == 768
 
     @patch("orpheus_agent_crow_detection.embedder.torch.cuda.is_available")

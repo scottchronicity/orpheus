@@ -26,6 +26,11 @@ def nats_url() -> str:
             "real-audio e2e is gated: run `make sim-fleet-up && make sim-validate` "
             "(sets ORPHEUS_E2E_REAL_AUDIO with the detection fleet running)"
         )
+    if not NATS_URL:
+        pytest.fail(
+            "ORPHEUS_E2E_REAL_AUDIO requires ORPHEUS_TEST_NATS_URL for the "
+            "isolated Simulacrum broker; run `make sim-validate`"
+        )
     # Past the gate the caller has asserted the fleet is up, so an unreachable
     # broker is a failure, not a skip: `make sim-validate` is the command the
     # README offers as proof the system works, and a green run against nothing

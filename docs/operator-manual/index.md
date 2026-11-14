@@ -57,10 +57,11 @@ memory requirements, health and CPU rollback, see [PANNs GPU worker](panns-gpu.m
 - Env overrides use `ORPHEUS_<SECTION>__<KEY>` (double underscore for nesting);
   env wins over file config.
 - **Torch device placement:** the model agents take a `device` knob
-  (`crow_detection.device`, `audio_events.device`) — `auto` (default: CUDA if present
-  else CPU), `cpu`, or `cuda`. Pin `cpu` to keep a model off the shared Jetson GPU under
-  thermal/RAM pressure; an explicit `cuda` on a GPU-less host fails loud rather than
-  silently falling back.
+  (`crow_detection.device`, `audio_events.device`). Crow supports `auto`, `cpu`,
+  `cuda`, and `mps`; `auto` prefers CUDA, then MPS where supported, then CPU.
+  Audio-events supports its configured `auto`, `cpu`, or `cuda` choices. Explicit
+  accelerators fail clearly when unavailable. Pin `cpu` to keep a model off an
+  accelerator under deployment-specific resource pressure.
 - **Distributed config (optional, ADR 0018):** with `config_service.enabled`, a host
   reads shared config off the backplane KV (`orpheus-config-push` seeds it from one
   authority host) so hosts don't copy identical YAML — see

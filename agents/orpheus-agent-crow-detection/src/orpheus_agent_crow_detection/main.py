@@ -18,6 +18,7 @@ from orpheus_common.actor import Actor
 from orpheus_common.detection import Detection, TemporalInterval
 from orpheus_common.event_sourcing import ensure_domain_stream, shadow_publish
 from orpheus_common.logging import get_logger, setup_logging
+from orpheus_common.utils import select_torch_device
 from pydantic import ValidationError
 
 from .classifier import CrowClassifier, CrowDetectionResult
@@ -107,6 +108,13 @@ class CrowDetectionAgent(Actor):
         """Load the AVES embedder + crow classifier + the detection DB."""
         logger.info("Starting Crow Detection Agent")
 
+        resolved_device = select_torch_device(self.config.device, prefer_mps=True)
+        logger.info(
+            "Resolved crow inference device",
+            requested_device=self.config.device,
+            resolved_device=resolved_device,
+        )
+
         logger.info(
             "Loading AVES embedder",
             model_path=str(self.config.embedder_model_path),
@@ -116,7 +124,7 @@ class CrowDetectionAgent(Actor):
             self.embedder = AVESEmbedder(
                 self.config.embedder_model_path,
                 sample_rate=self.config.embedder_sample_rate,
-                device=self.config.device,
+                device=resolved_device,
             )
             # The embedder resolved "auto" via select_torch_device — capture the
             # ACTUAL device (not the requested one) for the health payload.
@@ -133,7 +141,7 @@ class CrowDetectionAgent(Actor):
         logger.info("Loading crow classifier", model_path=str(self.config.classifier_model_path))
         try:
             self.classifier = CrowClassifier(
-                self.config.classifier_model_path, device=self.config.device
+                self.config.classifier_model_path, device=resolved_device
             )
             logger.info("Crow classifier loaded successfully")
         except FileNotFoundError:
@@ -186,6 +194,7 @@ class CrowDetectionAgent(Actor):
                 "event_sourcing_shadow": self._shadow_publish,
                 # Resolved torch device (additive; None until models load).
                 "device": self._resolved_device,
+                "device_requested": self.config.device,
             }
         if phase == "shutdown":
             return {
@@ -205,6 +214,7 @@ class CrowDetectionAgent(Actor):
             "event_sourcing_shadow": self._shadow_publish,
             # Resolved torch device (additive; None until models load).
             "device": self._resolved_device,
+            "device_requested": self.config.device,
         }
 
     async def on_shutdown(self) -> None:

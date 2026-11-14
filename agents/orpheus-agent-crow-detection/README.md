@@ -52,11 +52,18 @@ Edit `/path/to/orpheus.yaml`:
 ```yaml
 crow_detection:
   enabled: true
+  # auto: CUDA, then Apple MPS when available, then CPU; or cpu/cuda/mps
+  device: auto
   quality_threshold: 0.5
   embedder_model_path: "/data/orpheus/models/aves-base-bio.pt"
   classifier_model_path: "/data/orpheus/models/mt_70.pt"
   embedder_sample_rate: 16000
 ```
+
+`device` controls both the AVES embedder and crow classifier. `auto` chooses an
+available CUDA device first, then MPS, then CPU. Explicit `cuda` or `mps` fails
+clearly when unavailable; `cpu` always runs without accelerator packages. This
+selection does not change event payloads or the crow agent's Python environment.
 
 ## Model Files
 

@@ -44,9 +44,36 @@ class TestSelectTorchDevice:
         assert select_torch_device("Auto", cuda_available=lambda: False) == "cpu"
 
     def test_specific_device_passed_through_unchanged(self) -> None:
-        # cuda:1 / mps etc. are the operator's responsibility — returned verbatim.
+        # Indexed CUDA names remain caller-owned; crow config does not expose them.
         assert select_torch_device("cuda:1", cuda_available=lambda: True) == "cuda:1"
-        assert select_torch_device("mps", cuda_available=lambda: False) == "mps"
+
+    def test_explicit_mps_requires_availability(self) -> None:
+        assert (
+            select_torch_device("mps", mps_available=lambda: True)
+            == "mps"
+        )
+        with pytest.raises(RuntimeError, match="MPS is not available"):
+            select_torch_device("mps", mps_available=lambda: False)
+
+    def test_auto_can_prefer_mps_only_when_caller_opts_in(self) -> None:
+        assert (
+            select_torch_device(
+                "auto",
+                cuda_available=lambda: False,
+                mps_available=lambda: True,
+                prefer_mps=True,
+            )
+            == "mps"
+        )
+        # Existing Torch users keep their CPU behavior unless they opt into MPS.
+        assert (
+            select_torch_device(
+                "auto",
+                cuda_available=lambda: False,
+                mps_available=lambda: True,
+            )
+            == "cpu"
+        )
 
     def test_default_lazy_probe_resolves_without_torch(self) -> None:
         # No injected probe → the lazy torch import runs. orpheus-common's venv

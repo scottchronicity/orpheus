@@ -1,6 +1,7 @@
 """Tests for crow detection agent main module."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -59,15 +60,53 @@ class TestCrowDetectionAgent:
         key) so a silent CPU fallback on the Jetson is visible beyond one startup
         log line. None until on_setup loads the models."""
         mock_get_instance.return_value = MagicMock()
-        mock_load_config.return_value = MagicMock()
+        mock_load_config.return_value = SimpleNamespace(device="auto")
         agent = CrowDetectionAgent()
 
         assert agent.health_payload("startup")["device"] is None
+        assert agent.health_payload("startup")["device_requested"] == "auto"
         agent._resolved_device = "cpu"
         assert agent.health_payload("startup")["device"] == "cpu"
         assert agent.health_payload("heartbeat")["device"] == "cpu"
         # shutdown is an offline subset — no device key
         assert "device" not in agent.health_payload("shutdown")
+
+    @patch("orpheus_agent_crow_detection.main.DetectionDB")
+    @patch("orpheus_agent_crow_detection.main.CrowClassifier")
+    @patch("orpheus_agent_crow_detection.main.AVESEmbedder")
+    @patch("orpheus_agent_crow_detection.main.select_torch_device", return_value="mps")
+    @patch("orpheus_agent_crow_detection.main.setup_logging")
+    @patch("orpheus_agent_crow_detection.main.load_config")
+    @patch("orpheus_agent_crow_detection.main.OrpheusConfig.get_instance")
+    async def test_setup_resolves_one_portable_device_for_both_models(
+        self,
+        mock_get_instance: MagicMock,
+        mock_load_config: MagicMock,
+        _logging: MagicMock,
+        resolve_device: MagicMock,
+        embedder_class: MagicMock,
+        classifier_class: MagicMock,
+        _db: MagicMock,
+    ) -> None:
+        mock_get_instance.return_value = MagicMock()
+        mock_load_config.return_value = SimpleNamespace(
+            device="auto",
+            embedder_model_path="aves.pt",
+            embedder_sample_rate=16000,
+            classifier_model_path="crow.pt",
+        )
+        embedder_class.return_value.device = "mps"
+        agent = CrowDetectionAgent()
+
+        await agent.on_setup()
+
+        resolve_device.assert_called_once_with("auto", prefer_mps=True)
+        embedder_class.assert_called_once_with(
+            "aves.pt", sample_rate=16000, device="mps"
+        )
+        classifier_class.assert_called_once_with("crow.pt", device="mps")
+        assert agent.health_payload("heartbeat")["device"] == "mps"
+        assert agent.health_payload("heartbeat")["device_requested"] == "auto"
 
     @patch("orpheus_agent_crow_detection.main.load_config")
     @patch("orpheus_agent_crow_detection.main.OrpheusConfig.get_instance")

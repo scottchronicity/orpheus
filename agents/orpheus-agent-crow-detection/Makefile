@@ -78,7 +78,8 @@ coverage: check-deps
 	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_crow_detection --cov-report=term-missing
 
 test-e2e: check-deps
-	@echo "Running e2e bus-contract oracle (needs a broker; pair with 'make sim-up')..."
+	@test -n "$${ORPHEUS_TEST_NATS_URL:-}" || (echo "Set ORPHEUS_TEST_NATS_URL to an isolated test broker before running e2e tests." >&2; exit 2)
+	@echo "Running e2e bus-contract oracle against the configured isolated broker..."
 	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m e2e
 
 clean:

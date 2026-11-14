@@ -507,7 +507,16 @@ detection:
   min_confidence: 0.8
   species_of_interest: []
   audio_model: "birdnet"
+  # Reserved selection value; no video DNN currently consumes this field.
+  # Shipped video agents use OpenCV capture and motion detection.
   video_model: "yolo"
+
+crow_detection:
+  enabled: true
+  # Torch backend: auto selects CUDA, then MPS where supported, then CPU.
+  # Explicit cuda/mps selections fail at startup when unavailable.
+  device: auto
+  quality_threshold: 0.5
 
 bird_detection:
   model_path: "/data/orpheus/models/birdnet.onnx"

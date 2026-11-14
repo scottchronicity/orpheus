@@ -610,6 +610,12 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
 - **Algorithm:** Frame differencing with configurable sensitivity
 - **Storage:** MP4 video clips in `/data/orpheus/video/video_motion/{camera}/`
 
+The shipped video agents provide capture, motion detection, snapshots, and
+timelapse processing; they do not currently load a video object-detection
+model. `detection.video_model` is a reserved configuration value without a
+consumer. Video model acceleration requires a separately specified model,
+runtime, output contract, and event lineage before a provider can be selected.
+
 ### Layer 2: Specialized Analysis
 
 #### Bird Detection (`orpheus-agent-bird-detection`)
