@@ -59,18 +59,33 @@ with stdin at `/dev/null` and a hard timeout.
 
 ## Host lifecycle (`systemd/`)
 
-`install-service.sh` deploys to `/opt/orpheus/services/orpheus-audio-output`
-and runs `main check`. If the check fails, it stops there and changes nothing
-else. Otherwise it runs the host steps in `lifecycle.sh`:
-- enable lingering for the PulseAudio user;
-- mask that user's stock PulseAudio units;
-- retire the old unit (keeping a backup);
-- disable other units that connect the same speaker.
+`install-service.sh` has two phases.
 
-Each step is recorded in `/var/lib/orpheus-audio-output/changes`;
-`uninstall-service.sh` (and `make rollback`) undoes exactly those. The unit
-runs as root, because of BlueZ and starting the server as its user, and the
-managed PulseAudio lives in the unit's cgroup.
+**Preflight** changes nothing on the host. It builds the code and a venv in
+`<deploy>.stage.*`, with non-editable installs so the venv can be renamed into
+place, then runs `main check` and checks the audio user, tools, PulseAudio
+modules and mask paths.
+
+**The transaction** runs under an `ERR` trap. It swaps the deployment and then
+runs the steps in `lifecycle.sh`:
+- mask the user's stock PulseAudio units;
+- enable lingering;
+- reload the user's systemd manager and verify the masks (`LoadState=masked`,
+  socket inactive);
+- stop a stock instance;
+- retire the old unit;
+- disable competing units.
+
+It then starts the service, and requires a ready server with capture
+isolation intact within `HEALTH_WAIT_SECONDS`. If anything fails,
+`restore_previous` reverses it all: the previous deployment and unit file come
+back, this run's records (`changes.run`) are undone newest first, and every
+unit returns to its recorded enabled/running state.
+
+A successful run merges `changes.run` into `changes`, which
+`uninstall-service.sh` and `make rollback` undo the same way. The unit runs as
+root, because of BlueZ and starting the server as its user, and the managed
+PulseAudio lives in the unit's cgroup.
 
 ## Tests
 
@@ -98,8 +113,13 @@ make lint
   outage.
 - `tests/test_main.py`: `check`, disabled mode, and the run loop with health
   publishing and SIGTERM.
-- `tests/bats/audio-output-lifecycle.bats` (repo root): install and rollback
-  host steps in a sandbox root.
+- `tests/bats/audio-output-lifecycle.bats` and `audio-output-install.bats`
+  (repo root): the host steps, and the full install/uninstall scripts, run in
+  a sandbox root with stateful `systemctl`/user-manager mocks. They cover:
+  preflight changing nothing; restore after a failed start, a capture
+  isolation failure, a dying unit or unverifiable masks; a failed update
+  keeping the previous version; and rollback restoring each unit's
+  enabled/running state.
 
 These cover the logic, not the hardware. Real A2DP connection, sink naming on
 a given speaker, and the capture agents keeping their devices are confirmed on

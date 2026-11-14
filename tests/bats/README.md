@@ -18,12 +18,16 @@ target in the root Makefile. Later runs skip the bootstrap. Reset with
 
 ## What's tested
 
-- **`audio-output-lifecycle.bats`** — the host steps of the audio output
-  installer and rollback (`services/orpheus-audio-output/systemd/lifecycle.sh`):
-  lingering for the audio user, masking its stock PulseAudio units, retiring
-  `orpheus-bluetooth-autoconnect` and units connecting the same speaker, and
-  undoing exactly what was recorded. Runs against a sandbox root with mocked
-  `systemctl` / `loginctl` / `getent` / `id`.
+- **`audio-output-lifecycle.bats`**, **`audio-output-install.bats`** — the
+  audio output installer and rollback (`services/orpheus-audio-output/systemd/`):
+  - the individual host steps: lingering; masking the audio user's stock
+    PulseAudio units and verifying them through its systemd manager; retiring
+    `orpheus-bluetooth-autoconnect` and units connecting the same speaker;
+  - the full install script: preflight changes nothing, and a failed install
+    restores the previous installation and each unit's enabled/running state;
+  - rollback.
+
+  Both run against a sandbox root built by `audio_output_helper.bash`.
 - **`bump-version.bats`** — `scripts/bump-version.sh`: patch/minor/patch
   SemVer bumps, argument + VERSION-file validation, and the CHANGELOG stub
   (create + prepend). Tests run a sandbox copy under `BATS_TEST_TMPDIR`;

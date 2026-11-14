@@ -92,27 +92,52 @@ make -C services/orpheus-audio-output rollback          # back to orpheus-blueto
 
 `make services-install` and `make update-all` include the service.
 
-The installer validates the configuration first. If it is invalid, nothing else
-changes. After validation it:
+**Preflight changes nothing on the host.** The installer builds the new code
+and its venv in a staging directory next to the deployment, then checks:
+- the configuration;
+- the audio user;
+- the tools (`bluetoothctl`, `pulseaudio`, `pactl`, `loginctl`, `runuser`);
+- the PulseAudio modules (`module-bluetooth-discover`,
+  `module-bluetooth-policy`, `module-native-protocol-unix`);
+- that no real unit file sits where a mask must go.
 
-1. **Enables lingering for the PulseAudio user** (`loginctl enable-linger`), so
-   `/run/user/<uid>`, where the socket lives, exists from boot whether or not
-   anyone is logged in.
-2. **Masks that user's stock `pulseaudio.socket` and `pulseaudio.service`,**
-   and stops a stock PulseAudio if one is running for that user. Stock
-   PulseAudio loads `module-udev-detect` and takes the USB capture interface.
-   The audio-motion setup already masks `pulseaudio.service`.
-3. **Retires `orpheus-bluetooth-autoconnect`** and keeps a backup of its unit
-   and script, so only one supervisor ever runs. It also disables any other
-   unit that runs `bluetoothctl connect` for the same speaker, such as an
-   early hand-made `bluetooth-speaker-connect.service`.
-4. **Enables and starts the service,** then prints its first health snapshot.
+Any problem stops it here, with "nothing on this host was changed".
 
-Every host change is recorded in `/var/lib/orpheus-audio-output/changes`.
-`make rollback` undoes exactly those changes (lingering, masks, disabled units)
-and puts `orpheus-bluetooth-autoconnect` back as it was.
-`make uninstall-service` does the same but leaves the old service retired.
-Settings files are never deleted.
+Then, as one transaction:
+
+1. **Swaps in the staged deployment,** keeping the previous one and its unit
+   file aside.
+2. **Masks the PulseAudio user's stock `pulseaudio.socket` and
+   `pulseaudio.service`.** Stock PulseAudio loads `module-udev-detect` and takes
+   the USB capture interface; the audio-motion setup already masks the service.
+   It then **enables lingering** for that user, so `/run/user/<uid>`, where the
+   socket lives, exists from boot whether or not anyone is logged in.
+3. **Reloads that user's systemd manager** and stops its `pulseaudio.socket`
+   if it was listening. It then **verifies** that the manager reports both
+   units `masked` and the socket inactive, so a stock PulseAudio cannot be
+   socket-activated. A stock PulseAudio already running for the user is
+   stopped.
+4. **Retires `orpheus-bluetooth-autoconnect`,** keeping a backup of its unit
+   and script, and disables any other unit that runs `bluetoothctl connect`
+   for the same speaker, such as an early hand-made
+   `bluetooth-speaker-connect.service`. For each, it records whether it was
+   enabled and whether it was running.
+5. **Starts the service.** Within 60 s it must report a ready audio server
+   with capture isolation intact.
+
+If any step fails, including step 5, the installer stops the new service,
+puts back the previous deployment and unit file, undoes this run's host
+changes, and returns every service it touched to the enabled and running
+state it had before. An update that fails leaves the previous version running.
+
+Every host change from a successful install is recorded in
+`/var/lib/orpheus-audio-output/changes`. `make rollback` undoes exactly those
+changes (lingering, masks, units) and puts `orpheus-bluetooth-autoconnect`
+back. Each service ends up enabled and running only if it was before the
+install. `make uninstall-service` does the same but leaves the old service
+retired, still restorable with `make rollback`. A stock PulseAudio the
+installer stopped is not restarted, because it would take the capture
+interface again. Settings files are never deleted.
 
 Pairing is not automatic. Pair a new speaker once by hand, with the speaker in
 pairing mode:
