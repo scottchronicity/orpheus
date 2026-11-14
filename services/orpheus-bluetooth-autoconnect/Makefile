@@ -10,8 +10,10 @@ export
 # -- Component identity ------------------------------------------------------
 SERVICE_NAME := orpheus-bluetooth-autoconnect
 
-# Bluetooth configuration
-BLUETOOTH_SPEAKER_MAC ?= FC:58:FA:02:AF:28
+# Bluetooth configuration. Unset by default so a reinstall keeps the device
+# in /etc/orpheus/bluetooth-autoconnect/config.env; set it to change device.
+BLUETOOTH_SPEAKER_MAC ?=
+AUDIO_USER ?=
 
 # -- Shared infrastructure ---------------------------------------------------
 include ../../make/common_python.mk
@@ -51,7 +53,7 @@ help:
 	@echo "  make disable         Disable service from starting on boot"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  BLUETOOTH_SPEAKER_MAC=$(BLUETOOTH_SPEAKER_MAC)"
+	@echo "  BLUETOOTH_SPEAKER_MAC=$(or $(BLUETOOTH_SPEAKER_MAC),(keep installed config; default FC:58:FA:02:AF:28 on first install))"
 	@echo ""
 	@echo "Examples:"
 	@echo "  sudo make install              # Initial setup"
@@ -83,10 +85,10 @@ test-python: install-python
 	@echo "Running tests with: $(PYTHON)"
 	$(PYTHON) -m pytest tests/ -v
 
+# The script's behaviour suite lives with the repo's other bats suites
+# (tests/bats/bluetooth-autoconnect.bats) so CI's test-bash job runs it.
 test-bash:
-	@echo "Running bash script tests..."
-	@chmod +x tests/test_connection.sh
-	@./tests/test_connection.sh
+	@$(MAKE) -C ../.. test-bash
 
 test: test-python test-bash
 
@@ -132,7 +134,7 @@ dry-run: check-python-version
 install:
 	@echo "Installing Orpheus Bluetooth Auto-Connect service..."
 	@sudo chmod +x scripts/install.sh
-	@sudo BLUETOOTH_SPEAKER_MAC=$(BLUETOOTH_SPEAKER_MAC) ./scripts/install.sh
+	@sudo $(if $(BLUETOOTH_SPEAKER_MAC),BLUETOOTH_SPEAKER_MAC=$(BLUETOOTH_SPEAKER_MAC)) $(if $(AUDIO_USER),AUDIO_USER=$(AUDIO_USER)) ./scripts/install.sh
 
 install-service: install
 

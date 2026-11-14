@@ -431,6 +431,8 @@ it will not refuse to run because you declined.
 ## 9. Troubleshooting
 
 - [Gotchas](../agent-instructions/99-gotchas.md) — the field-tested traps.
+- [Bluetooth speaker](bluetooth-speaker.md) — the speaker never connects,
+  drops, or plays nothing; how the autoconnect service retries.
 - [Version compatibility matrix](../version-compat-matrix.md).
 
 ---

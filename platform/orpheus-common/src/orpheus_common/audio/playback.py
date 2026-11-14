@@ -60,6 +60,23 @@ class AudioPlayer(ABC):
         """Stop any currently playing audio."""
         pass
 
+    async def wait(self) -> bool:
+        """Wait for the playback started by the last ``play()`` to finish.
+
+        ``play()`` may return as soon as playback has *started*. Callers that
+        need the real playback duration or its outcome (the playback agent's
+        corollary-discharge window, its error reporting) await this.
+
+        Returns:
+            True if playback ran to completion (or nothing was playing),
+            False if it was stopped early by ``stop()`` or a newer ``play()``.
+
+        Raises:
+            RuntimeError: If the player failed, e.g. exited non-zero because
+                the output device (such as a Bluetooth speaker) is unavailable.
+        """
+        return True
+
     @abstractmethod
     def is_playing(self) -> bool:
         """Check if audio is currently playing.
@@ -364,6 +381,23 @@ class SubprocessAudioPlayer(AudioPlayer):
             True if audio is playing, False otherwise
         """
         return self._current_task is not None and not self._current_task.done()
+
+    async def wait(self) -> bool:
+        """Wait for the current playback task; see ``AudioPlayer.wait``.
+
+        Must be awaited on the event loop that called ``play()``. Cancelling
+        the waiter does not cancel playback (the task is shielded).
+        """
+        task = self._current_task
+        if task is None:
+            return True
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                return False  # stopped, or superseded by a newer play()
+            raise  # the waiter itself was cancelled
+        return True
 
 
 # Global instance (lazy-initialized)

@@ -391,3 +391,66 @@ class TestSubprocessAudioPlayerAdvancedFeatures:
             # Try to use volume control with aplay
             with pytest.raises(RuntimeError, match="require ffplay"):
                 await player.play(test_audio_file, volume=75)
+
+
+def _fake_player(tmp_path: Path, body: str) -> SubprocessAudioPlayer:
+    """A real subprocess player: an executable script that ignores its file arg."""
+    script = tmp_path / "fakeplay"
+    script.write_text("#!/bin/sh\n" + body + "\n")
+    script.chmod(0o755)
+    config = MagicMock()
+    config.audio.playback_command = str(script)
+    return SubprocessAudioPlayer(config=config)
+
+
+class TestSubprocessAudioPlayerWait:
+    """wait() reports when, and how, the playback that play() started ends.
+
+    play() returns as soon as playback has started; before wait() existed the
+    playback agent measured that ~0 s return as the playback duration and
+    never saw player failures (e.g. an unavailable Bluetooth speaker).
+    """
+
+    @pytest.mark.asyncio
+    async def test_wait_returns_after_playback_finishes(self, tmp_path, test_audio_file):
+        player = _fake_player(tmp_path, "sleep 0.3")
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        await player.play(test_audio_file)
+        assert loop.time() - start < 0.2  # play() only starts playback
+        assert await player.wait() is True
+        assert loop.time() - start >= 0.3
+        assert not player.is_playing()
+
+    @pytest.mark.asyncio
+    async def test_wait_raises_when_the_player_fails(self, tmp_path, test_audio_file):
+        player = _fake_player(tmp_path, "echo 'Connection refused' >&2; exit 1")
+        await player.play(test_audio_file)
+        with pytest.raises(RuntimeError, match="Connection refused"):
+            await player.wait()
+
+    @pytest.mark.asyncio
+    async def test_wait_returns_false_when_stopped(self, tmp_path, test_audio_file):
+        player = _fake_player(tmp_path, "sleep 5")
+        await player.play(test_audio_file)
+        waiter = asyncio.ensure_future(player.wait())
+        await asyncio.sleep(0.1)
+        await player.stop()
+        assert await asyncio.wait_for(waiter, timeout=3) is False
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_waiter_does_not_stop_playback(self, tmp_path, test_audio_file):
+        player = _fake_player(tmp_path, "sleep 0.3")
+        await player.play(test_audio_file)
+        waiter = asyncio.ensure_future(player.wait())
+        await asyncio.sleep(0.05)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        assert player.is_playing()
+        assert await player.wait() is True
+
+    @pytest.mark.asyncio
+    async def test_wait_when_idle_returns_immediately(self, mock_config, mock_subprocess):  # noqa: ARG002
+        player = SubprocessAudioPlayer()
+        assert await player.wait() is True

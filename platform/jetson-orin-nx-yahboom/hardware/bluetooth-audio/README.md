@@ -165,6 +165,16 @@ pulseaudio --start
 
 ## Auto-Connect on Boot
 
+On an Orpheus host, use the managed `orpheus-bluetooth-autoconnect` service
+instead of the methods below. It reconnects after drops and backs off while the
+speaker is unavailable; see
+[Bluetooth speaker](../../../../docs/operator-manual/bluetooth-speaker.md).
+Don't run it alongside a hand-made unit such as the ones below: two supervisors
+race to connect the speaker and to set the default sink. List leftovers with
+`systemctl list-unit-files | grep -i -E 'bluetooth.*(connect|speaker)'`.
+
+The methods below are for a plain Jetson without Orpheus.
+
 ### Method 1: Systemd Service
 
 Create a service to auto-connect Bluetooth devices:

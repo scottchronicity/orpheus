@@ -1,196 +1,108 @@
 # Orpheus Bluetooth Auto-Connect Service
 
-Automatic Bluetooth speaker connection service for the Orpheus wildlife monitoring system.
+Keeps one paired Bluetooth speaker connected to an Orpheus host and routes
+PulseAudio output to it, so `orpheus-agent-audio-playback` can play through it.
 
-## Overview
+Operating it — install, settings, log messages, and what to do when the
+speaker never connects — is in the Operator's Manual:
+[Bluetooth speaker](../../docs/operator-manual/bluetooth-speaker.md). This
+README covers how the service is built and tested.
 
-This service ensures that a configured Bluetooth speaker automatically connects on system boot and reconnects if the connection drops. It's designed for autonomous operation where manual Bluetooth pairing after reboots is not practical.
+## Behaviour
 
-## Features
+`scripts/orpheus-bluetooth-connect.sh` is a supervision loop run by
+`orpheus-bluetooth-autoconnect.service` as root. Each `poll_once`:
 
-- **Auto-connect on boot**: Connects to configured Bluetooth device after `bluetooth.service` is ready
-- **Auto-reconnect**: Monitors connection and reconnects if it drops
-- **Automatic audio switching**: Switches PulseAudio output to the connected Bluetooth device
-- **Configurable**: Easy to adapt for different Bluetooth devices and users
-- **Robust**: Exponential backoff on repeated failures
-- **Observable**: Comprehensive logging via journald
+1. Reads the device state with `bluetoothctl info <MAC>`:
+   `connected`, `disconnected`, `unpaired`, `missing` (unknown to BlueZ),
+   `no_controller`, or `unavailable` (bluetoothd did not answer within
+   `BT_COMMAND_TIMEOUT`).
+2. **Connected:** if audio was not routed yet (or routing failed), retries
+   routing; otherwise does nothing and logs nothing.
+3. **Otherwise:** skips the attempt when there is no controller, BlueZ is
+   unavailable, or (with `REQUIRE_AUDIO_SERVER=true`) the audio user has no
+   PulseAudio socket. Without an audio server nothing offers an A2DP endpoint
+   and bluetoothd fails every connect with `Protocol not available`. If it
+   does not skip, it powers the controller on if needed, trusts the device if
+   needed, and connects. The first failed connect of an outage (or one for a
+   device BlueZ has lost) runs one `SCAN_SECONDS` discovery scan and retries.
+4. **After connecting:** waits up to `SINK_WAIT_SECONDS` for
+   `bluez_sink.<MAC>.a2dp_sink`, sets it as the default sink, and moves
+   playing streams to it, all as `AUDIO_USER` via `su`.
+5. Sets the next delay: `RECONNECT_DELAY` while healthy, doubling per
+   consecutive failure up to `MAX_RECONNECT_DELAY`.
 
-## Installation
+Design constraints, each tied to a field failure:
 
-```bash
-# Default installation (JBL Flip 4: FC:58:FA:02:AF:28)
-make install
+- **`bluetoothctl` only in argument mode, always under `timeout`.** Piping
+  commands into interactive `bluetoothctl` makes it load, append to and
+  rewrite readline history on every call. As root every few seconds, that file
+  grew to 31 MB, and each call then took about 48 s at the unit's 64 MB / 10 %
+  CPU limits.
+- **No `set -e`.** A failing command substitution (for example
+  `pactl set-default-sink` while PulseAudio restarts) used to kill the loop.
+  Every failure is handled explicitly instead.
+- **Probing for the audio server is side-effect free.** It checks for the
+  socket file and never runs `pactl info`, because a client connect can
+  autospawn PulseAudio, which claims the capture interface on stations that
+  keep it stopped.
+- **Stop is immediate.** Sleeps run in the background under `wait`, so
+  SIGTERM does not wait out a 5-minute backoff.
+- The unit restarts the script whenever it exits, with no start limit. The
+  exception is exit 78 (invalid configuration), which leaves the unit failed.
 
-# Custom Bluetooth device
-BLUETOOTH_SPEAKER_MAC=XX:XX:XX:XX:XX:XX make install
-```
-
-## Configuration
-
-The service supports two configuration options:
-
-1. **BLUETOOTH_SPEAKER_MAC**: MAC address of the Bluetooth device (e.g., `FC:58:FA:02:AF:28`)
-2. **AUDIO_USER**: User account running PulseAudio (defaults to `orpheus`)
-
-Configuration can be set via:
-
-1. Environment variables during installation
-2. Configuration file `/etc/orpheus/bluetooth-autoconnect/config.env` (can be edited post-install)
-
-To change configuration after installation:
-
-```bash
-# Edit the configuration file
-sudo nano /etc/orpheus/bluetooth-autoconnect/config.env
-
-# Example content:
-# BLUETOOTH_SPEAKER_MAC=XX:XX:XX:XX:XX:XX
-# AUDIO_USER=orpheus
-
-# Restart the service
-sudo systemctl restart orpheus-bluetooth-autoconnect.service
-```
-
-## Usage
-
-```bash
-# Check status
-make status
-
-# View logs
-make logs
-
-# Follow logs in real-time
-make logs-follow
-
-# Restart service
-make restart
-
-# Stop service
-make stop
-
-# Start service
-make start
-```
-
-## Troubleshooting
-
-### Service won't start
-
-```bash
-# Check service logs
-sudo journalctl -u orpheus-bluetooth-autoconnect.service -n 50
-
-# Check Bluetooth service status
-systemctl status bluetooth.service
-
-# Verify bluetoothctl is working
-bluetoothctl show
-```
-
-### Device won't connect
-
-```bash
-# Try manual connection to diagnose
-bluetoothctl
-
-# In bluetoothctl:
-power on
-agent on
-scan on
-# Wait for device to appear
-pair XX:XX:XX:XX:XX:XX
-trust XX:XX:XX:XX:XX:XX
-connect XX:XX:XX:XX:XX:XX
-```
-
-### View connection attempts
-
-```bash
-# Real-time logs
-sudo journalctl -u orpheus-bluetooth-autoconnect.service -f
-
-# Recent logs with timestamps
-sudo journalctl -u orpheus-bluetooth-autoconnect.service --since "10 minutes ago"
-```
-
-## Architecture
-
-The service consists of:
-
-1. **Connection Script** (`/usr/local/bin/orpheus-bluetooth-connect`)
-   - Main loop that monitors and maintains Bluetooth connection
-   - Trusts device on startup
-   - Checks connection status every 10 seconds
-   - Reconnects if disconnected
-   - Automatically switches PulseAudio output to the connected device
-   - Waits 2 seconds for sink initialization before switching
-   - Converts MAC address format (colons to underscores) for PulseAudio sink name
-   - Runs `pactl` as the configured user via `su`
-
-2. **Systemd Service** (`orpheus-bluetooth-autoconnect.service`)
-   - Starts after `bluetooth.service`
-   - Restarts automatically on failure (exponential backoff)
-   - Resource-limited (64MB RAM, 10% CPU)
-   - Logs to journald
-
-3. **Configuration** (`/etc/orpheus/bluetooth-autoconnect/config.env`)
-   - Contains `BLUETOOTH_SPEAKER_MAC` setting
-   - Contains `AUDIO_USER` setting
-   - Sourced by connection script
+Configuration is read from `/etc/orpheus/bluetooth-autoconnect/config.env`
+(`ORPHEUS_BLUETOOTH_CONFIG` overrides the path), falling back to the
+environment. `install.sh` writes that file on first install and keeps it on
+reinstall unless `BLUETOOTH_SPEAKER_MAC` or `AUDIO_USER` is passed explicitly.
+The script itself is installed unmodified to `/usr/local/bin/orpheus-bluetooth-connect`.
 
 ## Files
 
 | Path | Description |
 | ------ | ------------- |
 | `/etc/systemd/system/orpheus-bluetooth-autoconnect.service` | Systemd service unit |
-| `/usr/local/bin/orpheus-bluetooth-connect` | Connection monitoring script |
+| `/usr/local/bin/orpheus-bluetooth-connect` | Connection supervision script |
 | `/etc/orpheus/bluetooth-autoconnect/config.env` | Configuration file |
 
-## Development
+## Make targets
 
 ```bash
-# Run tests
-make test
-
-# Lint code
-make lint
-
-# Format code
-make format
-
-# Validate Python 3.9.5 compatibility
-make dry-run
+make install     # sudo; first install or reinstall (keeps config.env)
+make status      # systemctl status
+make logs        # follow the journal
+make health      # running / enabled / errors in the last hour
+make test        # pytest static checks + the behaviour suite
+make uninstall   # remove the unit (config kept); `make clean` also removes config
 ```
 
-## Uninstallation
+## Tests
 
-```bash
-# Remove service
-make uninstall
+- `tests/bats/bluetooth-autoconnect.bats` (repo root) is the behaviour suite.
+  It drives `poll_once` against stateful mocks of `bluetoothctl`, `su` and
+  `id`, and covers: startup connect and routing; a quiet healthy poll; a
+  speaker dropping and reconnecting; an unavailable speaker's backoff and scan
+  policy; no audio server; a hung or restarted bluetoothd; a missing or
+  powered-off controller; lost pairing; untrusted devices; set-default-sink
+  failures; bad `AUDIO_USER` values; config-file loading; exit 78 on bad
+  config; and prompt SIGTERM. Run it with `make test-bash` here or at the repo
+  root. CI runs it in the `test-bash` job.
+- `tests/test_bluetooth_autoconnect.py` holds static guards: no piped
+  `bluetoothctl`, no `set -e`, and no duplicate or misplaced unit keys.
 
-# Complete cleanup (removes config too)
-make clean
-```
+Neither touches real Bluetooth, PulseAudio or system configuration. Hardware
+behaviour, meaning real pairing, A2DP profile setup and sink naming on a given
+speaker, still needs checking on the device.
 
 ## MQTT Topics
 
-**Subscribes to:** Nothing.
+**Subscribes to:** Nothing. **Publishes to:** Nothing.
 
-**Publishes to:** Nothing.
-
-This service does not participate in the MQTT bus. It is a pure infrastructure service that manages the Bluetooth connection at the OS level. Its only role in the Orpheus system is to ensure the Bluetooth audio sink is available so that `orpheus-agent-audio-playback` can send audio to it.
-
-## Integration with Orpheus
-
-This service is designed to work seamlessly with the Orpheus audio actuation system. After the Jetson reboots, audio playback to the Bluetooth speaker will work automatically without manual intervention.
+This service does not use the event bus. It manages the Bluetooth connection at
+the OS level so that the audio sink exists for `orpheus-agent-audio-playback`.
 
 ## Requirements
 
-- **Bluetooth**: `bluez` package (auto-installed if missing)
-- **Python**: 3.9+ (for test suite)
-- **System**: Linux with systemd
-
-## License
-
-Part of the Orpheus wildlife monitoring system.
+- `bluez` (`bluetoothctl` 5.5x; installed by `install.sh` if missing)
+- PulseAudio (or pipewire-pulse) with Bluetooth support, running as `AUDIO_USER`
+- systemd; Python 3.9+ for the test suite

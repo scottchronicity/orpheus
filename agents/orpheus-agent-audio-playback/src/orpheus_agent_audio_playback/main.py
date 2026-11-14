@@ -338,14 +338,7 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 task_id=id(asyncio.current_task()),
             )
-            playback_start = datetime.now(timezone.utc)
-            await player.play(sound_path, repeat_count, pause_between)
-            self._publish_playback_window(
-                playback_start,
-                (datetime.now(timezone.utc) - playback_start).total_seconds(),
-                sound_name,
-            )
-            logger.info("Playback completed", sound_name=sound_name)
+            await self._run_playback(player, sound_name, sound_path, repeat_count, pause_between)
         except asyncio.CancelledError:
             logger.warning(
                 "Playback task cancelled",
@@ -358,6 +351,41 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 error=str(e),
             )
+            self._publish_error(f"Playback failed: {e}", sound_name=sound_name)
+
+    async def _run_playback(
+        self,
+        player: Any,
+        label: str,
+        audio_path: Path,
+        repeat_count: int,
+        pause_between: float,
+        **segment: Any,
+    ) -> None:
+        """Play to the end and publish the measured playback window.
+
+        ``player.play`` returns once playback has *started*; ``player.wait``
+        returns when it ends. The window covers the whole time audio may have
+        been coming out of the speaker, so it is published even when playback
+        fails or is stopped part-way (the correlator tags, never drops, so an
+        over-long window is harmless and a missing one is not). It is not
+        published if playback never started (``play`` raised).
+        """
+        playback_start = datetime.now(timezone.utc)
+        await player.play(audio_path, repeat_count, pause_between, **segment)
+        completed = True
+        try:
+            completed = await player.wait()
+        finally:
+            self._publish_playback_window(
+                playback_start,
+                (datetime.now(timezone.utc) - playback_start).total_seconds(),
+                label,
+            )
+        if completed:
+            logger.info("Playback completed", sound_name=label)
+        else:
+            logger.info("Playback stopped before the end", sound_name=label)
 
     def _publish_playback_window(
         self, start: datetime, duration_seconds: float, sound_name: str
@@ -365,9 +393,9 @@ class AudioPlaybackAgent:
         """Publish a playback-window event so the event-correlator can blank
         self-generated detections (corollary discharge).
 
-        ``duration_seconds`` is the actual measured playback time (player.play
-        blocks until done), so no clip-length lookup is needed. Best-effort: a
-        publish failure must never affect playback.
+        ``duration_seconds`` is the measured time from starting playback until
+        ``player.wait()`` returned, so no clip-length lookup is needed.
+        Best-effort: a publish failure must never affect playback.
         """
         if self._mqtt_client is None:
             return
@@ -487,26 +515,32 @@ class AudioPlaybackAgent:
 
             logger.info("Starting playback", path=str(audio_path))
 
-            # Play the audio synchronously using asyncio.run
-            player = get_audio_player()
-            playback_start = datetime.now(timezone.utc)
-            asyncio.run(
-                player.play(
+            # Run playback on the agent's event loop, like sound_name requests.
+            # (asyncio.run() here created a throwaway loop that cancelled the
+            # playback task, and killed the player, as soon as play() returned.)
+            if self._event_loop is None:
+                error_msg = "Event loop not initialized - agent not started"
+                logger.error(error_msg)
+                self._publish_error(error_msg)
+                return
+
+            label = str(file_path or detection_id or "")
+            asyncio.run_coroutine_threadsafe(
+                self._play_audio_source_async(
+                    get_audio_player(),
                     audio_path,
+                    label,
                     repeat_count,
                     pause_between,
                     start_time=start_time,
                     duration=duration,
                     volume=volume,
-                )
-            )
-            self._publish_playback_window(
-                playback_start,
-                (datetime.now(timezone.utc) - playback_start).total_seconds(),
-                str(file_path or detection_id or ""),
+                ),
+                self._event_loop,
             )
 
-            # Publish success response
+            # Publish success response (playback runs in background; failures
+            # are published as error responses when they happen)
             response = {
                 "status": "success",
                 "message": "Playback started",
@@ -517,8 +551,6 @@ class AudioPlaybackAgent:
                 response["detection_id"] = detection_id
 
             self._publish_response(response)
-
-            logger.info("Playback completed", path=str(audio_path))
 
         except FileNotFoundError as e:
             error_msg = f"Audio file not found: {e}"
@@ -534,6 +566,41 @@ class AudioPlaybackAgent:
             error_msg = f"Playback failed: {e}"
             logger.error(error_msg, exc_info=True)
             self._publish_error(error_msg)
+
+    async def _play_audio_source_async(
+        self,
+        player: Any,
+        audio_path: Path,
+        label: str,
+        repeat_count: int,
+        pause_between: float,
+        start_time: Optional[float],
+        duration: Optional[float],
+        volume: Optional[int],
+    ) -> None:
+        """Background task for file_path / detection_id playback."""
+        try:
+            await self._run_playback(
+                player,
+                label,
+                audio_path,
+                repeat_count,
+                pause_between,
+                start_time=start_time,
+                duration=duration,
+                volume=volume,
+            )
+        except asyncio.CancelledError:
+            logger.warning("Playback task cancelled", path=str(audio_path))
+            raise
+        except Exception as e:
+            logger.exception(
+                "Playback error in background task", path=str(audio_path), error=str(e)
+            )
+            response: Dict[str, Any] = {"status": "error", "error": f"Playback failed: {e}"}  # noqa: UP006
+            if label:
+                response["source"] = label
+            self._publish_response(response)
 
     def _resolve_audio_path(
         self,
