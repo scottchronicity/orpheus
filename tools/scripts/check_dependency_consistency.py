@@ -122,7 +122,7 @@ def main():
         repo_root / "services" / "orpheus_ui" / "backend" / "requirements.txt",
         repo_root / "services" / "orpheus-backplane" / "requirements.txt",
         repo_root / "services" / "orpheus-gps" / "requirements.txt",
-        repo_root / "services" / "orpheus-bluetooth-autoconnect" / "requirements.txt",
+        repo_root / "services" / "orpheus-audio-output" / "requirements.txt",
     ]
     # Skip any files that don't exist (services that may not have a
     # requirements.txt yet) so the check still runs end-to-end — but say so,

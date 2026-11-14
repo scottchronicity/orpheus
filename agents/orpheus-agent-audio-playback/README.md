@@ -177,6 +177,58 @@ The agent supports two request formats for backward compatibility:
 }
 ```
 
+### Playback window events
+
+When a player reports that output has started, the agent publishes a `started`
+event on `orpheus/actuation/audio/playback`. After playback ends or is
+interrupted, it publishes a `finished` event with the measured elapsed duration.
+Both events include the same `playback_id`, UTC `start_time`, `source`, and
+`sound_name`; the finish also includes `playback_status`. These events let the
+event correlator tag overlapping entities when
+`corollary_discharge.enabled` is explicitly enabled. They do not discard
+detections or their evidence. The event is best-effort and is not durable across
+broker or agent restarts.
+
+A success response means playback **started**. If the player then fails (the
+speaker or audio server is unavailable, for example), a second response
+follows on the same topic with `"status": "error"` and the player's message,
+naming the request's `sound_name`, or its file path or detection ID as
+`source`:
+
+```json
+{
+  "status": "error",
+  "error": "Playback failed: Audio player 'ffplay' failed with code 1: ...",
+  "source": "audio/test.wav"
+}
+```
+
+### Playback Window
+
+**Topic:** `orpheus/actuation/audio/playback`
+
+When playback ends, whether it finished, was stopped or failed, the agent
+publishes the window during which its audio may have been coming out of the
+speaker. The event correlator uses it to tag Orpheus's own sounds
+(`corollary_discharge.enabled`). `duration_seconds` is measured from the start
+of playback to the moment the player finished. No window is published for a
+request whose playback never started.
+
+```json
+{
+  "start_time": "2026-11-14T19:12:03.511+00:00",
+  "duration_seconds": 4.82,
+  "source": "audio_playback_agent",
+  "sound_name": "crow_call"
+}
+```
+
+This agent chooses and plays sounds. Keeping the speaker connected and the
+audio server routed to it is the job of the
+[audio output service](../../services/orpheus-audio-output/README.md); see
+[Audio output](../../docs/operator-manual/audio-output.md) when sounds do not
+play.
+
 ### Health Status
 
 **Topic:** `orpheus/audio/playback/health`

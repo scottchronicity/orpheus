@@ -44,6 +44,14 @@ def _always(_cfg: Any) -> bool:
     return True
 
 
+def _audio_output_on(cfg: Any) -> bool:
+    # The section is owned by services/orpheus-audio-output; present and not
+    # `enabled: false` means the station manages an audio output.
+    raw = getattr(cfg, "_raw", None)
+    section = raw.get("audio_output") if isinstance(raw, dict) else None
+    return isinstance(section, dict) and section.get("enabled", True) is not False
+
+
 @dataclass(frozen=True)
 class Component:
     """One deployable unit + how to tell whether the config enables it."""
@@ -69,16 +77,14 @@ class Component:
 
 # The canonical catalog. Detection classifiers ride the audio pipeline; video motion +
 # the capture agents (snapshotter, timelapser) ride cameras; the correlator + playback +
-# backplane + UI + gps are always part of the stack (gps is in the unconditional
+# backplane + UI + gps are always part of the stack, and audio-output rides the
+# ``audio_output`` section (gps is in the unconditional
 # `make install` set and ships services/orpheus-gps/systemd/orpheus-gps.service). Every
 # ``agents/orpheus-agent-*`` that ships a systemd unit MUST appear here or a generated
 # ``orpheus.target`` silently never starts it — ``check_manifest_catalog``
 # (make guardrails) + a coverage test enforce that.
 #
 # Deliberately absent (named seams, not omissions):
-# - bluetooth-autoconnect: host-opt-in by design (skipped in the Makefile's
-#   install-host dev loop; not in `make install`) and there is no config knob to
-#   gate it on — add it here with a real predicate if one lands.
 # - weather / mirror: cfg.weather.enabled / cfg.mirror.enabled exist, but no
 #   systemd unit ships for either yet; the catalog maps only to real, existing
 #   units, so add them gated on those flags once units ship.
@@ -94,6 +100,7 @@ CATALOG: tuple[Component, ...] = (
     Component("audio-playback", "agent", _always),
     Component("event-correlator", "agent", _always),
     Component("gps", "service", _always),
+    Component("audio-output", "service", _audio_output_on),
     Component("ui", "service", _always),
 )
 

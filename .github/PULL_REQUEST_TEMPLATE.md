@@ -33,7 +33,7 @@ It's short by design.
 - [ ] `services/orpheus_ui` (React + FastAPI)
 - [ ] `services/orpheus-backplane`
 - [ ] `services/orpheus-gps`
-- [ ] `services/orpheus-bluetooth-autoconnect`
+- [ ] `services/orpheus-audio-output`
 - [ ] `agents/orpheus-agent-audio-motion`
 - [ ] `agents/orpheus-agent-audio-playback`
 - [ ] `agents/orpheus-agent-audio-events`

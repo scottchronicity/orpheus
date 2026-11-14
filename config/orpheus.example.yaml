@@ -178,6 +178,30 @@ audio:
     auto_discover: true
     # sounds_dir: "/opt/orpheus/sounds"  # Override auto-detection if needed
 
+# Audio output readiness (services/orpheus-audio-output). The playback agent
+# chooses and plays sounds; this keeps the output they go to ready: the output
+# device established, the audio server running, and playback routed to it.
+# Three independent choices: output.type, server.type, reconnect policy.
+# Supported today: a Bluetooth output with a PulseAudio server. The managed
+# PulseAudio loads no ALSA modules, so it never takes the capture interface.
+# Without this section, an existing /etc/orpheus/bluetooth-autoconnect/config.env
+# (the retired autoconnect service) still supplies the speaker and user.
+# See docs/operator-manual/audio-output.md.
+audio_output:
+  enabled: false                  # true once a speaker is paired
+  output:
+    type: bluetooth
+    bluetooth:
+      address: "FC:58:FA:02:AF:28"  # the paired speaker (bluetoothctl paired-devices)
+  server:
+    type: pulseaudio
+    pulseaudio:
+      user: orpheus               # must be the playback agent's user
+  reconnect:
+    enabled: true
+    initial_delay_seconds: 10     # poll interval, and the first retry delay
+    max_delay_seconds: 60         # retry delay ceiling while something is down
+
 dashboard:
   host: "0.0.0.0"
   port: 8080
@@ -191,7 +215,7 @@ dashboard:
     - "orpheus-agent-video-motion"
     - "orpheus-agent-bird-detection"
     - "orpheus-agent-crow-detection"
-    - "orpheus-bluetooth-autoconnect"
+    - "orpheus-audio-output"
     - "orpheus-agent-video-snapshotter"
     - "orpheus-agent-video-timelapser"
     - "orpheus-agent-event-correlator"
@@ -623,11 +647,13 @@ correlation:
 # subscribes to playback events and TAGS (does not drop) entities that overlap a
 # playback window with is_self_generated=true, so the system doesn't mistake
 # hearing itself for wildlife. buffer_seconds pads each window's tail to catch
-# reverb / slightly-late triggers.
+# reverb / slightly-late triggers. max_playback_seconds bounds how long a start
+# event remains active if playback exits before publishing its measured finish.
 corollary_discharge:
   # Off by default: tagging is new behavior, so the flag is the rollback.
   enabled: false
   buffer_seconds: 2.0
+  max_playback_seconds: 300.0
 
 # Weather-station ingestion ([FEATURE] Ecowitt Weather Station Integration).
 # Polls a local weather station and stores readings in the detections DB (so

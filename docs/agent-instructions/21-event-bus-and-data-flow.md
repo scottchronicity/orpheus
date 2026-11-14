@@ -16,6 +16,7 @@ config fallback (`event_bus.backend`) and is slated for removal.
 | `orpheus/{domain}/{type}/status` | Agent status | `orpheus/video/motion/status` |
 | `orpheus/system/{agent}/health` | Health pulse (every ~30s) | `orpheus/system/bird-detection/health` |
 | `orpheus/system/auto-discovery/health` | Layer 3 worker pulse | (Layer-3 background work) |
+| `orpheus/actuation/audio/playback` | Playback start/finish windows used by optional corollary discharge | `orpheus/actuation/audio/playback` |
 | `orpheus/detection/{classifier}/events` | Classifier output | `orpheus/detection/bird/events`, `orpheus/detection/audio/events`, `orpheus/detection/crow/events` |
 | `orpheus/entities/animal` | Correlated Entity events | (Layer 2 output) |
 
@@ -97,6 +98,12 @@ depends on the backend:
   per-message effect.
 - **mqtt (legacy fallback):** `qos` maps to broker QoS — health publishes 0
   (a dropped pulse re-publishes in ~30s), detection and Entity events 1.
+
+Playback window events are best-effort core event-bus notifications, not a
+durable work stream. The start marker is followed by a measured finish marker
+with the same `playback_id`; corollary discharge is disabled unless its owning
+configuration enables it. Keep detections and evidence even when tagging them
+as overlapping playback.
 
 Whatever the backend, design handlers to tolerate redelivery: dedup by
 `event_id` (the correlator and crow-detection already do).

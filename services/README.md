@@ -15,7 +15,7 @@ System-wide services that provide:
 - `orpheus-backplane/` - Messaging backplane (NATS + JetStream default, mosquitto fallback)
 - `orpheus_ui/` - React + FastAPI web UI (system health, detections, entities, equivalences)
 - `orpheus-gps/` - GPS time + location service
-- `orpheus-bluetooth-autoconnect/` - Audio-out Bluetooth routing
+- `orpheus-audio-output/` - Audio-out readiness: output device (Bluetooth), audio server (PulseAudio), reconnect policy
 
 ## Services
 

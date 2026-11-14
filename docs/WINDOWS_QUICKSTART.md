@@ -195,7 +195,7 @@ make dev-restart SVC=bird-detection   # Restart one service
 | --- | --- | --- |
 | BirdNET uses CPU | The installed ONNX Runtime build exposes no supported accelerator | Configure `bird_detection.execution_provider` and install a compatible runtime in the BirdNET agent environment |
 | Audio capture from Windows host | Requires `usbipd-win` or network audio | Skip audio; rest of stack still works |
-| No Bluetooth auto-connect | `orpheus-bluetooth-autoconnect` is Linux/Jetson-focused | Untested on WSL2; likely won't work |
+| No managed audio output | `orpheus-audio-output` needs BlueZ and PulseAudio | Untested on WSL2; leave `audio_output.enabled: false` |
 | `/mnt/c/` performance | Git LFS and `make install` stall on Windows-mounted drives | Clone inside `~` (WSL2 native filesystem) |
 | systemd units | Services' `install.sh` scripts target Jetson | Use `make dev-stack` instead of systemd |
 

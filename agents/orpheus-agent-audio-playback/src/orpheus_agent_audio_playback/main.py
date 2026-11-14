@@ -5,6 +5,8 @@ import asyncio
 import contextlib
 import signal
 import sys
+import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional  # noqa: UP035
@@ -338,14 +340,7 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 task_id=id(asyncio.current_task()),
             )
-            playback_start = datetime.now(timezone.utc)
-            await player.play(sound_path, repeat_count, pause_between)
-            self._publish_playback_window(
-                playback_start,
-                (datetime.now(timezone.utc) - playback_start).total_seconds(),
-                sound_name,
-            )
-            logger.info("Playback completed", sound_name=sound_name)
+            await self._run_playback(player, sound_name, sound_path, repeat_count, pause_between)
         except asyncio.CancelledError:
             logger.warning(
                 "Playback task cancelled",
@@ -358,25 +353,87 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 error=str(e),
             )
+            self._publish_error(f"Playback failed: {e}", sound_name=sound_name)
+
+    async def _run_playback(
+        self,
+        player: Any,
+        label: str,
+        audio_path: Path,
+        repeat_count: int,
+        pause_between: float,
+        **segment: Any,
+    ) -> None:
+        """Play to the end and publish the measured playback window.
+
+        ``player.play`` returns once playback has *started*; ``player.wait``
+        returns when it ends. Publish a start marker immediately, then the
+        measured finish even when playback stops part-way. A failed start has
+        no output window and is not published.
+        """
+        await player.play(audio_path, repeat_count, pause_between, **segment)
+        playback_start = datetime.now(timezone.utc)
+        playback_started_monotonic = time.monotonic()
+        playback_id = uuid.uuid4().hex
+        # Announce the start as soon as the output backend reports that it has
+        # started. This lets the correlator tag early detections without waiting
+        # for a long clip to finish.
+        self._publish_playback_window(
+            playback_start,
+            0.0,
+            label,
+            playback_id=playback_id,
+            phase="started",
+        )
+        completed = True
+        playback_status = "interrupted"
+        try:
+            completed = await player.wait()
+            playback_status = "completed" if completed else "stopped"
+        finally:
+            self._publish_playback_window(
+                playback_start,
+                time.monotonic() - playback_started_monotonic,
+                label,
+                playback_id=playback_id,
+                phase="finished",
+                playback_status=playback_status,
+            )
+        if completed:
+            logger.info("Playback completed", sound_name=label)
+        else:
+            logger.info("Playback stopped before the end", sound_name=label)
 
     def _publish_playback_window(
-        self, start: datetime, duration_seconds: float, sound_name: str
+        self,
+        start: datetime,
+        duration_seconds: float,
+        sound_name: str,
+        *,
+        playback_id: str,
+        phase: str,
+        playback_status: Optional[str] = None,
     ) -> None:
-        """Publish a playback-window event so the event-correlator can blank
+        """Publish a playback-window event so the event-correlator can tag
         self-generated detections (corollary discharge).
 
-        ``duration_seconds`` is the actual measured playback time (player.play
-        blocks until done), so no clip-length lookup is needed. Best-effort: a
-        publish failure must never affect playback.
+        A ``started`` event has zero elapsed duration. The matching ``finished``
+        event carries measured elapsed playback time, so no clip-length lookup
+        is needed.
+        Best-effort: a publish failure must never affect playback.
         """
         if self._mqtt_client is None:
             return
         event = {
+            "playback_id": playback_id,
+            "phase": phase,
             "start_time": start.isoformat(),
             "duration_seconds": round(duration_seconds, 3),
             "source": "audio_playback_agent",
             "sound_name": sound_name,
         }
+        if playback_status is not None:
+            event["playback_status"] = playback_status
         try:
             self._mqtt_client.publish(self.TOPIC_ACTUATION_AUDIO_PLAYBACK, event, qos=1)
         except Exception:  # noqa: BLE001 - telemetry must not break playback
@@ -487,26 +544,32 @@ class AudioPlaybackAgent:
 
             logger.info("Starting playback", path=str(audio_path))
 
-            # Play the audio synchronously using asyncio.run
-            player = get_audio_player()
-            playback_start = datetime.now(timezone.utc)
-            asyncio.run(
-                player.play(
+            # Run playback on the agent's event loop, like sound_name requests.
+            # (asyncio.run() here created a throwaway loop that cancelled the
+            # playback task, and killed the player, as soon as play() returned.)
+            if self._event_loop is None:
+                error_msg = "Event loop not initialized - agent not started"
+                logger.error(error_msg)
+                self._publish_error(error_msg)
+                return
+
+            label = str(file_path or detection_id or "")
+            asyncio.run_coroutine_threadsafe(
+                self._play_audio_source_async(
+                    get_audio_player(),
                     audio_path,
+                    label,
                     repeat_count,
                     pause_between,
                     start_time=start_time,
                     duration=duration,
                     volume=volume,
-                )
-            )
-            self._publish_playback_window(
-                playback_start,
-                (datetime.now(timezone.utc) - playback_start).total_seconds(),
-                str(file_path or detection_id or ""),
+                ),
+                self._event_loop,
             )
 
-            # Publish success response
+            # Publish success response (playback runs in background; failures
+            # are published as error responses when they happen)
             response = {
                 "status": "success",
                 "message": "Playback started",
@@ -517,8 +580,6 @@ class AudioPlaybackAgent:
                 response["detection_id"] = detection_id
 
             self._publish_response(response)
-
-            logger.info("Playback completed", path=str(audio_path))
 
         except FileNotFoundError as e:
             error_msg = f"Audio file not found: {e}"
@@ -534,6 +595,41 @@ class AudioPlaybackAgent:
             error_msg = f"Playback failed: {e}"
             logger.error(error_msg, exc_info=True)
             self._publish_error(error_msg)
+
+    async def _play_audio_source_async(
+        self,
+        player: Any,
+        audio_path: Path,
+        label: str,
+        repeat_count: int,
+        pause_between: float,
+        start_time: Optional[float],
+        duration: Optional[float],
+        volume: Optional[int],
+    ) -> None:
+        """Background task for file_path / detection_id playback."""
+        try:
+            await self._run_playback(
+                player,
+                label,
+                audio_path,
+                repeat_count,
+                pause_between,
+                start_time=start_time,
+                duration=duration,
+                volume=volume,
+            )
+        except asyncio.CancelledError:
+            logger.warning("Playback task cancelled", path=str(audio_path))
+            raise
+        except Exception as e:
+            logger.exception(
+                "Playback error in background task", path=str(audio_path), error=str(e)
+            )
+            response: Dict[str, Any] = {"status": "error", "error": f"Playback failed: {e}"}  # noqa: UP006
+            if label:
+                response["source"] = label
+            self._publish_response(response)
 
     def _resolve_audio_path(
         self,

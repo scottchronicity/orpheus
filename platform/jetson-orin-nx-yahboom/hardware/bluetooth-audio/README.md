@@ -165,6 +165,17 @@ pulseaudio --start
 
 ## Auto-Connect on Boot
 
+On an Orpheus host, use the managed `orpheus-audio-output` service instead of
+the methods below. It runs a Bluetooth-only PulseAudio that never takes the
+recording interface, reconnects after drops, and routes playback to the
+speaker; see [Audio output](../../../../docs/operator-manual/audio-output.md).
+Its installer disables hand-made units like the ones below that connect the
+same speaker, because two supervisors race to connect it and to set the
+default sink. The PulseAudio steps above load the stock configuration, which
+also takes the USB capture interface; don't use them on a recording station.
+
+The methods below are for a plain Jetson without Orpheus.
+
 ### Method 1: Systemd Service
 
 Create a service to auto-connect Bluetooth devices:

@@ -202,8 +202,8 @@ All Orpheus services follow these patterns:
 ### Time Synchronization
 
 Most services include `After=time-sync.target` so the system clock is synchronized
-before they start. Three units do not yet: `orpheus-agent-video-snapshotter`,
-`orpheus-agent-video-timelapser`, and `orpheus-bluetooth-autoconnect`. Ordering
+before they start. Two units do not yet: `orpheus-agent-video-snapshotter` and
+`orpheus-agent-video-timelapser`. Ordering
 against the clock prevents:
 
 - Log timestamps showing Unix epoch (1970)

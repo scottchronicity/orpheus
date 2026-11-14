@@ -11,9 +11,11 @@ WorkingDirectory=/opt/orpheus/agents/orpheus-agent-audio-playback
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/opt/orpheus/agents/orpheus-agent-audio-playback/src
 
-# Dynamically resolve PulseAudio paths using %U (User ID)
-Environment="XDG_RUNTIME_DIR=/run/user/%U"
-Environment="PULSE_SERVER=unix:/run/user/%U/pulse/native"
+# Where sounds go is set by orpheus-audio-output, which installs the drop-in
+# orpheus-agent-audio-playback.service.d/50-orpheus-audio-output.conf pointing
+# the player at the managed audio server (PULSE_SERVER, XDG_RUNTIME_DIR, and
+# SDL_AUDIODRIVER=pulseaudio). Don't derive those paths from %U here: in a
+# system unit %U is the service manager's UID (0), not User=.
 
 EnvironmentFile=-/opt/orpheus/config/.env
 ExecStart=/opt/orpheus/agents/orpheus-agent-audio-playback/venv/bin/python -m orpheus_agent_audio_playback.main

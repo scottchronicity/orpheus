@@ -65,6 +65,8 @@ system Python or the inference workers. See [ADR 0024](../adr/0024-independent-p
 
 For optional isolated PANNs GPU inference, including automatic backend selection,
 memory requirements, health and CPU rollback, see [PANNs GPU worker](panns-gpu.md).
+For the speaker Orpheus plays through (`audio_output`: output device, audio
+server, reconnect policy), see [Audio output](audio-output.md).
 
 - The single source of truth is `orpheus.yaml` (runtime config lives at
   `/opt/orpheus/config/orpheus.yaml` on a deployed box; `config/orpheus.example.yaml`
@@ -288,9 +290,14 @@ the video’s time window, including when the window crosses midnight.
   own audio playback with `is_self_generated: true` — **tagged, never dropped**,
   so the data stays available for analysis and the dashboard doesn't count the
   system hearing itself as wildlife. `corollary_discharge.buffer_seconds`
-  (default 2.0) pads each window's tail to catch reverb/late triggers. Off (the
-  default): no playback subscription, no tagging; the playback agent's window
-  publish is inert telemetry on its own topic. Rollback is the flag.
+  (default 2.0) pads each window's tail to catch reverb/late triggers.
+  `max_playback_seconds` (default 300) bounds an announced playback if the
+  playback agent stops before sending its measured finish event. The playback
+  agent publishes start and finish events with the same ID; the finish contains
+  the measured elapsed duration. Overlapping detections remain in the entity
+  evidence and database, including wildlife heard at the same time. Off (the
+  default): no playback subscription and no tagging. Rollback is the flag. See
+  the [audio output guide](audio-output.md) for speaker setup.
 - **Logging:** [Logging guide](../LOGGING.md).
 
 ## 7. Data & retention
@@ -469,6 +476,8 @@ it will not refuse to run because you declined.
 ## 9. Troubleshooting
 
 - [Gotchas](../agent-instructions/99-gotchas.md) — the field-tested traps.
+- [Audio output](audio-output.md) — the speaker never connects, drops, or
+  plays nothing; capture-interface conflicts.
 - [Version compatibility matrix](../version-compat-matrix.md).
 
 ---

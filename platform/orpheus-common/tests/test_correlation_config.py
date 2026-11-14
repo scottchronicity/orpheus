@@ -161,4 +161,16 @@ class TestCorollaryDischargeConfig:
         assert cfg.to_dict()["corollary_discharge"] == {
             "buffer_seconds": 3.5,
             "enabled": False,
+            "max_playback_seconds": 300.0,
         }
+
+    def test_max_playback_seconds_is_validated(self) -> None:
+        from orpheus_common.config import CorollaryDischargeConfig
+
+        assert CorollaryDischargeConfig.from_dict({}).max_playback_seconds == 300.0
+        assert (
+            CorollaryDischargeConfig.from_dict({"max_playback_seconds": 45}).max_playback_seconds
+            == 45.0
+        )
+        with pytest.raises(ValueError, match="max_playback_seconds"):
+            CorollaryDischargeConfig.from_dict({"max_playback_seconds": 0})

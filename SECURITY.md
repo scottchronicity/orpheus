@@ -33,7 +33,7 @@ This security policy applies to:
 - `orpheus_ui` - Web UI (FastAPI backend + React frontend)
 - `orpheus-backplane` - messaging backplane (NATS default, mosquitto fallback)
 - `orpheus-gps` - GPS service
-- `orpheus-bluetooth-autoconnect` - Bluetooth autoconnect service
+- `orpheus-audio-output` - Audio output manager (Bluetooth speaker + PulseAudio)
 - `orpheus-agent-audio-motion` - Audio motion detection agent
 - `orpheus-agent-audio-playback` - Audio playback agent
 - `orpheus-agent-bird-detection` - Bird detection agent

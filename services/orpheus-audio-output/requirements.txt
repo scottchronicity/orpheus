@@ -1,0 +1,18 @@
+# Audio output manager dependencies
+# NOTE: This project uses requirements.txt for dependencies
+# for compatibility with older pip versions (Python 3.9.5).
+
+# Core dependency - installed from local path in production
+-e ../../platform/orpheus-common
+
+# Self-install so deployed venvs built from requirements.txt alone can import
+# orpheus_audio_output (the verify-deploy import smoke needs it).
+-e .
+
+# YAML configuration
+PyYAML>=6.0.2
+
+# Development/Testing dependencies
+ruff==0.15.20
+pytest>=8.3.0
+pytest-cov>=6.0.0

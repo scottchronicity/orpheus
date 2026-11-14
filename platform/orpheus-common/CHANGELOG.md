@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `AudioPlayer.wait()` waits for the playback started by `play()` to end. It returns `False` if playback was stopped or superseded, and raises if the player failed. `SubprocessAudioPlayer` shields the playback task, so cancelling a waiter does not stop playback.
+
 ## 0.4.0 — 2026-08-26
 
 - `orpheus-storage-sweep`: one component that owns every deletion under the data root, run as a systemd one-shot on a 15-minute timer. Enforces per-category ceilings first, then relieves disk pressure by taking from each category above its floor in proportion to what it has to give.
