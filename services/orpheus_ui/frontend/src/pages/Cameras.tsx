@@ -76,13 +76,16 @@ function CameraCard({ camera }: { camera: CameraStatus }) {
 
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
-      {/* Camera Preview */}
+      {/* Camera Preview. object-contain, not -cover: the cameras' main stream is
+          3:2 while this box is 16:9, and -cover fills the width and crops the top
+          and bottom off — which is precisely the extra vertical field of view the
+          main stream is configured to capture. Letterbox instead of losing frame. */}
       <div className="aspect-video bg-slate-900 flex items-center justify-center relative">
         {imageUrl && !imageError && (
           <img
             src={imageUrl}
             alt={camera.name}
-            className="w-full h-full object-cover absolute inset-0 z-10"
+            className="w-full h-full object-contain absolute inset-0 z-10"
           />
         )}
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
