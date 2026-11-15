@@ -3,8 +3,9 @@ set -e
 
 SERVICE_NAME="orpheus-agent-event-correlator"
 SERVICE_FILE="${SERVICE_NAME}.service"
-INSTALL_DIR="/opt/orpheus/agents/${SERVICE_NAME}"
-SYSTEMD_DIR="/etc/systemd/system"
+# Overridable only so the installer can be tested in a sandbox.
+INSTALL_DIR="${INSTALL_DIR:-/opt/orpheus/agents/${SERVICE_NAME}}"
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 
 echo "Installing ${SERVICE_NAME} systemd service..."
@@ -21,15 +22,32 @@ if ! "${PYTHON_BIN}" -c 'import sys; raise SystemExit(not ((3, 12) <= sys.versio
     exit 1
 fi
 
-# Copy service files to /opt/orpheus
+# Copy only what the service needs. Never `cp -r .`: that also copied any
+# working-tree venv (e.g. venv-py312, or a dev `venv` straight over the
+# deployed one, before the version check below could see it).
+SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 sudo mkdir -p "${INSTALL_DIR}"
-sudo cp -r . "${INSTALL_DIR}/"
-sudo cp pyproject.toml "${INSTALL_DIR}/"
+sudo rsync -a --delete \
+    --exclude "__pycache__" --exclude "*.pyc" --exclude "*.egg-info" \
+    "${SOURCE_ROOT}/src/" "${INSTALL_DIR}/src/"
+sudo rsync -a --delete "${SOURCE_ROOT}/systemd/" "${INSTALL_DIR}/systemd/"
+for f in pyproject.toml requirements.txt README.md VERSION; do
+    if [ -f "${SOURCE_ROOT}/${f}" ]; then
+        sudo cp "${SOURCE_ROOT}/${f}" "${INSTALL_DIR}/${f}"
+    fi
+done
+cd "${INSTALL_DIR}"
 
 # Rebuild a pre-existing Python 3.9 environment once; keeping it would leave
 # this service running under the runtime its package metadata no longer allows.
-if [ -x "${INSTALL_DIR}/venv/bin/python" ] && ! "${INSTALL_DIR}/venv/bin/python" -c 'import sys; raise SystemExit((3, 12) <= sys.version_info[:2] < (3, 14))'; then
+# Also rebuild one that references a home directory (a copied dev venv or an
+# editable install of a checkout), which the deployment must never depend on.
+if [ -x "${INSTALL_DIR}/venv/bin/python" ] && ! "${INSTALL_DIR}/venv/bin/python" -c 'import sys; raise SystemExit(not ((3, 12) <= sys.version_info[:2] < (3, 14)))'; then
     echo "Replacing the existing incompatible Python environment..."
+    sudo rm -rf "${INSTALL_DIR}/venv"
+elif [ -d "${INSTALL_DIR}/venv" ] && grep -rlqI -E '/home/|/Users/' \
+        "${INSTALL_DIR}/venv/bin" "${INSTALL_DIR}"/venv/lib/python3*/site-packages/*.pth 2>/dev/null; then
+    echo "Replacing an environment that references a home directory..."
     sudo rm -rf "${INSTALL_DIR}/venv"
 fi
 
