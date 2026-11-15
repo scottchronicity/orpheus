@@ -104,11 +104,17 @@ sudo systemctl stop 'orpheus-*'
 
 # Preserve the suspect DB before overwriting it. You are here because the live
 # database is bad — and a corrupt SQLite file is usually still partly readable
-# (sqlite3 .recover, .dump, per-table SELECTs). This is your only copy of
-# everything recorded since the backup.
+# (sqlite3 .recover, .dump, per-table SELECTs; JetPack has no sqlite3 CLI, so
+# do that on another machine). This is your only copy of everything recorded
+# since the backup.
 STAMP=$(date +%Y%m%d-%H%M)
 sudo cp -a /data/orpheus/detections/orpheus.db "/data/orpheus/detections/orpheus.db.corrupt-$STAMP"
 sudo cp -a /data/orpheus/detections/orpheus.db-wal "/data/orpheus/detections/orpheus.db-wal.corrupt-$STAMP" 2>/dev/null || true
+
+# Prove the backup is intact before it replaces anything: every file's sha256
+# against SHA256SUMS, and integrity_check on every database
+# (backups made by `make backup-databases`).
+make verify-backup BACKUP=/data/orpheus/backups/<stamp>
 
 # Remove stale WAL/SHM sidecars BEFORE copying: if the previous run died
 # uncleanly (the Level-3 scenario), SQLite would replay a leftover -wal into

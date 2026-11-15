@@ -153,17 +153,19 @@ Everything under `/data/orpheus` belongs to `orpheus:orpheus` and everything und
 `/opt/orpheus` to root, so this whole section runs under `sudo` — an unprivileged
 `mkdir` into the data root just fails with permission denied.
 
+JetPack ships no `sqlite3` CLI (`sudo sqlite3 ...` fails with `command not found`),
+so the backup is a stdlib-Python tool, `scripts/backup-databases.py`:
+
 ```bash
-# Quick backup: every SQLite DB + the runtime config (small, seconds)
+# Every SQLite DB under /data/orpheus (incl. detections/) + the deployed
+# orpheus.yaml and .env. VACUUM INTO from a read-only connection: a consistent
+# snapshot with the agents still running (a live cp of a WAL-mode DB copies a
+# torn/stale file). Each copy is integrity-checked before it counts; it refuses
+# an existing destination or too little free space. ~9 GB for an 8 GB orpheus.db.
+make backup-databases ARGS=--dry-run          # what it will copy, and the space it needs
 BACKUP="${BACKUP:-/data/orpheus/backups/$(date +%Y%m%d-%H%M)}"
-sudo mkdir -p "$BACKUP"
-sudo sqlite3 /data/orpheus/detections/orpheus.db "VACUUM INTO '$BACKUP/orpheus.db'"  # consistent snapshot, no downtime
-for db in /data/orpheus/*.db; do   # state_space/config/circuit_breakers/etc., if present
-  [ -f "$db" ] && sudo sqlite3 "$db" "VACUUM INTO '$BACKUP/$(basename "$db")'"
-done   # VACUUM INTO, not cp: a live cp of a WAL-mode DB copies a torn/stale file
-sudo cp /opt/orpheus/config/orpheus.yaml "$BACKUP/orpheus.yaml"
-sudo cp /opt/orpheus/config/.env "$BACKUP/.env" 2>/dev/null || true   # backbone URL, and its
-                        # credentials on an auth-gated broker; absent on a single-host install
+make backup-databases ARGS="--dest $BACKUP"   # --quick: quick_check instead of integrity_check
+make verify-backup BACKUP="$BACKUP"           # sha256 + integrity again, from the files on disk
 sudo ls -l "$BACKUP"    # eyeball it: a backup you did not confirm is not a backup
 
 # Full backup (optional, if disk allows): the whole data root incl. clips
