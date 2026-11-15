@@ -9,6 +9,10 @@ transport now — installing it is part of the upgrade, not optional.
 - [ ] **Rehearse on the laptop** against its own populated database —
       [laptop verification §5](laptop-verification.md). Data-read smoke and the
       dashboard must both be green before the station is touched.
+- [ ] For a release changing Python runtimes, inference execution, or audio
+      ownership, complete the [branch-specific runtime and audio gates](jetson-rollout.md#0a-branch-specific-runtime-and-audio-gates)
+      and follow the staged cold cutover below. Aggregate install/update targets
+      are not a dry run.
 
 ## On the Jetson — in this order
 
@@ -23,8 +27,9 @@ export ORPHEUS_SRC=~/runtime/orpheus; cd "$ORPHEUS_SRC"
 BATCH=            # a name for this upgrade, e.g. flywheel_2
 TARGET=           # the branch or merge commit you are deploying
 DEPLOYED=         # the commit running NOW — from `make show-deployed`, not HEAD.
-                  # On a normal box show-deployed prints no commit (rsync tree, no
-                  # git metadata); use the tag or note from your last upgrade.
+                  # Confirm against the station's deployment record. If the exact
+                  # deployed revision cannot be established, stop: do not infer it
+                  # from the current checkout or an unverified old tag.
 ```
 
 ### - [ ] 0. Know where you are
@@ -68,12 +73,15 @@ Order matters.
 sudo systemctl stop orpheus-storage-sweep.timer  # the ONLY unit that deletes data, and
                                                # services-stop does not touch it. Left armed
                                                # it fires every 15 minutes, mid-deploy.
-make services-stop                             # quiesce writers; they restart in update-services below
+make services-stop                             # stops agents/UI/backplane, but not GPS
+make -C services/orpheus-gps service-stop       # GPS is outside the root stop target
 git fetch origin && git checkout "$TARGET"
 make install-backbone                          # NATS FIRST
 systemctl is-active orpheus-backplane.service  # confirm broker up BEFORE agents
-make services-install                          # installs NEW agents + refreshes units
-make update-services                           # updates + restarts everything
+# Continue with the staged component procedure in jetson-rollout.md.
+# Do not run aggregate services-install/update-services for runtime/audio changes:
+# they recreate environments, restart components, and services-install invokes the
+# audio-output installer (which starts it when configured enabled).
 make verify-deploy                             # imports + units + broker + DATA-READ — all ✅
 #   ^ first start may pause minutes building indices on a big DB. Expected, not a hang.
 sudo systemctl start orpheus-storage-sweep.timer  # re-arm the deleter
@@ -110,8 +118,9 @@ Only after a clean default soak, flip flags one at a time —
 | Symptom | Action | Time |
 |---|---|---|
 | A new feature misbehaves | flip its one flag off + restart the owning unit | seconds |
-| The deploy itself is bad | `cd "$ORPHEUS_SRC" && git checkout orpheus/last-known-good && make services-install && make update-services && make verify-deploy` | minutes |
+| The deploy itself is bad | Follow [Level 2 staged rollback](jetson-rollback.md#level-2-the-deploy-itself-is-bad); it requires the recorded runtime, broker, config and audio baseline. Do not use aggregate install/update targets. | depends on captured artifacts |
 | Data corruption (rare) | Level 3 restore — stop writers, `rm` the `-wal`/`-shm` sidecars, `sudo cp` the backup back, then `sudo chown orpheus:orpheus` it | — |
 
-There is no "roll back the transport" — NATS is the transport; a broker problem is a
-deploy problem, so you roll back to the tag (which restores the old code + its transport).
+Checking out an older commit does not automatically roll back the broker or its
+stored state. Use the broker implementation/version captured in the pre-deploy
+record and preserve JetStream data; there is no automatic cross-broker conversion.
