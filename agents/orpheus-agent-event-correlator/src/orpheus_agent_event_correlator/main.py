@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from orpheus_common import OrpheusConfig, StateSpaceMemory
@@ -92,9 +92,7 @@ class EventCorrelatorAgent(Actor):
         # duplicate (cross-classifier-identity §1 "enrich existing event").
         le_cfg = corr_cfg.late_enrichment
         self.late_enrichment_enabled = (
-            late_enrichment_enabled
-            if late_enrichment_enabled is not None
-            else le_cfg.enabled
+            late_enrichment_enabled if late_enrichment_enabled is not None else le_cfg.enabled
         )
         self.late_enrichment_ttl_seconds = (
             late_enrichment_ttl_seconds
@@ -148,9 +146,7 @@ class EventCorrelatorAgent(Actor):
         # docs/designs/cross-classifier-identity.md §5.
         ad_cfg = corr_cfg.auto_discovery
         self.auto_discovery_enabled = (
-            auto_discovery_enabled
-            if auto_discovery_enabled is not None
-            else ad_cfg.enabled
+            auto_discovery_enabled if auto_discovery_enabled is not None else ad_cfg.enabled
         )
         self.auto_discovery_interval_seconds = (
             auto_discovery_interval_seconds
@@ -165,9 +161,7 @@ class EventCorrelatorAgent(Actor):
         self.auto_discovery_propose_threshold = ad_cfg.propose_threshold
         self.auto_discovery_accept_threshold = ad_cfg.accept_threshold
         self.auto_discovery_min_cooccurrences = ad_cfg.min_cooccurrences
-        self.auto_discovery_cross_namespace_accept_only = (
-            ad_cfg.cross_namespace_accept_only
-        )
+        self.auto_discovery_cross_namespace_accept_only = ad_cfg.cross_namespace_accept_only
 
         # Corollary discharge ("echo problem"): tag detections that overlap
         # our own audio playback. Fed by playback events on PLAYBACK_TOPIC.
@@ -181,7 +175,8 @@ class EventCorrelatorAgent(Actor):
         # (absent section, bare-Mock configs in older tests) means OFF.
         self.corollary_discharge_enabled = getattr(cd_cfg, "enabled", False) is True
         self.corollary_discharge = CorollaryDischargeFilter(
-            buffer_seconds=cd_cfg.buffer_seconds
+            buffer_seconds=cd_cfg.buffer_seconds,
+            max_open_seconds=getattr(cd_cfg, "max_playback_seconds", 300.0),
         )
 
         self.cluster_manager: ClusterManager | None = None
@@ -265,7 +260,7 @@ class EventCorrelatorAgent(Actor):
         return subs
 
     def health_payload(self, phase: str) -> dict[str, Any]:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         if phase == "startup":
             return {
                 "status": "online",
@@ -305,7 +300,6 @@ class EventCorrelatorAgent(Actor):
             "last_error": self.last_error,
             "cluster_expire_errors": self._cluster_expire_errors(),
         }
-
 
     def _cluster_expire_errors(self) -> int:
         """Expiry-path failures counted by the ClusterManager (0 before it exists)."""
@@ -361,9 +355,7 @@ class EventCorrelatorAgent(Actor):
                 propose_threshold=self.auto_discovery_propose_threshold,
                 accept_threshold=self.auto_discovery_accept_threshold,
                 min_cooccurrences=self.auto_discovery_min_cooccurrences,
-                cross_namespace_accept_only=(
-                    self.auto_discovery_cross_namespace_accept_only
-                ),
+                cross_namespace_accept_only=(self.auto_discovery_cross_namespace_accept_only),
             )
         except Exception as exc:
             self.errors_count += 1
@@ -382,16 +374,12 @@ class EventCorrelatorAgent(Actor):
 
         scan_summary = {
             "status": "ok",
-            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "ran_at": datetime.now(UTC).isoformat(),
             "total_proposals": len(proposals),
             "recorded": len(recorded),
             "promoted": len(promoted),
-            "skipped_existing": sum(
-                1 for p in proposals if p["action"] == "skipped_existing"
-            ),
-            "skipped_blocked": sum(
-                1 for p in proposals if p["action"] == "skipped_blocked"
-            ),
+            "skipped_existing": sum(1 for p in proposals if p["action"] == "skipped_existing"),
+            "skipped_blocked": sum(1 for p in proposals if p["action"] == "skipped_blocked"),
             "lifetime_runs": self.auto_discovery_runs,
             "lifetime_proposals": self.auto_discovery_proposals,
         }
@@ -400,9 +388,7 @@ class EventCorrelatorAgent(Actor):
         # auto-discovery liveness without polling the DB.
         if self.bus is not None:
             try:
-                self.bus.publish(
-                    "orpheus/system/auto-discovery/health", scan_summary
-                )
+                self.bus.publish("orpheus/system/auto-discovery/health", scan_summary)
             except Exception:  # pylint: disable=broad-except
                 logger.exception("Failed to publish auto-discovery health")
             # §11 Phase 1b: dual-write the scan summary to the operational KV plane
@@ -420,8 +406,7 @@ class EventCorrelatorAgent(Actor):
             logger.info("Auto-discovery scan complete", **scan_summary)
             for p in recorded + promoted:
                 logger.info(
-                    "Equivalence proposed" if p["action"] == "recorded"
-                    else "Equivalence promoted",
+                    "Equivalence proposed" if p["action"] == "recorded" else "Equivalence promoted",
                     a=f"{p['a']['namespace']}:{p['a']['id']}",
                     b=f"{p['b']['namespace']}:{p['b']['id']}",
                     jaccard=f"{p['jaccard']:.3f}",
@@ -603,9 +588,7 @@ class EventCorrelatorAgent(Actor):
                 context=context_dict,
                 intervals=self._extract_intervals(detection),
                 taxonomy=(
-                    detection.taxonomy.model_dump(mode="json")
-                    if detection.taxonomy
-                    else None
+                    detection.taxonomy.model_dump(mode="json") if detection.taxonomy else None
                 ),
                 detection_type=detection.detection_type,
                 timestamp=detection.timestamp,
@@ -705,8 +688,7 @@ class EventCorrelatorAgent(Actor):
             ts = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
-        return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
-
+        return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
 
     def _warn_weather_rejected(self, reason: str, **kw: Any) -> None:
         """Rate-limited (5 min) warning when a reading is rejected — makes a
@@ -753,7 +735,7 @@ class EventCorrelatorAgent(Actor):
             # can't prove freshness, so don't claim weather we don't know.
             self._warn_weather_rejected("no provable freshness (timestamp + recorded_at unusable)")
             return None
-        age = (datetime.now(timezone.utc) - ts).total_seconds()
+        age = (datetime.now(UTC) - ts).total_seconds()
         if age > self._weather_max_age_seconds:
             self._warn_weather_rejected(
                 "stale reading (ingestor down?)",

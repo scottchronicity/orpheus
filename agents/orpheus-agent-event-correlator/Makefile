@@ -3,6 +3,12 @@
 SERVICE_NAME := orpheus-agent-event-correlator
 DEPLOY_ROOT  := /opt/orpheus/agents/$(SERVICE_NAME)
 
+# Correlation is a pure Python service, independently upgraded from model
+# runtimes that may need older vendor stacks.
+PYTHON_SYSTEM ?= python3.12
+PYTHON_REQUIRED_VERSION ?= 3.12
+VENV ?= venv-py312
+
 include ../../make/common_python.mk
 include ../../make/common_lint.mk
 include ../../make/common_service.mk
@@ -14,7 +20,7 @@ help:
 	@echo "Orpheus Event Correlator"
 	@echo ""
 	@echo "Local development (no sudo):"
-	@echo "  make install          Create venv and install dependencies"
+	@echo "  make install          Create Python 3.12/3.13 venv and install dependencies"
 	@echo "  make reinstall        Recreate venv from scratch"
 	@echo "  make run [ARGS=...]   Run agent locally (pass extra args via ARGS)"
 	@echo "  make test             Execute pytest suite"
@@ -66,15 +72,15 @@ run: check-deps
 
 test: check-deps
 	@echo "Running pytest (unit; e2e excluded — see test-e2e)..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e"
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m "not e2e"
 
 coverage: check-deps
 	@echo "Running pytest with coverage..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_event_correlator --cov-report=term-missing
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m "not e2e" --cov=orpheus_agent_event_correlator --cov-report=term-missing
 
 test-e2e: check-deps
 	@echo "Running e2e bus-contract oracle (needs a broker; pair with 'make sim-up')..."
-	@PYTHONPATH=$(SRC_DIR) $(PYTEST) $(TEST_DIR) -v -m e2e
+	@PYTHONPATH=$(SRC_DIR):../orpheus-agent-audio-playback/src $(PYTEST) $(TEST_DIR) -v -m e2e
 
 clean:
 	@echo "Cleaning project..."

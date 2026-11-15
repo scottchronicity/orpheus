@@ -91,7 +91,7 @@ Full design: [`docs/designs/cross-classifier-identity.md`](../designs/cross-clas
 
 | Constraint | Value | Reason |
 |---|---|---|
-| Python version | Per-component metadata: currently agents generally 3.9, isolated PANNs CUDA 3.8, IPC 3.8+ | Independent runtimes; no global version lock |
+| Python version | Per-component metadata: GPS and event-correlator 3.12/3.13, other agents retain their declared runtimes, isolated PANNs CUDA 3.8, IPC 3.8+ | Independent runtimes; no global version lock |
 | Type syntax | Match the component's supported interpreter and evaluated annotations | Shared IPC must still run on 3.8 |
 | Architecture | Backend/dependency specific | Keep portable agents separate from hardware implementations |
 | Test coverage | Per-component floor; see [Testing](../TESTING.md) | CI gate |

@@ -2,4 +2,4 @@
 -e ../../platform/orpheus-common
 
 # agent + dev extras
--e .[dev]
+-e .[dev,onnx-cpu]

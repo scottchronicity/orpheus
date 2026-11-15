@@ -2,10 +2,12 @@
 
 Precondition: the branch passed the [laptop verification runbook](laptop-verification.md)
 end-to-end on the laptop (the laptop and this Jetson are independent machines — no
-data is copied between them). Everything new in this branch is **off by default**
-(additive config, flag-gated behavior, additive schema), so once the transport is up
-the deploy changes nothing behaviorally until you flip flags — that is the safety
-property the soak verifies.
+data is copied between them). Additive schemas and opt-in features reduce risk, but
+do not imply an unchanged runtime: configured `auto` inference can select an
+available accelerator, component installers can recreate environments, and the
+audio-output installer can change Linux audio-service ownership when enabled. Read
+the effective deployed configuration and complete the branch-specific gates below
+before choosing the rollout path.
 
 > **The one thing that is NOT "flip a flag": the transport is now NATS.**
 > `event_bus.backend` defaults to `nats` (the actor-substrate roadmap pivot,
@@ -14,7 +16,8 @@ property the soak verifies.
 > this upgrade, not optional** — step 3 does it *before* restarting agents,
 > because agents that restart against a broker that isn't up will crash-loop
 > until it is. There is no "roll back the transport" — if the deploy goes bad you
-> roll back to the pre-deploy tag (§2), and the old code brings its own transport.
+> restore the captured pre-deploy broker/runtime combination (§2); checking out old
+> code does not restore the old broker or its state.
 
 > **Pick your variant before you start.** §0–§5 below are the normal rolling deploy.
 > If this upgrade swaps the transport or changes the schema, read
@@ -22,7 +25,7 @@ property the soak verifies.
 > and follow that instead — it stops everything before touching anything, so you find
 > a bad component with the system quiet rather than half-restarted.
 
-## 0. Know where you are (30 seconds — do this FIRST)
+## 0. Know where you are (do this FIRST)
 
 You can't roll back to a point you can't name. Record what's running now:
 
@@ -30,20 +33,115 @@ You can't roll back to a point you can't name. Record what's running now:
 # Your git clone — NOT /opt/orpheus, which is an rsync deploy tree with no git metadata.
 export ORPHEUS_SRC=~/runtime/orpheus
 cd "$ORPHEUS_SRC"
-DEPLOYED=$(git -C "$ORPHEUS_SRC" rev-parse HEAD)   # the checkout is the source of the
-                          # deploy; /opt/orpheus has no git metadata, so show-deployed
-                          # cannot give you a commit
-echo "$DEPLOYED" >> ~/rollback-note.txt
-make show-deployed        # cross-check: orpheus-common version + last sync should match
-make verify-deploy        # baseline: confirm the box is GREEN before you change anything
+make show-deployed        # local checkout/deploy-tree cross-check only; not proof of
+                          # the deployed source commit
+make verify-deploy        # read-only baseline health check
 ```
 
 Every step below runs from `$ORPHEUS_SRC` unless it says otherwise: the make targets
 install *into* `/opt/orpheus` from the checkout, and git only works in the checkout.
 
-Write the `show-deployed` output into your rollback note — that commit is what you tag
-in §2. If `verify-deploy` is already ❌ *before* you deploy, fix that first — otherwise
-you can't tell whether a post-deploy failure is new.
+Record the deployed revision from an authoritative deployment record. `/opt/orpheus`
+is an rsync tree without Git metadata, and `show-deployed` does not establish its
+source commit. If the exact revision or baseline health cannot be established, stop.
+If `verify-deploy` is already ❌ before deployment, resolve that first.
+
+## 0a. Branch-specific runtime and audio gates
+
+For a release that changes inference, component runtimes, or Bluetooth output,
+capture the actual station baseline before deployment. A laptop checkout cannot
+prove which revision or overrides are live. Save the effective configuration and
+unit state privately in the backup directory; do not publish credentials.
+
+```bash
+BACKUP="${BACKUP:-/data/orpheus/backups/$(date +%Y%m%d-%H%M)}"
+sudo mkdir -p "$BACKUP"
+sudo cp -a /opt/orpheus/config "$BACKUP/config-before-review"
+sudo systemctl list-unit-files 'orpheus-*' --no-pager | sudo tee "$BACKUP/unit-files.txt" >/dev/null
+sudo systemctl list-units 'orpheus-*' --all --no-pager | sudo tee "$BACKUP/unit-state.txt" >/dev/null
+for unit in orpheus-backplane orpheus-gps orpheus-agent-event-correlator \
+  orpheus-agent-audio-events orpheus-agent-bird-detection \
+  orpheus-agent-crow-detection orpheus-audio-output \
+  orpheus-agent-audio-playback; do
+  sudo systemctl cat "$unit" 2>&1 | sudo tee -a "$BACKUP/effective-units.txt" >/dev/null
+done
+if [ -x /usr/local/bin/nats-server ]; then
+  /usr/local/bin/nats-server -v | sudo tee "$BACKUP/nats-version.txt" >/dev/null
+else
+  echo "NATS binary not installed" | sudo tee "$BACKUP/nats-version.txt" >/dev/null
+fi
+sudo du -sh /var/lib/orpheus/backplane/jetstream 2>/dev/null || true
+for unit in orpheus-gps orpheus-agent-event-correlator \
+  orpheus-agent-audio-events orpheus-agent-bird-detection \
+  orpheus-agent-crow-detection orpheus-audio-output \
+  orpheus-agent-audio-playback; do
+  sudo systemctl show "$unit" -p LoadState -p ActiveState -p User -p ExecStart \
+    | sudo tee -a "$BACKUP/unit-details.txt" >/dev/null
+done
+for py in /opt/orpheus/services/orpheus-gps/venv/bin/python \
+  /opt/orpheus/agents/orpheus-agent-event-correlator/venv/bin/python \
+  /opt/orpheus/agents/orpheus-agent-audio-events/venv/bin/python \
+  /opt/orpheus/agents/orpheus-agent-bird-detection/venv/bin/python \
+  /opt/orpheus/agents/orpheus-agent-crow-detection/venv/bin/python; do
+  [ ! -x "$py" ] || "$py" -c 'import sys; print(sys.executable, sys.version)'
+done
+# Installers for several services remove and recreate their venvs. Preserve
+# restorable pre-deploy environments on this host; a Git checkout cannot recreate
+# an old Python minor version or guarantee that its ARM64 wheels remain available.
+for env in /opt/orpheus/services/orpheus-gps/venv \
+  /opt/orpheus/agents/orpheus-agent-event-correlator/venv \
+  /opt/orpheus/agents/orpheus-agent-audio-events/venv \
+  /opt/orpheus/agents/orpheus-agent-bird-detection/venv \
+  /opt/orpheus/agents/orpheus-agent-crow-detection/venv; do
+  if sudo test -d "$env"; then
+    sudo mkdir -p "$BACKUP/venvs"
+    sudo cp -a "$env" "$BACKUP/venvs/$(basename "$(dirname "$env")")-venv"
+  fi
+done
+sudo systemctl cat orpheus-audio-output orpheus-agent-audio-playback
+if sudo test -d /etc/orpheus/bluetooth-autoconnect; then
+  sudo cp -a /etc/orpheus/bluetooth-autoconnect "$BACKUP/"
+fi
+```
+
+Resolve these gates against the station's actual config and installed environments:
+
+- GPS and event-correlator require Python 3.12 or 3.13. Their installers recreate
+  their deployed virtual environments. Confirm the interpreter and dependency
+  wheels resolve for the station's Jetson ARM64/Python ABI before stopping services.
+  A local macOS test, PyPI metadata, or a successful source checkout does not prove
+  that every binary wheel exists or builds on the deployed JetPack image. No system
+  Python is replaced, and these runtimes do not replace the NVIDIA environment.
+- PANNs' validated CUDA worker remains an optional Python 3.8 environment at
+  `$ORPHEUS_DATA_ROOT/venvs/panns-gpu`. It is installed separately with the
+  hash-checked NVIDIA wheel. General service deployment must not recreate or
+  upgrade it. Confirm the worker executable, checkpoint and CUDA health before
+  selecting `gpu_worker` or `auto`.
+- BirdNET's normal install uses CPU `onnxruntime`; CUDA uses the compatible
+  `onnxruntime-gpu` package in that agent's venv, with exactly one ORT package
+  installed. Confirm the installed distribution and health-reported providers.
+  An explicit accelerator with a missing provider must stop at startup; `auto`
+  uses only providers the installed runtime exposes.
+- Crow defaults to `device: auto`, which may select CUDA on Jetson. Confirm actual
+  device and memory behavior from health/logs instead of assuming CPU execution.
+- Read the live YAML and `.env` (and the legacy Bluetooth `config.env`, if it
+  still exists) without replacing them with the example config. The audio-output
+  installer reports which source won configuration resolution.
+  When `audio_output.enabled: true`, its installer masks the configured user's
+  stock PulseAudio units, enables lingering, stops stock PulseAudio, retires the
+  legacy/competing Bluetooth units, writes a playback routing drop-in, and starts
+  the manager. It may restart a running playback agent. Confirm exact output,
+  server and user settings, saved prior unit state, and recording isolation before
+  allowing this host transaction. When disabled, the installer disables the new
+  manager and leaves other audio services unchanged.
+- `make services-install` invokes the audio-output installer; it is not a dry run.
+  `make update-services` deploys code and restarts components. Use the cold cutover
+  below. Never run these against active writers as a preflight.
+
+Stop if a required interpreter or dependency is unavailable, accelerator selection
+does not match the installed runtime, effective audio settings or competing-unit
+state are unclear, capture isolation is unhealthy, the baseline is degraded, or
+the rollback artifacts are incomplete.
 
 ## 1. Backup (5 minutes, on the Jetson)
 
@@ -57,7 +155,7 @@ Everything under `/data/orpheus` belongs to `orpheus:orpheus` and everything und
 
 ```bash
 # Quick backup: every SQLite DB + the runtime config (small, seconds)
-BACKUP=/data/orpheus/backups/$(date +%Y%m%d-%H%M)
+BACKUP="${BACKUP:-/data/orpheus/backups/$(date +%Y%m%d-%H%M)}"
 sudo mkdir -p "$BACKUP"
 sudo sqlite3 /data/orpheus/detections/orpheus.db "VACUUM INTO '$BACKUP/orpheus.db'"  # consistent snapshot, no downtime
 for db in /data/orpheus/*.db; do   # state_space/config/circuit_breakers/etc., if present
@@ -97,6 +195,14 @@ git tag -f orpheus/last-known-good "$DEPLOYED"   # always points at the newest p
 ```
 
 ## 3. Deploy
+
+**This feature branch must use the cold cutover below.** The generic rolling
+commands in this section restart and reinstall components in place. They are
+disqualified when a release changes the transport, recreates component runtimes,
+changes accelerator packages, or changes audio-server ownership. This branch
+contains all four kinds of change. In particular, `services-install` invokes the
+audio-output transaction and `update-services` restarts components; neither is a
+safe preflight or a substitute for the staged sequence.
 
 One pre-flight: know what the retention sweep will do while you are not watching.
 `orpheus-storage-sweep` owns every deletion under `$ORPHEUS_DATA_ROOT` and runs
@@ -176,6 +282,25 @@ and the gotchas entries cover the historical failure modes.
 
 ## 4. Soak checklist (first 30–60 minutes)
 
+Treat each capability as a separate acceptance gate. Save command output and
+timestamps in the rollback note. A simulated or laptop pass does not satisfy the
+Jetson hardware gates below.
+
+| Area | Acceptance check | Stop condition |
+|---|---|---|
+| NATS | `systemctl is-active orpheus-backplane`; run `make verify-deploy`; confirm agents reconnect and subscriptions are present. | Broker probe fails, agents remain disconnected, or pending subscriptions do not clear. |
+| Recording continuity | Confirm audio-motion is active and new recordings continue across the cutover; verify fresh `audio.motion` events/clips and inspect the configured capture device. Compare with the pre-deploy recording cadence. | Any recording gap, device ownership change, or capture-isolation health failure. |
+| Audio output | Only after output manager health is `healthy` and capture isolation is `ok`, perform one brief, low-volume playback check using the approved station sound. Confirm start/finish share a playback ID and timing/elapsed duration are plausible. | Playback is routed to the wrong sink, records through ALSA/capture, or event timing/identity is absent. |
+| Corollary discharge | Confirm `corollary_discharge.enabled` remains false unless it was deliberately enabled in the backed-up station config. When enabled, verify overlapping observations are tagged `is_self_generated`, persisted and published; unrelated wildlife remains untagged and retained. | Any observation is deleted/suppressed, unrelated wildlife is tagged, or a playback window arrives too late to account for an overlap. |
+| BirdNET | Check health-reported requested and registered ONNX providers, then verify normal classifications and confidence/geo-filter behavior. | Explicit provider request differs from registered provider, model load fails, or detection semantics regress. |
+| PANNs | Verify the isolated worker's Python 3.8 interpreter, NVIDIA Torch/CUDA and model hashes; compare expected CPU/GPU labels and intervals on the accepted fixture/known clip. | Worker health/recovery fails, mismatched model/runtime artifact, or results exceed the accepted comparison. |
+| Crow and correlation | Confirm configured crow device in health/logs; verify detections flow through correlator, persistence, and NATS publication. | Correlator errors, missing persisted/published detections, or unexpected device/resource pressure. |
+| Existing services | `make status-all`; inspect service journals and dashboard; confirm GPS, camera capture, snapshot/timelapse, storage timer and UI behavior. | Any previously healthy service is degraded or storage timer is not re-armed. |
+
+Keep corollary discharge disabled by default. A disabled configuration is accepted
+when playback events do not cause tagging; enabling it is a separate, intentional
+config change and acceptance gate.
+
 - [ ] `sudo systemctl start orpheus-storage-sweep.timer` — re-arm the sweep you
       stopped in §3. Nothing deletes recordings until you do.
 - [ ] `make status-all` — every unit active.
@@ -210,23 +335,23 @@ and the gotchas entries cover the historical failure modes.
 
 Only after a clean default soak, flip flags per the
 [what's-new testing tour](whats-new-testing-tour.md) — one flag, observe, next.
-Each feature's rollback is its own flag; the deploy never has to move.
+When a flag-gated behavior alone misbehaves, disable that flag and restart only
+its owning unit. Transport, runtime, provider, or audio-ownership failures require
+the staged Level 2 rollback; a flag change cannot restore those components.
 
 ## The cold cutover — for transport swaps and schema changes
 
-The sequence above uses `update-services`, which restarts each component as its
-update completes. For a **major** upgrade — a transport swap, a schema change — use
-the stricter variant below instead, the one the flywheel_1 cutover ran on the
-production Jetson on 2026-08-22. Its property: **nothing runs until you deliberately
-start it**, so a bad component is caught with the rest of the system stopped rather
-than mid-restart.
+For a transport swap, schema change, runtime recreation, inference-provider change,
+or audio-ownership change, use the cold cutover below. Do not use the generic
+rolling sequence above for this feature branch. A cold cutover keeps writers stopped
+while code and environments change, then starts components in explicit stages.
 
 1. **Pull + tag in `$ORPHEUS_SRC`** (§2). Tags point at the DEPLOYED commit,
    never HEAD — using the `$BATCH` and `$DEPLOYED` you set in §0 and §2:
    `git tag "flywheel/$BATCH/pre-deploy" "$DEPLOYED" &&
    git tag -f orpheus/last-known-good "$DEPLOYED"`.
 2. **Full stop**: `make services-stop`, plus `make -C services/orpheus-gps
-   service-stop` (gps is missing from the top-level list),
+   service-stop` (GPS is missing from the top-level list),
    `sudo systemctl stop orpheus-storage-sweep.timer` (the ONLY unit that deletes
    data; `services-stop` does not touch it, and it fires every 15 minutes) and
    and, ONLY on a box that has never run `install-backbone`,
@@ -235,19 +360,31 @@ than mid-restart.
    the unqualified command stops your broker. Confirm with `systemctl list-units 'orpheus-*' --all --no-pager`
    — an armed timer's state is `waiting`, so `--state=running` hides it.
 3. **Backup on the stopped box**: plain `cp -a` of every DB (+ any `-wal`/`-shm`
-   sidecars) and the whole `/opt/orpheus/config` dir; `sha256sum` both sides;
-   write a rollback note into the backup dir. No sqlite3 CLI is needed for a
-   stopped-box copy. **Operator reviews the inventory before proceeding.**
+   sidecars), the whole `/opt/orpheus/config` dir, `/etc/orpheus/backplane`, and
+   `/var/lib/orpheus/backplane/jetstream`; save the backplane unit and NATS version
+   too. The JetStream file store holds durable stream/KV state and is outside
+   `$ORPHEUS_DATA_ROOT`; SQLite backups do not cover it. Check free space first,
+   stop the backplane before copying its store, and keep that copy if rolling back
+   to another broker. `sha256sum` the backups and record their paths. No sqlite3
+   CLI is needed for a stopped-box copy. **Operator reviews the inventory before
+   proceeding.**
 4. **Cold code swap, zero processes running**: `make -C platform/orpheus-common
-   install-service` FIRST (component deploys install orpheus-common from /opt);
-   then per component `install-service` (unit files; agent installers do not
-   start anything — orpheus_ui's does, so do the UI LAST) + `deploy` (code +
-   dependency resolution into the deployed venv). Deploy the first agent alone
-   and verify its venv (`pip list` — new platform deps like nats-py must
-   appear; no paths into /home) before doing the rest.
+   install-service` FIRST (component deploys install orpheus-common from /opt).
+   Install/deploy per component with its declared runtime and verify imports and
+   dependencies before continuing. Keep the audio-output installation out of this
+   batch: its installer is a host transaction that starts the manager when enabled,
+   even though this cutover is still in its file-install stage. Install it later at
+   the audio stage in §7, after its ownership gate. Install UI last because its
+   installer can restart it. Deploy one component at a time and verify its venv
+   (`pip list` — new platform dependencies like nats-py must appear; no paths into
+   `/home`) before continuing.
    **Gotcha**: agent installers `cp -r .` — a working-tree `venv/` will be
    copied over the deployed venv. Remove/quarantine working-tree venvs first
    (see backlog: fix the installers to exclude venv).
+   A component `deploy` syncs source before installing its package. If it returns
+   nonzero, treat that component as partially changed: keep its unit stopped, do
+   not continue the rollout or start it, and restore/redeploy the tagged known-good
+   revision before resuming. A failed install is not an automatic rollback.
 5. **Transport**: `make install-backbone`; `systemctl is-active
    orpheus-backplane` must say active before any agent starts.
 6. **Single-agent proof**: start the event-correlator alone (its unit `Wants=`
@@ -255,13 +392,23 @@ than mid-restart.
    (`sudo journalctl` — unprivileged reads silently show nothing) for the DB
    open / index build to complete and "Connected to NATS". A read-only python3
    row-count doubles as the data-read smoke where sqlite3 is absent.
-7. **Staged rollout**: light agents, then model agents one at a time (watch
-   RAM), then gps/bluetooth, UI last (its install-service auto-restarts it).
+7. **Staged rollout**: verify NATS first; then GPS and the correlator using the
+   confirmed Python 3.12/3.13 interpreter. Start light agents, then model agents
+   one at a time while watching memory and accelerator health. Install audio output
+   only after confirming its effective config and saved prior audio-unit state;
+   verify capture isolation before starting audio-motion or playback. Start
+   playback only after output is ready. Keep the separately installed PANNs Python
+   3.8 worker untouched. Start/verify the correlator after NATS and detection
+   producers are healthy; UI last (its installer can restart it). Do not use the
+   generic `services-start` as a substitute for these gates.
 8. `make verify-deploy` → all ✅, then the §4 soak checklist (with `sudo` on
    the journalctl lines). Re-arm the sweep you stopped in step 2:
    `sudo systemctl start orpheus-storage-sweep.timer`.
 
-Rollback is unchanged (checkout the tag in the runtime checkout, old code's
-`services-install` restores mosquitto), and the schema contract held: old DB
-was read untouched; the compound indices were already present so the one-time
-build did not pause this cutover.
+Rollback is not a one-command operation for this branch. It must restore the
+specific pre-deploy combination recorded at the station: service code and units,
+Python interpreters and venvs, effective configuration, audio ownership, broker
+implementation/version, and JetStream file-store state when applicable. Do not
+assume the older checkout's aggregate `services-install` restores those pieces
+safely. See the [rollback runbook](jetson-rollback.md); if any part of the baseline
+or its restorable artifacts was not captured, stop and treat rollback as unproven.

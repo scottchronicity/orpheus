@@ -47,6 +47,11 @@ class TestCrowClassifier:
         with pytest.raises(FileNotFoundError, match="Model not found at"):
             CrowClassifier("/path/to/missing.pt")
 
+    @patch("orpheus_agent_crow_detection.classifier.torch.cuda.is_available", return_value=False)
+    def test_explicit_cuda_fails_when_unavailable(self, _cuda: MagicMock) -> None:
+        with pytest.raises(RuntimeError, match="CUDA is not available"):
+            CrowClassifier("/unused/model.pt", device="cuda")
+
     @patch("orpheus_agent_crow_detection.classifier.MultiTaskCrowNet")
     @patch("orpheus_agent_crow_detection.classifier.torch.load")
     @patch("orpheus_agent_crow_detection.classifier.Path.exists")
@@ -160,3 +165,16 @@ class TestCrowClassifier:
         assert call_args.dim() == 2
         assert call_args.shape[0] == 1
         assert call_args.shape[1] == 768
+
+    @patch("orpheus_agent_crow_detection.classifier.MultiTaskCrowNet")
+    @patch("orpheus_agent_crow_detection.classifier.torch.load")
+    @patch("orpheus_agent_crow_detection.classifier.Path.exists", return_value=True)
+    def test_inference_error_is_propagated_without_backend_retry(
+        self, _exists: MagicMock, mock_load: MagicMock, mock_net_cls: MagicMock
+    ) -> None:
+        mock_load.return_value = {"state_dict": {}}
+        mock_net_cls.return_value.side_effect = RuntimeError("accelerator execution failed")
+        classifier = CrowClassifier("/path/to/model.pt", device="cpu")
+
+        with pytest.raises(RuntimeError, match="accelerator execution failed"):
+            classifier.classify(np.zeros(768, dtype=np.float32))

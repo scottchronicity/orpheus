@@ -161,6 +161,14 @@ which:
   stream.** A rebuild will flip this flag for any entity whose echo-window state is
   unrecoverable.
 
+The playback agent now sends a start marker and a matching measured finish event
+on `orpheus/actuation/audio/playback`, which closes the live timing race for early
+detections. These are still ordinary event-bus notifications, not a durable
+JetStream work stream or authoritative playback ledger. A broker outage or
+correlator restart can therefore still leave historical self-generated tags
+unreconstructable; durable actuation logging remains a separate event-sourcing
+decision.
+
 The contract must enumerate the **full** set of columns, table by table, from
 `detection/models.py` + `database.py`, classifying each as
 `payload-authoritative | rebuild-volatile | derived-non-reconstructable` — and

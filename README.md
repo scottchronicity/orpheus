@@ -2,7 +2,7 @@
 
 [![CI Tests](https://github.com/scottchronicity/orpheus/actions/workflows/pr-tests.yml/badge.svg)](https://github.com/scottchronicity/orpheus/actions/workflows/pr-tests.yml)
 [![codecov](https://codecov.io/github/scottchronicity/orpheus/graph/badge.svg)](https://codecov.io/github/scottchronicity/orpheus)
-[![Python 3.9](https://img.shields.io/badge/python-3.9-blue.svg)](https://www.python.org/downloads/)
+[![Python per component](https://img.shields.io/badge/python-per--component-blue.svg)](https://devguide.python.org/versions/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
@@ -23,9 +23,10 @@ The whole collective — capture, all the classifiers, and the correlator — ru
 containers against a synthetic or replayed audio source. You do not need a microphone,
 a camera, or a Jetson to watch a real recording become an identified animal.
 
-You need Docker with Compose v2, Git LFS, and about 10 GB of disk. The last step also
-runs on your machine rather than in a container, so it needs Python 3.9 — or `uv`, which
-will fetch it (`curl -LsSf https://astral.sh/uv/install.sh | sh`). Budget **30 minutes
+You need Docker with Compose v2, Git LFS, and about 10 GB of disk. The host-side
+validation command uses the repo's Python 3.9 tooling; the correlator and model
+containers select their own runtimes. `uv` can fetch the host runtime
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`). Budget **30 minutes
 or so the first time**: the model files are a 1.5 GB download, and the classifier images
 build PyTorch and ONNX from scratch. A second run takes minutes, off the cache.
 
@@ -297,7 +298,7 @@ We welcome contributions at every level — from fixing typos to building the Ac
 **Good first issues:** small, self-contained, and genuinely scoped — see the [`good first issue`](https://github.com/scottchronicity/orpheus/labels/good%20first%20issue) label.
 **Meaty problems:** visual recognition, the interaction policy, the read-only mirror and public portal, contributing recordings back to the models we use.
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) — especially the Python 3.9 constraint — before opening a PR.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) — especially the per-component runtime contract — before opening a PR.
 
 For architectural questions and "I want to build X" discussions, use [GitHub Discussions](https://github.com/scottchronicity/orpheus/discussions).
 

@@ -1,5 +1,5 @@
 # NOTE: This project uses requirements.txt for dependencies
-# for compatibility with older pip versions (Python 3.9.5).
+# GPS runs independently from the Jetson inference environments.
 # The pyproject.toml enables proper package discovery for VS Code and other tools.
 
 [build-system]
@@ -15,7 +15,7 @@ name = "orpheus-gps"
 dynamic = ["version"]
 description = "GPS service for Orpheus spatiotemporal context"
 readme = "README.md"
-requires-python = ">=3.9, <3.10"
+requires-python = ">=3.12, <3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Orpheus Project", email = "scottchronicity@gmail.com"}
@@ -26,7 +26,8 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -72,11 +73,11 @@ omit = ["tests/*", "*/tests/*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = [
-    "UP007",  # Use Optional[X] instead of X | Y for Python 3.9 compatibility
-    "UP045",  # Use Optional[X] instead of X | None for Python 3.9 compatibility
+    "UP007",  # Retain the repository's existing typing style in this component
+    "UP045",  # Runtime modernization does not require an annotation rewrite
 ]

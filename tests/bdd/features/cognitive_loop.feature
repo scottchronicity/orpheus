@@ -10,11 +10,19 @@ Feature: End-to-end cognitive loop
     Then an EntityEvent is published with entity_type "Animal.Bird.Crow"
     And the event is stored in the SQLite database
 
-  Scenario: Corollary discharge filters self-generated detections
-    Given the system is playing a crow call
-    And a synthetic crow detection arrives during playback
-    When the correlation pipeline processes the detection
+  Scenario: Early playback detections are tagged and retained
+    Given the playback agent receives a crow-call request
+    And a synthetic crow detection is heard while the speaker is active
+    When the playback agent completes the sound
     Then the event is tagged with is_self_generated = true
+    And the playback start and finish events preserve timing and sound identity
+    And the tagged detection evidence remains in SQLite
+
+  Scenario: Wildlife detections after playback remain untagged
+    Given a completed playback window has been recorded
+    And an unrelated crow detection arrives after playback
+    When the correlation pipeline processes the detection
+    Then the unrelated entity remains published and untagged
 
   Scenario: Multi-sensor detection correlates into one entity
     Given a synthetic "American Crow" detection on sensor "mic-1"

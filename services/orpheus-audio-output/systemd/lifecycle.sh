@@ -346,13 +346,23 @@ commit_run_changes() {
 # directory it was created in. The installer builds the venv in a staging
 # directory and renames it into place, so rewrite those references first.
 relocate_venv() {
-    local venv="$1" from="$2" to="$3" f from_re
+    local venv="$1" from="$2" to="$3" f from_re tmp
     from_re="$(printf '%s' "${from}" | sed 's/[][\\.*^$#]/\\&/g')"
     for f in "${venv}"/bin/*; do
         [[ -f "${f}" && ! -L "${f}" ]] || continue
         grep -Iq . "${f}" || continue   # text files only
         if grep -qF "${from}" "${f}"; then
-            sed -i "s#${from_re}#${to}#g" "${f}"
+            # Avoid GNU-only `sed -i`; development and installer checks also
+            # run on BSD/macOS sed. Write the transformed content through a
+            # temporary file, then copy it back so the script mode is retained.
+            tmp="${f}.relocate.$$"
+            if sed "s#${from_re}#${to}#g" "${f}" > "${tmp}"; then
+                cat "${tmp}" > "${f}"
+                rm -f "${tmp}"
+            else
+                rm -f "${tmp}"
+                return 1
+            fi
         fi
     done
 }

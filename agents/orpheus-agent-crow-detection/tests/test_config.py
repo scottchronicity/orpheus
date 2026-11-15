@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from orpheus_agent_crow_detection.config import CrowDetectionConfig, load_config
 
 
@@ -22,6 +24,7 @@ class TestCrowDetectionConfig:
         assert config.embedder_model_path.endswith("models/aves-base-bio.pt")
         assert config.classifier_model_path.endswith("models/mt_70.pt")
         assert config.embedder_sample_rate == 16000
+        assert config.device == "auto"
 
     def test_from_orpheus_config_custom_values(self) -> None:
         """Test loading config with custom values."""
@@ -33,6 +36,7 @@ class TestCrowDetectionConfig:
                 "embedder_model_path": "/custom/path/embedder.pt",
                 "classifier_model_path": "/custom/path/classifier.pt",
                 "embedder_sample_rate": 24000,
+                "device": "MPS",
             }
         }
 
@@ -43,6 +47,13 @@ class TestCrowDetectionConfig:
         assert config.embedder_model_path == "/custom/path/embedder.pt"
         assert config.classifier_model_path == "/custom/path/classifier.pt"
         assert config.embedder_sample_rate == 24000
+        assert config.device == "mps"
+
+    def test_unsupported_device_fails_at_configuration_boundary(self) -> None:
+        mock_config = MagicMock()
+        mock_config._raw = {"crow_detection": {"device": "cuda:1"}}
+        with pytest.raises(ValueError, match=r"crow_detection.device must be one of"):
+            CrowDetectionConfig.from_orpheus_config(mock_config)
 
     @patch("orpheus_agent_crow_detection.config.OrpheusConfig.get_instance")
     def test_load_config(self, mock_get_instance: MagicMock) -> None:
@@ -66,7 +77,7 @@ class TestCrowDetectionConfig:
     def test_load_config_with_path(self, mock_get_instance: MagicMock) -> None:
         """Test load_config with custom config path."""
         mock_orpheus_config = MagicMock()
-        mock_orpheus_config._data = {}
+        mock_orpheus_config._raw = {}
         mock_get_instance.return_value = mock_orpheus_config
 
         config_path = Path("/custom/config.yaml")

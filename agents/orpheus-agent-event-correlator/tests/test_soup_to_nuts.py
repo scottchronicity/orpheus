@@ -21,7 +21,7 @@ exercises.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -54,12 +54,10 @@ def eq_db(tmp_path: Path) -> TaxonomyEquivalenceDB:
 
 @pytest.fixture
 def t0() -> datetime:
-    return datetime(2026, 5, 21, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 5, 21, 12, 0, 0, tzinfo=UTC)
 
 
-def _persist_audio_motion(
-    db: DetectionDB, *, event_id: str, t0: datetime
-) -> Detection:
+def _persist_audio_motion(db: DetectionDB, *, event_id: str, t0: datetime) -> Detection:
     """Simulate orpheus-agent-audio-motion emitting a Detection."""
     det = Detection(
         event_id=event_id,
@@ -74,9 +72,7 @@ def _persist_audio_motion(
     return det
 
 
-def _persist_bird_detection(
-    db: DetectionDB, *, source: Detection, t0: datetime
-) -> Detection:
+def _persist_bird_detection(db: DetectionDB, *, source: Detection, t0: datetime) -> Detection:
     """Simulate orpheus-agent-bird-detection finding an American Crow.
 
     Emits one species.detected Detection (the per-species row that
@@ -108,9 +104,7 @@ def _persist_bird_detection(
     return det
 
 
-def _persist_audio_events(
-    db: DetectionDB, *, source: Detection, t0: datetime
-) -> Detection:
+def _persist_audio_events(db: DetectionDB, *, source: Detection, t0: datetime) -> Detection:
     """Simulate orpheus-agent-audio-events firing the AudioSet 'Crow' tag."""
     det = Detection(
         event_id=f"{source.event_id}_audioset_crow",
@@ -133,9 +127,7 @@ def _persist_audio_events(
     return det
 
 
-def _persist_crow_analyzed(
-    db: DetectionDB, *, bird_source: Detection, t0: datetime
-) -> Detection:
+def _persist_crow_analyzed(db: DetectionDB, *, bird_source: Detection, t0: datetime) -> Detection:
     """Simulate orpheus-agent-crow-detection finding an alert call.
 
     Two hops from audio.motion — its source is bird-detection, but
@@ -180,9 +172,7 @@ class TestSoupToNutsPipeline:
         assert bird.source_event_id == "am-001"
         # The chain spine: bird's root_event_id traces back to audio.motion.
         assert bird.root_event_id == "am-001"
-        assert bird.taxonomy == TaxonomyRef(
-            namespace="ioc", id="Corvus brachyrhynchos"
-        )
+        assert bird.taxonomy == TaxonomyRef(namespace="ioc", id="Corvus brachyrhynchos")
 
         # ─── 3. Audio-events enriches with AudioSet label ────────────────
         ae = _persist_audio_events(db, source=audio_motion, t0=t0)
@@ -255,21 +245,15 @@ class TestSoupToNutsPipeline:
         assert len(emitted) == 1
         entity_event = emitted[0]
         assert len(entity_event["evidence"]) == 3
-        evidence_by_type = {
-            ev["detection_type"]: ev for ev in entity_event["evidence"]
-        }
+        evidence_by_type = {ev["detection_type"]: ev for ev in entity_event["evidence"]}
         assert set(evidence_by_type.keys()) == {
             "species.detected",
             "audio.classified",
             "crow.analyzed",
         }
         # Each piece of evidence carries its own species claim.
-        assert evidence_by_type["species.detected"]["taxonomy"]["id"] == (
-            "Corvus brachyrhynchos"
-        )
-        assert evidence_by_type["audio.classified"]["taxonomy"]["id"] == (
-            "/m/04s8yn"
-        )
+        assert evidence_by_type["species.detected"]["taxonomy"]["id"] == ("Corvus brachyrhynchos")
+        assert evidence_by_type["audio.classified"]["taxonomy"]["id"] == ("/m/04s8yn")
         assert evidence_by_type["crow.analyzed"]["taxonomy"] is None
         # Legacy display fields populated from highest-confidence evidence (bird at 0.92).
         assert entity_event["species_code"] == "corvus"
@@ -337,10 +321,13 @@ class TestSoupToNutsPipeline:
         assert recorded[0]["status"] == "accepted"
 
         # Now equivalent_taxa walks the new edge.
-        assert eq_db.is_equivalent(
-            TaxonomyRef(namespace="ioc", id="Corvus brachyrhynchos"),
-            TaxonomyRef(namespace="audioset", id="/m/04s8yn"),
-        ) is True
+        assert (
+            eq_db.is_equivalent(
+                TaxonomyRef(namespace="ioc", id="Corvus brachyrhynchos"),
+                TaxonomyRef(namespace="audioset", id="/m/04s8yn"),
+            )
+            is True
+        )
 
     def test_manual_equivalence_enables_cross_namespace_query(
         self,
@@ -355,9 +342,7 @@ class TestSoupToNutsPipeline:
 
         # Record the equivalence manually (could come from auto-discovery,
         # seed data, or human input — all use the same primitive).
-        eq_db.record_equivalence(
-            crow_ioc, crow_audioset, confidence=1.0, source="manual"
-        )
+        eq_db.record_equivalence(crow_ioc, crow_audioset, confidence=1.0, source="manual")
 
         # Confirm the equivalence walks both ways.
         eq_set = eq_db.equivalent_taxa(crow_ioc)

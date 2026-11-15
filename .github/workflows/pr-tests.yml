@@ -114,6 +114,8 @@ jobs:
               - 'agents/orpheus-agent-crow-detection/**'
             event-correlator:
               - 'agents/orpheus-agent-event-correlator/**'
+              - 'docker-compose.dev.yml'
+              - 'docker/Dockerfile.agent'
               # The repo-level BDD suites + generated failure matrix run from the
               # correlator's venv inside its CI job, so they gate on its filter.
               - 'tests/bdd/**'
@@ -340,10 +342,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python 3.12 (GPS runtime)
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.12'
 
       - name: Install dependencies
         run: make install-gps
@@ -875,13 +877,16 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python 3.12 (event-correlator runtime)
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.12'
 
       - name: Install dependencies
         run: make install-event-correlator
+
+      - name: Validate Simulacrum Compose configuration
+        run: make sim-config
 
       - name: Run linting
         run: make lint-event-correlator
@@ -908,6 +913,8 @@ jobs:
           exit 1
 
       - name: Run e2e bus-contract oracle (pytest -m e2e, real broker)
+        env:
+          ORPHEUS_TEST_NATS_URL: nats://127.0.0.1:4222
         run: make -C agents/orpheus-agent-event-correlator test-e2e
 
       # Repo-level end-to-end BDD suites (tests/bdd/) + the generated failure

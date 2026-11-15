@@ -58,7 +58,7 @@ Each service/agent has its own Python virtual environment but shares:
 ## Prerequisites
 
 - Ubuntu 20.04+ or Jetson Linux (L4T)
-- Python 3.9.x only — every component pins `requires-python = ">=3.9, <3.10"`, so 3.10 and up are rejected by pip, not merely discouraged
+- Python is component-specific. The root Make defaults to Python 3.9 for existing components; GPS and event-correlator require Python 3.12 or 3.13; the isolated PANNs CUDA worker remains on Python 3.8. See the [operator runtime notes](operator-manual/index.md#component-python-environments).
 - **Node.js 20+ and npm** — needed only for a developer-style `make install`, which
   installs the dashboard frontend's dependencies with the `npm` on your PATH. The per-service
   `make install-service` used below fetches its own Node.js instead. See

@@ -59,9 +59,9 @@ class CrowClassifier:
 
     def __init__(self, model_path: str | Path, device: str = "auto") -> None:
         self.model_path = Path(model_path)
-        # "auto" is byte-identical to the previous no-arg call; an explicit "cuda"
-        # on a GPU-less host fails loud via select_torch_device rather than silently.
-        self.device = torch.device(select_torch_device(device))
+        # Device resolution matches AVES: CUDA, then MPS, then CPU for auto.
+        # Explicit unavailable accelerators fail rather than silently downgrading.
+        self.device = torch.device(select_torch_device(device, prefer_mps=True))
 
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found at {self.model_path}")

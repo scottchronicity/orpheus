@@ -71,6 +71,7 @@ class BirdDetectionAgent(Actor):
                 geo_filter_weak_admit_prob=self.config.geo_filter_weak_admit_prob,
                 geo_filter_weak_admit_conf=self.config.geo_filter_weak_admit_conf,
                 site_species_whitelist=self.config.site_species_whitelist,
+                execution_provider=self.config.execution_provider,
             )
         except FileNotFoundError:
             logger.exception("Model file not found", model_path=self.config.model_path)
@@ -112,6 +113,13 @@ class BirdDetectionAgent(Actor):
         return {
             "status": "online",
             "model_loaded": True if phase == "startup" else self.model is not None,
+            "inference_provider": self.model.execution_provider if self.model else None,
+            "inference_provider_requested": (
+                self.model.requested_execution_provider if self.model else None
+            ),
+            "inference_providers_registered": (
+                self.model.registered_execution_providers if self.model else []
+            ),
             "timestamp": now,
             "events_processed": self.events_processed,
             "detections_found": self.detections_found,

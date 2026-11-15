@@ -12,21 +12,19 @@ This is a classic corollary-discharge problem from neuroscience: the system must
 predict and cancel its own sensory consequences. Per the ASR, this filtering
 lives in the event-correlator (NOT in the ML inference agents).
 
-Timing / fail-open: the audio-playback agent publishes a window AFTER playback
-completes (measured elapsed time). In the common case the self-generated
-detections keep the correlator's cluster open until ~playback end, so the window
-is registered before the entity is built and the tag lands. A single early
-detection in a long, otherwise-quiet clip can let the cluster expire before the
-window arrives and miss the tag — acceptable because this TAGS (never drops):
-the entity is still persisted and auditable. (A future improvement could publish
-the window at playback start.)
+Timing: the playback agent publishes a start marker as soon as output begins and
+a matching finish event with measured elapsed duration. This makes the interval
+available before a long playback ends. An unclosed start is bounded by the
+configured maximum playback duration, after which it is evicted. Playback
+events only add a tag; detections and evidence are never discarded, including
+real wildlife heard while a speaker is active.
 """
 
 from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from orpheus_common.logging import get_logger
@@ -40,7 +38,7 @@ _DEFAULT_MAX_WINDOWS = 100
 _DEFAULT_RETENTION_SECONDS = 300.0  # evict windows older than 5 minutes
 
 
-@dataclass(frozen=True)
+@dataclass
 class PlaybackWindow:
     """A playback window: [start, end], end includes buffer.
 
@@ -51,6 +49,8 @@ class PlaybackWindow:
     start: datetime
     end: datetime
     source: str
+    playback_id: str = ""
+    provisional: bool = False
 
 
 class CorollaryDischargeFilter:
@@ -67,9 +67,11 @@ class CorollaryDischargeFilter:
         *,
         max_windows: int = _DEFAULT_MAX_WINDOWS,
         retention_seconds: float = _DEFAULT_RETENTION_SECONDS,
+        max_open_seconds: float = _DEFAULT_RETENTION_SECONDS,
     ) -> None:
         self.buffer_seconds = buffer_seconds
         self._retention_seconds = retention_seconds
+        self._max_open_seconds = max_open_seconds
         self._windows: deque[PlaybackWindow] = deque(maxlen=max_windows)
 
     def register_playback(
@@ -84,7 +86,7 @@ class CorollaryDischargeFilter:
         start = _utc(start_time)
         end = start + timedelta(seconds=max(0.0, duration_seconds) + self.buffer_seconds)
         self._windows.append(PlaybackWindow(start=start, end=end, source=source))
-        self._evict(_utc(now) if now is not None else datetime.now(timezone.utc))
+        self._evict(_utc(now) if now is not None else datetime.now(UTC))
 
     def register_from_event(self, payload: Any, *, now: datetime | None = None) -> bool:
         """Register a window from a raw playback-event payload. Returns True if
@@ -94,11 +96,58 @@ class CorollaryDischargeFilter:
             return False
         try:
             start_dt = _parse_ts(payload["start_time"])
-            duration = float(payload.get("duration_seconds", 0.0))
+            phase = str(payload.get("phase", "finished"))
+            playback_id = str(payload.get("playback_id", ""))
+            duration = float(payload.get("duration_seconds", 0.0) or 0.0)
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Ignoring malformed playback event", error=str(exc))
             return False
-        self.register_playback(start_dt, duration, str(payload.get("source", "")), now=now)
+        source = str(payload.get("source", ""))
+        received_at = _utc(now) if now is not None else datetime.now(UTC)
+
+        if phase == "started":
+            # The existing retention horizon bounds orphaned starts if the
+            # playback process exits before it can publish the matching finish.
+            end = start_dt + timedelta(
+                seconds=self._max_open_seconds + self.buffer_seconds
+            )
+            self._windows.append(
+                PlaybackWindow(
+                    start=start_dt,
+                    end=end,
+                    source=source,
+                    playback_id=playback_id,
+                    provisional=True,
+                )
+            )
+        elif phase == "finished" and playback_id:
+            matching = next(
+                (
+                    window
+                    for window in reversed(self._windows)
+                    if window.playback_id == playback_id
+                ),
+                None,
+            )
+            if matching is not None:
+                matching.end = start_dt + timedelta(
+                    seconds=max(0.0, duration) + self.buffer_seconds
+                )
+                matching.provisional = False
+                matching.source = source
+            else:
+                # A consumer can restart between start and finish. The finish
+                # still carries the complete measured interval.
+                self.register_playback(start_dt, duration, source, now=received_at)
+        elif phase in ("finished", "complete", "completed"):
+            # Backwards-compatible payloads from playback agents predating the
+            # start/finish protocol contain only one measured window.
+            self.register_playback(start_dt, duration, source, now=received_at)
+        else:
+            logger.warning("Ignoring playback event with unknown phase", phase=phase)
+            return False
+
+        self._evict(received_at)
         return True
 
     def is_self_generated(
@@ -113,14 +162,20 @@ class CorollaryDischargeFilter:
         if span is None:
             return False
         start, end = span
-        self._evict(_utc(now) if now is not None else datetime.now(timezone.utc))
+        self._evict(_utc(now) if now is not None else datetime.now(UTC))
         # Interval overlap: [start, end] intersects [w.start, w.end].
         return any(w.start <= end and start <= w.end for w in self._windows)
 
     def _evict(self, now: datetime) -> None:
         cutoff = now - timedelta(seconds=self._retention_seconds)
-        while self._windows and self._windows[0].end < cutoff:
-            self._windows.popleft()
+        self._windows = deque(
+            (
+                window
+                for window in self._windows
+                if (window.start if window.provisional else window.end) >= cutoff
+            ),
+            maxlen=self._windows.maxlen,
+        )
 
     @staticmethod
     def _entity_span(
@@ -146,5 +201,5 @@ def _parse_ts(value: Any) -> datetime:
 
 def _utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)

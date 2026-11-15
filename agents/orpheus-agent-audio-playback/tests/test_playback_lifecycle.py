@@ -44,12 +44,19 @@ def agent(mock_orpheus_config, mock_mqtt_client):  # noqa: ARG001
 
 
 @pytest.mark.asyncio
-async def test_window_covers_the_whole_playback(agent, mock_mqtt_client):
+async def test_window_announces_start_and_measured_finish(agent, mock_mqtt_client):
     await agent._play_sound_async(_player(wait_delay=0.3), Path("crow.wav"), 1, 0.0, "crow_call")  # noqa: SLF001
 
-    (window,) = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
-    assert window["duration_seconds"] >= 0.3
-    assert window["sound_name"] == "crow_call"
+    started, finished = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+    assert started["phase"] == "started"
+    assert started["duration_seconds"] == 0.0
+    assert finished["phase"] == "finished"
+    assert finished["duration_seconds"] >= 0.3
+    assert started["playback_id"] == finished["playback_id"]
+    assert started["start_time"] == finished["start_time"]
+    assert finished["playback_status"] == "completed"
+    assert finished["source"] == "audio_playback_agent"
+    assert finished["sound_name"] == "crow_call"
     assert _published(mock_mqtt_client, agent.TOPIC_RESPONSE) == []
 
 
@@ -65,15 +72,20 @@ async def test_player_failure_is_reported_and_still_windowed(agent, mock_mqtt_cl
     assert "Connection refused" in error["error"]
     assert error["sound_name"] == "crow_call"
     # Some audio may have played before the failure, so the window is kept.
-    (window,) = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
-    assert window["duration_seconds"] >= 0.1
+    started, finished = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+    assert started["phase"] == "started"
+    assert finished["phase"] == "finished"
+    assert finished["duration_seconds"] >= 0.1
+    assert finished["playback_status"] == "interrupted"
 
 
 @pytest.mark.asyncio
 async def test_playback_stopped_early_is_windowed_without_error(agent, mock_mqtt_client):
     await agent._play_sound_async(_player(wait_result=False), Path("crow.wav"), 1, 0.0, "crow_call")  # noqa: SLF001
 
-    assert len(_published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)) == 1
+    events = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+    assert [event["phase"] for event in events] == ["started", "finished"]
+    assert events[-1]["playback_status"] == "stopped"
     assert _published(mock_mqtt_client, agent.TOPIC_RESPONSE) == []
 
 
@@ -126,13 +138,17 @@ async def test_audio_source_playback_runs_to_completion(agent, mock_mqtt_client,
         t.start()
         t.join()
         for _ in range(100):
-            if _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK):
+            events = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+            if any(event.get("phase") == "finished" for event in events):
                 break
             await asyncio.sleep(0.05)
 
     assert marker.read_text().strip() == "done"
-    (window,) = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
-    assert window["duration_seconds"] >= 0.3
+    started, finished = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+    assert started["phase"] == "started"
+    assert finished["phase"] == "finished"
+    assert finished["duration_seconds"] >= 0.3
+    assert finished["sound_name"] == str(clip)
     (response,) = _published(mock_mqtt_client, agent.TOPIC_RESPONSE)
     assert response["status"] == "success"
 

@@ -46,6 +46,21 @@ Pick your platform quickstart, then the full install reference:
 Everything is driven by `make` targets (never raw `pip`/`systemctl`) — see
 [Tooling](../agent-instructions/10-tooling.md).
 
+### Component Python environments
+
+Python versions are selected per component. GPS and the event correlator use
+Python 3.12 or 3.13 and keep development environments in `venv-py312`. Their
+systemd installers default to `python3.12`; set `PYTHON_BIN` when installing if
+your compatible interpreter has another path. The other agents retain their
+declared runtime until individually validated. The PANNs CUDA worker remains
+isolated on its validated Python 3.8 NVIDIA stack. The root Makefile's Python
+3.9 default remains for components that have not moved.
+
+The event-correlator installer rebuilds its old Python 3.9 service environment
+when it detects one. GPS installation already recreates its service environment.
+These installers affect only their component venvs; they do not change the
+system Python or the inference workers. See [ADR 0024](../adr/0024-independent-python-312-runtime-migration.md).
+
 ## 2. Configuration
 
 For optional isolated PANNs GPU inference, including automatic backend selection,
@@ -59,10 +74,11 @@ server, reconnect policy), see [Audio output](audio-output.md).
 - Env overrides use `ORPHEUS_<SECTION>__<KEY>` (double underscore for nesting);
   env wins over file config.
 - **Torch device placement:** the model agents take a `device` knob
-  (`crow_detection.device`, `audio_events.device`) — `auto` (default: CUDA if present
-  else CPU), `cpu`, or `cuda`. Pin `cpu` to keep a model off the shared Jetson GPU under
-  thermal/RAM pressure; an explicit `cuda` on a GPU-less host fails loud rather than
-  silently falling back.
+  (`crow_detection.device`, `audio_events.device`). Crow supports `auto`, `cpu`,
+  `cuda`, and `mps`; `auto` prefers CUDA, then MPS where supported, then CPU.
+  Audio-events supports its configured `auto`, `cpu`, or `cuda` choices. Explicit
+  accelerators fail clearly when unavailable. Pin `cpu` to keep a model off an
+  accelerator under deployment-specific resource pressure.
 - **Distributed config (optional, ADR 0018):** with `config_service.enabled`, a host
   reads shared config off the backplane KV (`orpheus-config-push` seeds it from one
   authority host) so hosts don't copy identical YAML — see
@@ -70,6 +86,27 @@ server, reconnect policy), see [Audio output](audio-output.md).
   Default off: local YAML only.
 
 ### Optional features and their switches
+
+#### BirdNET execution provider
+
+`bird_detection.execution_provider` selects BirdNET's ONNX Runtime provider:
+`auto` (default), `cpu`, `cuda`, or `coreml`. `auto` chooses the first provider
+available to the BirdNET agent's installed ONNX Runtime, in CUDA, CoreML, CPU
+order. ONNX Runtime may assign unsupported model operators to CPU when an
+accelerator provider is enabled. Explicit accelerator choices fail startup if
+that provider is not exposed by the installed runtime.
+
+The normal BirdNET installation uses the CPU `onnxruntime` package. CUDA
+requires installing a compatible `onnxruntime-gpu` package in this agent's
+environment instead; ONNX Runtime CPU and GPU packages must not coexist in one
+environment. Orpheus does not install accelerator packages globally or pin a
+CUDA stack for all hosts. Use `make -C agents/orpheus-agent-bird-detection
+install-cuda` to select the CUDA runtime; this removes either existing ORT
+distribution before installing the other. Agent health reports the requested
+provider, `inference_provider_requested`, the registered providers,
+`inference_providers_registered`, and the first registered provider as
+`inference_provider`. `auto` means available according to ONNX Runtime, not
+hardware-validated for a particular deployment.
 
 Everything here is **off unless noted**. Turning one on is a config edit plus a
 restart of the affected component; turning it off is the same edit in reverse.
@@ -86,6 +123,7 @@ restart of the affected component; turning it off is the same edit in reverse.
 | Entity-type topics | `correlation.publish_entity_type_topics` | `false` | Something downstream wants to subscribe per entity type rather than filter. |
 | Latent state-space memory (consumer *stubbed*) | `correlation.state_space_memory_enabled` | `false` | You want to start accumulating the site's history now. The correlator records into it; nothing consumes it, so correlation behaves identically either way. The consumer is tracked as *Act on the latent memory — an active-inference consumer*. |
 | Geographic filtering | `bird_detection.geo_filter_min_prob`, `geo_filter_weak_admit_prob`, `geo_filter_weak_admit_conf` | `0.03` / `0.0005` / `0.85` | Active by default. Raise `min_prob` to suppress more out-of-range species; the weak-admit pair is the escape hatch that lets a confident rare visitor through. `bird_detection.site_species_whitelist` always admits named species. All four live under `bird_detection:`, not `detection:` — the bird agent reads only that section, so a copy placed under `detection:` parses without error, logs nothing, and changes nothing. |
+| BirdNET execution provider | `bird_detection.execution_provider` | `auto` | Selects `auto`, `cpu`, `cuda`, or `coreml`. `auto` checks providers exposed by ONNX Runtime in the BirdNET agent environment, preferring CUDA, then CoreML, then CPU. Explicit unavailable providers fail startup. CUDA requires compatible `onnxruntime-gpu` instead of `onnxruntime`; do not install both in one environment. Base installs remain CPU-only. |
 | Corollary discharge | `corollary_discharge.enabled`, `corollary_discharge.buffer_seconds` | `false` / `2.0` | Orpheus plays audio at your site and you don't want it recorded as wildlife. Entities are tagged, never dropped. |
 | Weather (*stubbed*) | `weather.enabled`, `weather.url` | `false` | You have an Ecowitt-compatible station on the LAN — but the Ecowitt field mapping is unimplemented, so the ingestor raises and exits on its first poll and the card stays empty. Enabling this is only useful if you are the one grounding that mapping. Tracked as *Finish the weather integration*. |
 | Read-only mirror (service *stubbed*) | `mirror.enabled`, `mirror.transport`, `mirror.dest` | `false` | Dashboard reads are contending with live writes, or you want a copy on another host. Pair with `ui.read_from_replica` on the reader — and set `mirror.staging_path` there too, to the path the push lands at: it is a per-host setting, and the UI resolves the replica from its own host's value, so a reader that leaves it empty falls back to the live DB. The CLI works; run `orpheus-mirror` yourself from cron or your own unit — the flag reserves the setting for a future service, it does not start one. Tracked as *Read-only mirror host: serving stack + public portal*. |
@@ -252,9 +290,14 @@ the video’s time window, including when the window crosses midnight.
   own audio playback with `is_self_generated: true` — **tagged, never dropped**,
   so the data stays available for analysis and the dashboard doesn't count the
   system hearing itself as wildlife. `corollary_discharge.buffer_seconds`
-  (default 2.0) pads each window's tail to catch reverb/late triggers. Off (the
-  default): no playback subscription, no tagging; the playback agent's window
-  publish is inert telemetry on its own topic. Rollback is the flag.
+  (default 2.0) pads each window's tail to catch reverb/late triggers.
+  `max_playback_seconds` (default 300) bounds an announced playback if the
+  playback agent stops before sending its measured finish event. The playback
+  agent publishes start and finish events with the same ID; the finish contains
+  the measured elapsed duration. Overlapping detections remain in the entity
+  evidence and database, including wildlife heard at the same time. Off (the
+  default): no playback subscription and no tagging. Rollback is the flag. See
+  the [audio output guide](audio-output.md) for speaker setup.
 - **Logging:** [Logging guide](../LOGGING.md).
 
 ## 7. Data & retention

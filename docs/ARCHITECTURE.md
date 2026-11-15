@@ -49,13 +49,14 @@ a subprocess if its compatible in-process backend is sufficient.
 
 ### Runtimes and hardware resources
 
-Python versions and dependency pins belong to components. Current agent/service
-packages generally declare Python 3.9; the validated Jetson PANNs CUDA worker
-declares Python 3.8 with its NVIDIA stack. The shared IPC library supports 3.8+.
-Those are implementation constraints, not an Orpheus-wide Python requirement.
-Read each package's metadata, Makefile and constraints before changing it. Shared
-code must support its actual consumers. Modernizing non-GPU agents can proceed
-independently in future work without replacing the CUDA worker runtime.
+Python versions and dependency pins belong to components. The GPS service and
+event correlator now use independent Python 3.12/3.13 environments; existing model
+agents retain their validated runtimes, including the isolated Jetson PANNs CUDA
+worker on Python 3.8. The shared IPC library supports 3.8+. These are component
+constraints, not an Orpheus-wide Python requirement. Read each package's
+metadata, Makefile and constraints before changing it. Shared code must support
+its actual consumers. Further non-GPU modernization can proceed component by
+component without replacing hardware-specific runtimes.
 
 The owning agent supplies concurrency, queue capacity, device, worker lifecycle,
 timeouts and memory policy through `OrpheusConfig`. Follow
@@ -609,6 +610,12 @@ The Orpheus platform uses a layered agent architecture where Layer 1 agents dete
 - **Output:** Motion events + video clips via `orpheus/video/motion/events`
 - **Algorithm:** Frame differencing with configurable sensitivity
 - **Storage:** MP4 video clips in `/data/orpheus/video/video_motion/{camera}/`
+
+The shipped video agents provide capture, motion detection, snapshots, and
+timelapse processing; they do not currently load a video object-detection
+model. `detection.video_model` is a reserved configuration value without a
+consumer. Video model acceleration requires a separately specified model,
+runtime, output contract, and event lineage before a provider can be selected.
 
 ### Layer 2: Specialized Analysis
 

@@ -520,7 +520,7 @@ almost every time there's a crow.
 |---|---|
 | Entities API filtering by species | "Find all Entities where any evidence has a TaxonomyRef equivalent to `(ebird, amecro)`" — does a graph walk via `equivalent_taxa()`, then `WHERE evidence.taxonomy IN (set)`. |
 | Bird Correlation dashboard | Replaces today's hard-coded `BIRD_LIKE_AUDIOSET_MIDS` set with `equivalent_taxa(TaxonomyRef("ebird", "any-bird-parent"))` once the equivalence graph has crow ↔ AudioSet:Crow rows. (Until then, the hard-coded set is fine.) |
-| Future corollary-discharge filter | When the playback agent plays a clip with `played_taxonomy=(ebird, "amecro")`, the filter consults `equivalent_taxa()` to know that an incoming `(audioset, "/m/04s8yn")` Detection from our own mic is self-generated. |
+| Corollary discharge | The correlator currently tags entities whose time span overlaps an audio playback window. It retains every detection and evidence row; the temporal tag does not claim that every overlapping sound came from the speaker. Taxonomy-aware attribution is a future refinement. |
 | Future Director agent | Reasoning about "did a coyote visit?" without caring which specific classifier said so. |
 
 ---
@@ -528,13 +528,19 @@ almost every time there's a crow.
 ## 6. Why this all matters for corollary discharge (and beyond)
 
 The "echo problem" (the backlog issue
-`[CORE] Implement Corollary Discharge (The "Echo" Problem)`) needs the
-exact same primitive Layer 3 provides:
+`[CORE] Implement Corollary Discharge (The "Echo" Problem)`) has an initial
+temporal implementation in the event-correlator. The playback agent publishes
+a start marker and a matching finish event with measured elapsed time. The
+correlator tags overlapping Entities and retains them for analysis; it never
+filters detections out of the event or persistence path. See the
+[operator settings](../operator-manual/index.md#2-configuration).
+
+The more precise taxonomy-aware filter would use the Layer 3 primitive:
 
 > When the system plays a crow call through the speaker, its own
 > microphone hears it and triggers a detection.
 
-To tag that re-detection as self-generated, the filter has to ask:
+To attribute which evidence came from that playback, a future filter can ask:
 "is this incoming Detection's taxonomy equivalent to the taxonomy I played
 N seconds ago?" That's `is_equivalent(playback_ref, detection_ref)`. The
 filter doesn't need a hierarchical taxonomy; it just needs the

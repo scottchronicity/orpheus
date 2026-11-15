@@ -20,7 +20,7 @@
 	services-install services-start services-stop services-restart \
 	install-host install-backbone install-log-bounds upsert-backbone-env check-installable \
 	update-services \
-	sim-up sim-down sim-logs sim-status sim-fleet-up sim-validate \
+	sim-up sim-down sim-logs sim-status sim-fleet-up sim-config sim-validate \
 	sim-distributed-up sim-distributed-validate sim-distributed-down \
 	docs-build docs-serve docs-preview docs-pages \
 	status-all update-all logs-all test-all deploy-all check-models download-models run-ui verify-deploy \
@@ -37,6 +37,11 @@ ALL_PROJECTS = $(PYTHON_PROJECTS) services/orpheus-backplane
 
 # Default Python system interpreter (can be overridden via env or .env)
 PYTHON_SYSTEM ?= python3.9
+
+# The GPS component can use a separately named venv when installed with uv.
+# Keep the component's own default unless a laptop chooses another existing env.
+GPS_VENV ?= venv-py312
+CORRELATOR_VENV ?= venv-py312
 
 # Coverage threshold for CI (percentage)
 COVERAGE_THRESHOLD ?= 80
@@ -354,7 +359,7 @@ test-ui:
 
 test-gps:
 	@echo "Testing orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps test
+	@$(MAKE) -C services/orpheus-gps test VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps tests passed"
 
 test-audio-output:
@@ -422,7 +427,7 @@ test-crow-detection:
 
 test-event-correlator:
 	@echo "Testing orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator test
+	@$(MAKE) -C agents/orpheus-agent-event-correlator test VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator tests passed"
 
 #==============================================================================
@@ -608,7 +613,7 @@ lint-ui:
 
 lint-gps:
 	@echo "Linting orpheus-gps..."
-	@$(MAKE) -C services/orpheus-gps lint
+	@$(MAKE) -C services/orpheus-gps lint VENV=$(GPS_VENV)
 	@echo "✅ orpheus-gps linted"
 
 lint-audio-output:
@@ -658,7 +663,7 @@ lint-crow-detection:
 
 lint-event-correlator:
 	@echo "Linting orpheus-agent-event-correlator..."
-	@$(MAKE) -C agents/orpheus-agent-event-correlator lint
+	@$(MAKE) -C agents/orpheus-agent-event-correlator lint VENV=$(CORRELATOR_VENV)
 	@echo "✅ orpheus-agent-event-correlator linted"
 
 lint-backplane:
@@ -911,6 +916,11 @@ sim-fleet-up:
 	@$(COMPOSE) --profile fleet up -d --build
 	@echo "✅ Fleet up.  Validate the real-audio cascade: make sim-validate   Stop: make sim-down"
 
+sim-config:
+	@echo "Validating the Simulacrum Compose configuration..."
+	@$(COMPOSE) config --quiet
+	@echo "✅ Simulacrum Compose configuration is valid"
+
 # Real-audio end-to-end validation: inject one audio.motion (crow clip) into the
 # running fleet and assert the cascade lands an EntityEvent. Needs sim-fleet-up.
 #
@@ -926,7 +936,8 @@ $(SIM_VALIDATE_PYTHON):
 
 sim-validate: $(SIM_VALIDATE_PYTHON)
 	@echo "Validating the real-audio cascade against the running fleet..."
-	@ORPHEUS_E2E_REAL_AUDIO=1 $(SIM_VALIDATE_PYTHON) -m pytest tests/e2e_bdd -v -m real_audio
+	@ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:4222 $(SIM_VALIDATE_PYTHON) -m orpheus_common.testing.simulacrum
+	@ORPHEUS_TEST_NATS_URL=nats://127.0.0.1:4222 ORPHEUS_E2E_REAL_AUDIO=1 $(SIM_VALIDATE_PYTHON) -m pytest tests/e2e_bdd -v -m real_audio
 
 sim-down:
 	@echo "Stopping the Orpheus Simulacrum (all profiles)..."
@@ -1421,13 +1432,14 @@ backfill-entity-types-dry-run:
 # docs/TESTING.md.
 BDD_BEHAVE ?= agents/orpheus-agent-event-correlator/venv/bin/behave
 BDD_PYTEST ?= agents/orpheus-agent-event-correlator/venv/bin/pytest
+BDD_FEATURES ?= tests/bdd
 test-bdd:
 	@if [ ! -x "$(BDD_BEHAVE)" ]; then \
 		echo "❌ behave not found at $(BDD_BEHAVE) — run 'make install-event-correlator' (adds the dev extras)."; \
 		exit 1; \
 	fi
-	@echo "Running end-to-end BDD scenarios (tests/bdd)..."
-	@$(BDD_BEHAVE) tests/bdd
+	@echo "Running end-to-end BDD scenarios ($(BDD_FEATURES))..."
+	@$(BDD_BEHAVE) $(BDD_FEATURES)
 
 # sim-matrix-ci — the GENERATED failure matrix (full powerset) through the real
 # correlator in-process (no models, no docker). docs/designs/sim-test-matrix.md.
@@ -1454,6 +1466,7 @@ BATS_CORE_TAG    ?= v1.12.0
 BATS_SUPPORT_TAG ?= v0.3.0
 BATS_ASSERT_TAG  ?= v2.2.4
 BATS_BIN         := $(BATS_LIB_DIR)/bats-core/bin/bats
+BATS_TESTS       ?= tests/bats/*.bats
 
 test-bash:
 	@for spec in bats-core=$(BATS_CORE_TAG) bats-support=$(BATS_SUPPORT_TAG) bats-assert=$(BATS_ASSERT_TAG); do \
@@ -1465,8 +1478,8 @@ test-bash:
 			mv "$$dest.tmp" "$$dest"; \
 		fi; \
 	done
-	@echo "Running bash script tests (tests/bats/*.bats)..."
-	@"$(BATS_BIN)" tests/bats/*.bats
+	@echo "Running bash script tests ($(BATS_TESTS))..."
+	@"$(BATS_BIN)" $(BATS_TESTS)
 
 # reconcile — event-sourcing shadow reconciliation (determinism contract §3.3):
 # compare the durable domain stream vs the SQLite DB by event_id. ARGS passes flags
@@ -1526,7 +1539,12 @@ test-all:
 		if [ -f "$$dir/Makefile" ]; then \
 			echo ""; \
 			echo "Testing $$dir..."; \
-			(cd "$$dir" && $(MAKE) test) || failed="$$failed $$dir"; \
+			case "$$dir" in \
+				services/orpheus-gps) venv_override="VENV=$(GPS_VENV)" ;; \
+				agents/orpheus-agent-event-correlator) venv_override="VENV=$(CORRELATOR_VENV)" ;; \
+				*) venv_override="" ;; \
+		esac; \
+			(cd "$$dir" && $(MAKE) test $$venv_override) || failed="$$failed $$dir"; \
 		fi; \
 	done; \
 	echo ""; \

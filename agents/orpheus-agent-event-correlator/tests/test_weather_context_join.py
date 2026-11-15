@@ -9,7 +9,7 @@ answerable straight from the entities table. Gated by the EXISTING
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 from orpheus_common.config import OrpheusConfig
@@ -37,9 +37,11 @@ def _agent(*, weather_enabled: bool) -> EventCorrelatorAgent:
 
 
 def _reading(*, age_seconds: float = 30.0) -> WeatherReading:
-    ts = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    ts = datetime.now(UTC) - timedelta(seconds=age_seconds)
     return WeatherReading(
-        temperature_c=4.5, humidity_pct=81.0, wind_speed_mps=6.2,
+        temperature_c=4.5,
+        humidity_pct=81.0,
+        wind_speed_mps=6.2,
         timestamp=ts.isoformat(),
     )
 
@@ -138,15 +140,13 @@ class TestWeatherContextJoin:
         agent._on_entity_ready(entity)
         assert entity["context"]["weather"]["temperature_c"] == 1.5
 
-    def test_timestampless_reading_with_stale_recorded_at_not_attached(
-        self, tmp_path
-    ) -> None:
+    def test_timestampless_reading_with_stale_recorded_at_not_attached(self, tmp_path) -> None:
         # The fallback keeps the staleness guard honest: a timestamp-less row
         # ingested long ago (ingestor down since) still attaches nothing.
         agent = _agent(weather_enabled=True)
         db = WeatherDB(db_path=tmp_path / "weather.db")
         db.save(WeatherReading(temperature_c=4.5))
-        old = (datetime.now(timezone.utc) - timedelta(seconds=700)).isoformat()
+        old = (datetime.now(UTC) - timedelta(seconds=700)).isoformat()
         conn = open_connection(db.db_path)
         try:
             conn.execute("UPDATE weather_readings SET recorded_at = ?", (old,))
@@ -168,10 +168,7 @@ class TestWeatherContextJoin:
         with patch("orpheus_agent_event_correlator.main.logger") as mock_logger:
             for _ in range(3):
                 agent._on_entity_ready(_entity())
-        stale_warnings = [
-            c for c in mock_logger.warning.call_args_list
-            if "rejected" in c.args[0]
-        ]
+        stale_warnings = [c for c in mock_logger.warning.call_args_list if "rejected" in c.args[0]]
         assert len(stale_warnings) == 1
 
     def test_typed_round_trip_through_spatiotemporal_context(self) -> None:
@@ -183,9 +180,8 @@ class TestWeatherContextJoin:
         entity = _entity()
         agent._on_entity_ready(entity)
         ctx = SpatiotemporalContext(
-            timestamp=datetime.now(timezone.utc), **{
-                k: v for k, v in entity["context"].items() if k != "timestamp"
-            }
+            timestamp=datetime.now(UTC),
+            **{k: v for k, v in entity["context"].items() if k != "timestamp"},
         )
         assert ctx.weather is not None
         assert ctx.weather.temperature_c == 4.5

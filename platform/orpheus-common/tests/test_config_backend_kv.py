@@ -15,8 +15,9 @@ from orpheus_common.config_backend import (
     JetStreamKvConfigBackend,
 )
 from orpheus_common.config_store import ConfigStore
+from orpheus_common.testing import DEFAULT_NATS_URL
 
-NATS_URL = "nats://127.0.0.1:4222"
+NATS_URL = DEFAULT_NATS_URL
 
 
 class _FakeKvBus:
@@ -83,6 +84,8 @@ class TestKvConfigBackendUnit:
 
 @pytest.fixture
 def live_bus():
+    if not NATS_URL:
+        pytest.skip("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
     from orpheus_common.event_bus_nats import NatsBus
 
     bus = NatsBus(NATS_URL, client_id="cfgkv", connect_timeout=2.0)

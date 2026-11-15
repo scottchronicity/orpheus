@@ -12,8 +12,9 @@ import pytest
 
 from orpheus_common.event_bus_nats import NatsBus
 from orpheus_common.mqtt import MQTTClient
+from orpheus_common.testing import DEFAULT_NATS_URL
 
-NATS_URL = "nats://127.0.0.1:4222"
+NATS_URL = DEFAULT_NATS_URL
 
 
 class TestOptionalSurfacesRaiseOnMqtt:
@@ -52,6 +53,8 @@ class TestOptionalSurfacesRaiseOnMqtt:
 
 @pytest.fixture
 def live_bus():
+    if not NATS_URL:
+        pytest.skip("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
     bus = NatsBus(NATS_URL, client_id="jstest", connect_timeout=2.0)
     try:
         bus.connect()
@@ -163,6 +166,8 @@ class TestPresenceLive:
     def test_kv_survives_explicit_reconnect(self):
         # An explicit disconnect()+connect() must invalidate cached KV handles so
         # the second connection doesn't operate on a dead JetStream context.
+        if not NATS_URL:
+            pytest.skip("Set ORPHEUS_TEST_NATS_URL to an isolated test NATS broker")
         bus = NatsBus(NATS_URL, client_id="kvrc", connect_timeout=2.0)
         try:
             bus.connect()

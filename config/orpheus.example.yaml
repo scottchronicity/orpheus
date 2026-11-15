@@ -531,10 +531,22 @@ detection:
   min_confidence: 0.8
   species_of_interest: []
   audio_model: "birdnet"
+  # Reserved selection value; no video DNN currently consumes this field.
+  # Shipped video agents use OpenCV capture and motion detection.
   video_model: "yolo"
+
+crow_detection:
+  enabled: true
+  # Torch backend: auto selects CUDA, then MPS where supported, then CPU.
+  # Explicit cuda/mps selections fail at startup when unavailable.
+  device: auto
+  quality_threshold: 0.5
 
 bird_detection:
   model_path: "/data/orpheus/models/birdnet.onnx"
+  # ONNX Runtime provider: auto selects an installed CUDA, CoreML, or CPU EP.
+  # CUDA/CoreML require a compatible ONNX Runtime build in this agent's runtime.
+  execution_provider: auto
   confidence_threshold: 0.1
   location_lat: 42.970151
   location_lon: -85.660179
@@ -635,11 +647,13 @@ correlation:
 # subscribes to playback events and TAGS (does not drop) entities that overlap a
 # playback window with is_self_generated=true, so the system doesn't mistake
 # hearing itself for wildlife. buffer_seconds pads each window's tail to catch
-# reverb / slightly-late triggers.
+# reverb / slightly-late triggers. max_playback_seconds bounds how long a start
+# event remains active if playback exits before publishing its measured finish.
 corollary_discharge:
   # Off by default: tagging is new behavior, so the flag is the rollback.
   enabled: false
   buffer_seconds: 2.0
+  max_playback_seconds: 300.0
 
 # Weather-station ingestion ([FEATURE] Ecowitt Weather Station Integration).
 # Polls a local weather station and stores readings in the detections DB (so

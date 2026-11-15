@@ -167,6 +167,12 @@ correlation:
 
 ## Installation
 
+The correlator uses an isolated Python 3.12 or 3.13 environment. Its development
+Makefile uses `venv-py312`; the systemd installer defaults to `python3.12` and
+accepts `PYTHON_BIN` for an interpreter installed elsewhere. On install, an
+existing Python 3.9 service environment is replaced because it cannot satisfy
+the correlator's declared runtime.
+
 ```bash
 make install           # Create venv, install dependencies
 

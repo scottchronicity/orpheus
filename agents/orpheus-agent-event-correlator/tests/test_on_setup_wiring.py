@@ -14,7 +14,7 @@ the enrich path) so each flag is proven to move real behavior.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 from orpheus_common.config import OrpheusConfig
@@ -58,7 +58,7 @@ def _agent() -> EventCorrelatorAgent:
 def _detection(event_id: str, root: str, confidence: float) -> dict:
     return Detection(
         event_id=event_id,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         detection_type="species.detected",
         species_code="amecro",
         species_common="American Crow",
@@ -70,9 +70,7 @@ def _detection(event_id: str, root: str, confidence: float) -> dict:
 
 
 class TestFlagOnSetupWiring:
-    async def test_on_setup_wires_every_flag_into_real_objects(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    async def test_on_setup_wires_every_flag_into_real_objects(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("ORPHEUS_DATA_ROOT", str(tmp_path))
         agent = _agent()
         await agent.on_setup()
@@ -90,9 +88,7 @@ class TestFlagOnSetupWiring:
         assert agent.db is not None
         assert str(tmp_path) in str(agent.db.db_path)
 
-    async def test_flag_on_observation_flows_end_to_end(
-        self, tmp_path, monkeypatch
-    ) -> None:
+    async def test_flag_on_observation_flows_end_to_end(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("ORPHEUS_DATA_ROOT", str(tmp_path))
         agent = _agent()
         await agent.on_setup()
@@ -100,7 +96,7 @@ class TestFlagOnSetupWiring:
         agent._weather_db.save(
             WeatherReading(
                 temperature_c=4.5,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
             )
         )
 
@@ -112,8 +108,7 @@ class TestFlagOnSetupWiring:
         assert agent.state_space_recorded == 1  # state-space flag moved behavior
         assert agent.entities_weather_tagged == 1  # weather flag moved behavior
         create_calls = [
-            c for c in agent.bus.publish.call_args_list
-            if c.args[0] == "orpheus/entities/animal"
+            c for c in agent.bus.publish.call_args_list if c.args[0] == "orpheus/entities/animal"
         ]
         assert len(create_calls) == 1
         emitted = create_calls[0].args[1]

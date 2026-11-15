@@ -30,9 +30,7 @@ NATS_URL = DEFAULT_NATS_URL
 
 
 # Shared body from orpheus_common.testing — one definition, every suite.
-_reset_orpheus_config_singleton = pytest.fixture(autouse=True)(
-    reset_orpheus_config_singleton
-)
+_reset_orpheus_config_singleton = pytest.fixture(autouse=True)(reset_orpheus_config_singleton)
 
 
 @pytest.fixture(scope="session")
@@ -68,5 +66,25 @@ def correlator_no_expiry(nats_url, tmp_path, monkeypatch):
     return corr_main.EventCorrelatorAgent(
         window_seconds=30.0,
         max_cluster_duration_seconds=300.0,
+        auto_discovery_enabled=False,
+    )
+
+
+@pytest.fixture
+def correlator_with_corollary(nats_url, tmp_path, monkeypatch):
+    """Real correlator with isolated persistence and playback tagging enabled."""
+    cfg = nats_config(
+        nats_url,
+        corollary_discharge={
+            "enabled": True,
+            "buffer_seconds": 0.1,
+            "max_playback_seconds": 5.0,
+        },
+    )
+    monkeypatch.setattr(corr_main.OrpheusConfig, "get_instance", MagicMock(return_value=cfg))
+    monkeypatch.setenv("ORPHEUS_DATA_ROOT", str(tmp_path))
+    return corr_main.EventCorrelatorAgent(
+        window_seconds=0.25,
+        max_cluster_duration_seconds=2.0,
         auto_discovery_enabled=False,
     )

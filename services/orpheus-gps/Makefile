@@ -8,6 +8,12 @@ export
 SERVICE_NAME := orpheus-gps
 DEPLOY_ROOT  := /opt/orpheus/services/$(SERVICE_NAME)
 
+# This service is a non-GPU Python 3.12/3.13 component. Keep its development venv
+# distinct from any pre-existing Python 3.9 environment during migration.
+PYTHON_SYSTEM ?= python3.12
+PYTHON_REQUIRED_VERSION ?= 3.12
+VENV ?= venv-py312
+
 # -- Shared infrastructure ---------------------------------------------------
 include ../../make/common_python.mk
 include ../../make/common_lint.mk
@@ -29,7 +35,7 @@ help:
 	@echo "  make format           Format code with ruff"
 	@echo "  make check            Check code formatting without changes"
 	@echo "  make clean            Remove build artifacts"
-	@echo "  make dry-run          Validate Python 3.9+ venv + imports (no deploy)"
+	@echo "  make dry-run          Validate Python 3.12/3.13 venv + imports (no deploy)"
 	@echo ""
 	@echo "Edge deployment (sudo required):"
 	@echo "  make install-service  Install as systemd service"
