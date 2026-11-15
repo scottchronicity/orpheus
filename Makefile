@@ -27,7 +27,7 @@
 	backfill-root-event-ids backfill-root-event-ids-dry-run \
 	backfill-entity-types backfill-entity-types-dry-run test-bdd test-bash sim-matrix-ci reconcile manifests guardrails \
 	storage-report storage-sweep \
-	show-deployed match-deployed backup-databases verify-backup \
+	show-deployed match-deployed backup-databases verify-backup provision-python \
 	dev-stack dev-stop dev-restart dev-status dev-logs
 
 # Python projects in the monorepo
@@ -106,6 +106,7 @@ help:
 	@echo "  make update-services    - Update all services (code + restart)"
 	@echo "  make verify-deploy      - Read-only post-upgrade health check (venv imports + systemd units + models)"
 	@echo "  make match-deployed [REV=branch] - Which commit each deployed component is; would deploying REV revert any?"
+	@echo "  make provision-python   - Pinned CPython 3.12.13 at /opt/orpheus/python for GPS + correlator (ARGS=--dry-run)"
 	@echo "  make backup-databases   - Consistent snapshot of every SQLite DB + runtime config (no sqlite3 CLI needed)"
 	@echo "  make verify-backup BACKUP=DIR - Re-check a backup's checksums and integrity before restoring"
 	@echo ""
@@ -1534,6 +1535,13 @@ SWEEP_BIN = $(shell \
 	else \
 		echo "platform/orpheus-common/venv/bin/orpheus-storage-sweep"; \
 	fi)
+
+# provision-python — the station's Python 3.12 for GPS and the event
+# correlator (ADR 0024): pinned CPython 3.12.13 under /opt/orpheus/python,
+# which their installers then use by default. Leaves the system interpreters
+# alone: 3.9 (other agents, UI, platform) and 3.8 (the PANNs CUDA worker venv).
+provision-python:
+	@sudo scripts/provision-python.sh $(ARGS)
 
 # backup-databases — the pre-upgrade safety net: a VACUUM INTO snapshot of
 # every SQLite database under ORPHEUS_DATA_ROOT (live agents keep running),

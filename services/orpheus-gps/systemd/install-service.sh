@@ -7,7 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMMON_RELATIVE="../../platform/orpheus-common"
 COMMON_PATH="${PROJECT_ROOT}/${COMMON_RELATIVE}"
-PYTHON_BIN="${PYTHON_BIN:-python3.12}"
+# The station's 3.12 is provisioned by scripts/provision-python.sh; prefer it so
+# `make install-service` (which runs this under sudo, dropping PYTHON_BIN) works.
+ORPHEUS_PYTHON312="${ORPHEUS_PYTHON312:-/opt/orpheus/python/bin/python3.12}"
+if [ -z "${PYTHON_BIN:-}" ]; then
+    if [ -x "${ORPHEUS_PYTHON312}" ]; then PYTHON_BIN="${ORPHEUS_PYTHON312}"; else PYTHON_BIN=python3.12; fi
+fi
 
 if [ ! -d "${COMMON_PATH}" ]; then
     echo "ERROR: Could not locate orpheus-common at ${COMMON_PATH}" >&2

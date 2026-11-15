@@ -6,7 +6,12 @@ SERVICE_FILE="${SERVICE_NAME}.service"
 # Overridable only so the installer can be tested in a sandbox.
 INSTALL_DIR="${INSTALL_DIR:-/opt/orpheus/agents/${SERVICE_NAME}}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
-PYTHON_BIN="${PYTHON_BIN:-python3.12}"
+# The station's 3.12 is provisioned by scripts/provision-python.sh; prefer it so
+# `make install-service` (which runs this under sudo, dropping PYTHON_BIN) works.
+ORPHEUS_PYTHON312="${ORPHEUS_PYTHON312:-/opt/orpheus/python/bin/python3.12}"
+if [ -z "${PYTHON_BIN:-}" ]; then
+    if [ -x "${ORPHEUS_PYTHON312}" ]; then PYTHON_BIN="${ORPHEUS_PYTHON312}"; else PYTHON_BIN=python3.12; fi
+fi
 
 echo "Installing ${SERVICE_NAME} systemd service..."
 

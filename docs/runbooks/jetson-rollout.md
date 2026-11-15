@@ -166,23 +166,43 @@ Resolve these gates against the station's actual config and installed environmen
 - **PANNs backend after a trial override.** A GPU trial drop-in typically sets
   `ORPHEUS_AUDIO_EVENTS__BACKEND=gpu_worker` and a `PYTHONPATH` into a home-directory
   checkout. The deployed agent at the candidate has the worker client, so drop the
-  `PYTHONPATH`. Then decide: `audio_events.backend: gpu_worker` (GPU required) or
-  `auto` keeps the worker; `inprocess` (the default) runs on CPU on JetPack 5,
-  because the agent venv's Torch has no CUDA there, so `device: auto` resolves to
-  CPU. The worker's memory gates are checked at start and while running: if
-  `last_error` in its health reports MemAvailable below the start gate (timelapse
-  encodes and the other model agents compete for memory), size the
-  `audio_events.gpu_worker` budgets from measurements
-  ([PANNs on GPU](../operator-manual/panns-gpu.md)) before relying on it.
-- **Python 3.12/3.13 for GPS and the correlator.** JetPack 5 ships 3.8 and 3.9.
-  `sudo scripts/provision-python.sh` installs a pinned CPython under
-  `/opt/orpheus/python` (a distribution package also works). Never point a deployed
-  venv at an interpreter under a home directory (a user's uv or pyenv Python):
-  `verify-deploy` fails such a venv. `make … install-service` runs each installer
-  under `sudo`, which drops `PYTHON_BIN`, so invoke these two directly:
-  `sudo PYTHON_BIN=/opt/orpheus/python/bin/python3.12 bash services/orpheus-gps/systemd/install-service.sh`,
-  and the same for `agents/orpheus-agent-event-correlator/systemd/install-service.sh`.
-  A global `PYTHON_BIN` would also reach bird-detection, which requires 3.9.
+  `PYTHONPATH` and select the backend in `orpheus.yaml` instead. `inprocess` (the
+  default) runs on CPU on JetPack 5, because the agent venv's Torch has no CUDA
+  there. To keep the GPU, record the budget explicitly rather than relying on code
+  defaults:
+
+  ```yaml
+  audio_events:
+    backend: gpu_worker        # GPU required: clips that arrive while the worker is
+                               # down are rejected, never run on CPU
+    gpu_worker:
+      start_memory_mib: 8704   # worker cost (~4.7 GiB, ~5.0 GiB transient) + the floor
+      floor_memory_mib: 3800   # below this the worker stops itself, and restarts
+                               # once MemAvailable is back above the start gate
+  ```
+
+  On the Orin NX 16 GB station these defaults are what the measurements support
+  (2026-11-13/14, worker serving live clips): MemAvailable about 10.4 GiB without
+  the worker, 6.1–6.4 GiB steady with it, 4.1–4.8 GiB at the lowest through hourly
+  and midnight timelapse encodes, and once 3,784 MiB during the 18:00 encode, when
+  the worker stopped at the floor and was serving again 10 s later. Lowering the
+  floor would trade safety margin for avoiding those brief gaps; do not. The
+  worker's Python 3.8 venv survives the deploy; refresh only its two packages from
+  the candidate (cutover step 7). GPU execution is accepted for production only
+  after the §4 soak below passes with this configuration; until then it is a
+  trial, and `inprocess` (CPU) is the fallback.
+- **Python versions.** GPS and the correlator need 3.12 or 3.13; JetPack 5 ships
+  3.8 and 3.9. `make provision-python` installs pinned CPython 3.12.13 at
+  `/opt/orpheus/python` (python-build-standalone via uv, verified on JetPack 5 /
+  glibc 2.31; uv is needed only while provisioning), and both installers use
+  `/opt/orpheus/python/bin/python3.12` by default, so their normal
+  `make -C … install-service` works. Nothing else changes interpreter:
+  `/usr/bin/python3.9` stays for the other agents, the UI and the platform
+  (bird-detection requires exactly 3.9), and JetPack's `/usr/bin/python3.8` only
+  backs the PANNs worker venv at `$ORPHEUS_DATA_ROOT/venvs/panns-gpu`. Never use an
+  interpreter under a home directory (a user's uv or pyenv Python):
+  `verify-deploy` fails such a venv. Do not set a global `PYTHON_BIN`; it would
+  reach bird-detection too.
 - **BirdNET's venv.** Its installer copies only the agent's payload (never a
   working-tree or old venv beside the source), rebuilds the venv with Python 3.9
   on every install, and fails if the result references a home directory. A deployed
@@ -213,7 +233,9 @@ so the backup is a stdlib-Python tool, `scripts/backup-databases.py`:
 # orpheus.yaml and .env. VACUUM INTO from a read-only connection: a consistent
 # snapshot with the agents still running (a live cp of a WAL-mode DB copies a
 # torn/stale file). Each copy is integrity-checked before it counts; it refuses
-# an existing destination or too little free space. ~9 GB for an 8 GB orpheus.db.
+# a destination that already holds a backup, or too little free space. Needs ~9 GB
+# for an 8 GB orpheus.db; measured on the station: 5.4 GB in 233 s including the
+# full integrity_check (expect ~6 min for 8 GB), --verify 14 s with --quick.
 make backup-databases ARGS=--dry-run          # what it will copy, and the space it needs
 BACKUP="${BACKUP:-/data/orpheus/backups/$(date +%Y%m%d-%H%M)}"
 make backup-databases ARGS="--dest $BACKUP"   # --quick: quick_check instead of integrity_check
@@ -347,7 +369,7 @@ Jetson hardware gates below.
 | Audio output | Only after output manager health is `healthy` and capture isolation is `ok`, perform one brief, low-volume playback check using the approved station sound. Confirm start/finish share a playback ID and timing/elapsed duration are plausible. | Playback is routed to the wrong sink, records through ALSA/capture, or event timing/identity is absent. |
 | Corollary discharge | Confirm `corollary_discharge.enabled` remains false unless it was deliberately enabled in the backed-up station config. When enabled, verify overlapping observations are tagged `is_self_generated`, persisted and published; unrelated wildlife remains untagged and retained. | Any observation is deleted/suppressed, unrelated wildlife is tagged, or a playback window arrives too late to account for an overlap. |
 | BirdNET | Check health-reported requested and registered ONNX providers, then verify normal classifications and confidence/geo-filter behavior. | Explicit provider request differs from registered provider, model load fails, or detection semantics regress. |
-| PANNs | Verify the isolated worker's Python 3.8 interpreter, NVIDIA Torch/CUDA and model hashes; compare expected CPU/GPU labels and intervals on the accepted fixture/known clip. | Worker health/recovery fails, mismatched model/runtime artifact, or results exceed the accepted comparison. |
+| PANNs | Verify the isolated worker's Python 3.8 interpreter, NVIDIA Torch/CUDA and model hashes; compare expected CPU/GPU labels and intervals on the accepted fixture/known clip. GPU is production-accepted only after a 24 h soak that includes the midnight timelapse encodes: health `backend: gpu_worker`, worker `ready` except floor stops that recover by themselves, `unavailable`/`memory` rejections growing only during those stops, 0 audio-events unit restarts, MemAvailable never below 2 GiB. | Worker health/recovery fails, mismatched model/runtime artifact, results exceed the accepted comparison, or the worker stays down: set `audio_events.backend: inprocess` (CPU) and restart audio-events. |
 | Crow and correlation | Confirm configured crow device in health/logs; verify detections flow through correlator, persistence, and NATS publication. | Correlator errors, missing persisted/published detections, or unexpected device/resource pressure. |
 | Existing services | `make status-all`; inspect service journals and dashboard; confirm GPS, camera capture, snapshot/timelapse, storage timer and UI behavior. | Any previously healthy service is degraded or storage timer is not re-armed. |
 
@@ -450,8 +472,12 @@ while code and environments change, then starts components in explicit stages.
    open / index build to complete and "Connected to NATS". A read-only python3
    row-count doubles as the data-read smoke where sqlite3 is absent.
 7. **Staged rollout**: verify NATS first; then GPS and the correlator using the
-   confirmed Python 3.12/3.13 interpreter, passed as `PYTHON_BIN` on the `sudo`
-   command line of each installer (§0a). Start light agents, then model agents
+   provisioned Python 3.12.13 (`make provision-python` first; the installers pick
+   it up, §0a). Before audio-events starts, refresh the PANNs worker's packages in
+   its existing venv, as its owner (no sudo): `make -C workers/orpheus-worker-panns
+   install ORPHEUS_DATA_ROOT=/data/orpheus NVIDIA_TORCH_WHEEL=/data/orpheus/downloads/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl`
+   (the target checks the wheel's hash; the venv and pinned NVIDIA Torch are
+   reused and only the worker packages are reinstalled). Start light agents, then model agents
    one at a time while watching memory and accelerator health. Install audio output
    only after confirming its effective config and saved prior audio-unit state;
    verify capture isolation before starting audio-motion or playback. Start

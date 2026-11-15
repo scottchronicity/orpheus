@@ -172,3 +172,14 @@ assert_payload_only() {
   [ ! -e "$INSTALL/venv/OLD" ]
   [ -d "$INSTALL/venv/lib/python3.12" ]
 }
+
+@test "correlator: without PYTHON_BIN it uses the provisioned /opt/orpheus/python 3.12" {
+  make_agent orpheus-agent-event-correlator
+  mkdir -p "$SB/opt/python/bin"
+  printf '#!/bin/bash\nFAKE_PY=3.12 exec "%s" "$@"\n' "$BIN/fakepython" > "$SB/opt/python/bin/python3.12"
+  chmod +x "$SB/opt/python/bin/python3.12"
+  env -u PYTHON_BIN ORPHEUS_PYTHON312="$SB/opt/python/bin/python3.12" INSTALL_DIR="$INSTALL" \
+    bash "$AGENT/systemd/install-service.sh" > "$SB/out" 2>&1 || { cat "$SB/out"; return 1; }
+  grep -q "Creating virtual environment with $SB/opt/python/bin/python3.12" "$SB/out"
+  [ -d "$INSTALL/venv/lib/python3.12" ]
+}
