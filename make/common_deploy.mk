@@ -57,11 +57,15 @@ deploy: _deploy-check
 		if [ -d "/opt/orpheus/platform/orpheus-common" ]; then \
 			echo "  Reinstalling orpheus-common into venv..."; \
 			sudo $(DEPLOY_ROOT)/venv/bin/python -m pip install --no-cache-dir \
-				/opt/orpheus/platform/orpheus-common -q || \
-				echo "  ⚠️  orpheus-common reinstall FAILED — agent may run stale code"; \
+				/opt/orpheus/platform/orpheus-common -q || { \
+					echo "❌ orpheus-common reinstall failed; deployment is incomplete" >&2; \
+					exit 1; \
+				}; \
 		fi; \
-		sudo $(DEPLOY_ROOT)/venv/bin/python -m pip install $(DEPLOY_ROOT) -q || \
-			echo "  ⚠️  agent package install reported an issue"; \
+		sudo $(DEPLOY_ROOT)/venv/bin/python -m pip install $(DEPLOY_ROOT) -q || { \
+			echo "❌ $(SERVICE_NAME) package install failed; deployment is incomplete" >&2; \
+			exit 1; \
+		}; \
 	fi
 	@sudo chown -R orpheus:orpheus $(DEPLOY_ROOT)
 	@echo "✓ Deployed to $(DEPLOY_ROOT)"

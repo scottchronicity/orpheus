@@ -119,6 +119,23 @@ else
     fail "rsync --delete removes stale files from deploy"
 fi
 
+# -- Test 6: dependency install failures fail the deploy target --------------
+DEPLOY_ROOT_6="$TMPDIR_BASE/deploy6"
+mkdir -p "$DEPLOY_ROOT_6/src" "$DEPLOY_ROOT_6/venv/bin"
+FIXTURE_6="$(setup_fixture test6 "$DEPLOY_ROOT_6")"
+cat > "$DEPLOY_ROOT_6/venv/bin/python" <<'STUB'
+#!/usr/bin/env bash
+exit 42
+STUB
+chmod +x "$DEPLOY_ROOT_6/venv/bin/python"
+output="$(cd "$FIXTURE_6" && PATH="$FIXTURE_6/bin:$PATH" make deploy 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && echo "$output" | grep -q "package install failed" \
+    && ! echo "$output" | grep -q "✓ Deployed to"; then
+    pass "fails deployment and withholds success when package installation fails"
+else
+    fail "fails deployment and withholds success when package installation fails (rc=$rc)"
+fi
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "Testing make/common_python.mk"
@@ -236,6 +253,14 @@ for dir in \
 done
 if $all_parse; then
     pass "all 12 component Makefiles parse without errors"
+fi
+
+# -- Test 10: root aggregate tests map per-component venv overrides ----------
+if grep -Fq 'services/orpheus-gps) venv_override="VENV=$(GPS_VENV)"' "$REPO_ROOT/Makefile" \
+    && grep -Fq 'agents/orpheus-agent-event-correlator) venv_override="VENV=$(CORRELATOR_VENV)"' "$REPO_ROOT/Makefile"; then
+    pass "root test-all maps GPS and correlator venv overrides"
+else
+    fail "root test-all maps GPS and correlator venv overrides"
 fi
 
 # -- Test 10: all component Makefiles have deploy target ---------------------

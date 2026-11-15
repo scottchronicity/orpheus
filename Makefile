@@ -1539,7 +1539,12 @@ test-all:
 		if [ -f "$$dir/Makefile" ]; then \
 			echo ""; \
 			echo "Testing $$dir..."; \
-			(cd "$$dir" && $(MAKE) test) || failed="$$failed $$dir"; \
+			case "$$dir" in \
+				services/orpheus-gps) venv_override="VENV=$(GPS_VENV)" ;; \
+				agents/orpheus-agent-event-correlator) venv_override="VENV=$(CORRELATOR_VENV)" ;; \
+				*) venv_override="" ;; \
+		esac; \
+			(cd "$$dir" && $(MAKE) test $$venv_override) || failed="$$failed $$dir"; \
 		fi; \
 	done; \
 	echo ""; \
