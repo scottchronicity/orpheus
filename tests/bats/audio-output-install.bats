@@ -151,6 +151,12 @@ assert_host_untouched() {
   [ ! -e "$MOCK/user-socket-active" ]
 }
 
+@test "the deployment is world-readable like the rest of /opt/orpheus, not mktemp's 0700" {
+  install_new
+  assert_success
+  [ "$(stat -c '%a' "$DEPLOY" 2>/dev/null || stat -f '%Lp' "$DEPLOY")" = "755" ]
+}
+
 @test "generated scripts in the deployed venv point at the final path" {
   install_new
   assert_success
