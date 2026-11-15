@@ -27,7 +27,7 @@
 	backfill-root-event-ids backfill-root-event-ids-dry-run \
 	backfill-entity-types backfill-entity-types-dry-run test-bdd test-bash sim-matrix-ci reconcile manifests guardrails \
 	storage-report storage-sweep \
-	show-deployed backup-databases verify-backup \
+	show-deployed match-deployed backup-databases verify-backup \
 	dev-stack dev-stop dev-restart dev-status dev-logs
 
 # Python projects in the monorepo
@@ -105,6 +105,7 @@ help:
 	@echo "  make test-bash                       - Run bash script tests (bats-core, tests/bats)"
 	@echo "  make update-services    - Update all services (code + restart)"
 	@echo "  make verify-deploy      - Read-only post-upgrade health check (venv imports + systemd units + models)"
+	@echo "  make match-deployed [REV=branch] - Which commit each deployed component is; would deploying REV revert any?"
 	@echo "  make backup-databases   - Consistent snapshot of every SQLite DB + runtime config (no sqlite3 CLI needed)"
 	@echo "  make verify-backup BACKUP=DIR - Re-check a backup's checksums and integrity before restoring"
 	@echo ""
@@ -1193,6 +1194,14 @@ show-deployed:
 	if [ -e "$$src" ]; then \
 		echo "  last synced:   $$(stat -c '%y' "$$src" 2>/dev/null || stat -f '%Sm' "$$src" 2>/dev/null || echo '?')"; \
 	fi
+
+# match-deployed [REV=...] — the deployed source commit, from file contents.
+# show-deployed cannot answer this on an rsync deploy (no Git metadata), and
+# a checkout's HEAD is not proof. With REV, fails if any deployed component
+# matches only commits REV does not contain: deploying REV would revert them.
+# Read-only. Candidates are every ref in this checkout (git fetch first).
+match-deployed:
+	@python3 scripts/match-deployed.py --prefix "$(DEPLOY_PREFIX)" $(if $(REV),--against "$(REV)") $(ARGS)
 
 verify-deploy:
 	@echo "═══════════════════════════════════════════════════════════════"
