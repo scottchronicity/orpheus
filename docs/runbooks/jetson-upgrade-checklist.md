@@ -27,8 +27,9 @@ export ORPHEUS_SRC=~/runtime/orpheus; cd "$ORPHEUS_SRC"
 BATCH=            # a name for this upgrade, e.g. flywheel_2
 TARGET=           # the branch or merge commit you are deploying
 DEPLOYED=         # the commit running NOW — from `make show-deployed`, not HEAD.
-                  # On a normal box show-deployed prints no commit (rsync tree, no
-                  # git metadata); use the tag or note from your last upgrade.
+                  # Confirm against the station's deployment record. If the exact
+                  # deployed revision cannot be established, stop: do not infer it
+                  # from the current checkout or an unverified old tag.
 ```
 
 ### - [ ] 0. Know where you are
@@ -117,8 +118,9 @@ Only after a clean default soak, flip flags one at a time —
 | Symptom | Action | Time |
 |---|---|---|
 | A new feature misbehaves | flip its one flag off + restart the owning unit | seconds |
-| The deploy itself is bad | `cd "$ORPHEUS_SRC" && git checkout orpheus/last-known-good && make services-install && make update-services && make verify-deploy` | minutes |
+| The deploy itself is bad | Follow [Level 2 staged rollback](jetson-rollback.md#level-2-the-deploy-itself-is-bad); it requires the recorded runtime, broker, config and audio baseline. Do not use aggregate install/update targets. | depends on captured artifacts |
 | Data corruption (rare) | Level 3 restore — stop writers, `rm` the `-wal`/`-shm` sidecars, `sudo cp` the backup back, then `sudo chown orpheus:orpheus` it | — |
 
-There is no "roll back the transport" — NATS is the transport; a broker problem is a
-deploy problem, so you roll back to the tag (which restores the old code + its transport).
+Checking out an older commit does not automatically roll back the broker or its
+stored state. Use the broker implementation/version captured in the pre-deploy
+record and preserve JetStream data; there is no automatic cross-broker conversion.
