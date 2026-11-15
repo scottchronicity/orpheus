@@ -1142,6 +1142,18 @@ class TestCamerasAPI:
             assert result.media_type == "image/jpeg"
 
 
+def _sql_paged_db(db, rows):
+    """Model the database's paging contract: ``get_entities(limit, offset)``
+    returns that slice and ``count_entities`` the range total, as SQL does
+    (the API pages in SQL rather than slicing a materialised list)."""
+
+    def get_entities(*, limit=500, offset=0, **_kwargs):
+        return rows[offset : offset + limit]
+
+    db.get_entities.side_effect = get_entities
+    db.count_entities.return_value = len(rows)
+
+
 class TestEntitiesAPI:
     """Tests for entities API endpoints.
 
@@ -1214,7 +1226,7 @@ class TestEntitiesAPI:
         from orpheus_ui.auth.models import User
 
         sample_entities = [self._make_entity(f"entity-{i:03d}") for i in range(50)]
-        mock_get_db.return_value.get_entities.return_value = sample_entities
+        _sql_paged_db(mock_get_db.return_value, sample_entities)
 
         mock_user = MagicMock(spec=User)
         result = get_entities(
@@ -1241,7 +1253,7 @@ class TestEntitiesAPI:
         from orpheus_ui.auth.models import User
 
         sample_entities = [self._make_entity(f"entity-{i:03d}") for i in range(50)]
-        mock_get_db.return_value.get_entities.return_value = sample_entities
+        _sql_paged_db(mock_get_db.return_value, sample_entities)
 
         mock_user = MagicMock(spec=User)
         result = get_entities(
@@ -1269,7 +1281,7 @@ class TestEntitiesAPI:
 
         # 3000 entities — beyond the legacy 2000 cap.
         sample_entities = [self._make_entity(f"entity-{i:04d}") for i in range(3000)]
-        mock_get_db.return_value.get_entities.return_value = sample_entities
+        _sql_paged_db(mock_get_db.return_value, sample_entities)
 
         mock_user = MagicMock(spec=User)
         result = get_entities(

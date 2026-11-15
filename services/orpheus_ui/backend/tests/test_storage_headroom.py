@@ -126,9 +126,13 @@ def _report(survey=None, categories=None, **overrides):
 
 def _build(report, config=None, root="/data/orpheus"):
     cfg = config if config is not None else _config()
+    # ``report=None`` means "no sweep report exists". Stub the disk read too:
+    # on a real station /data/orpheus holds a live report, which leaked into
+    # these tests (they failed on the Jetson while passing in CI).
     with (
         patch("orpheus_ui.storage_categories.OrpheusConfig") as mock_cls,
         patch("orpheus_ui.storage_categories.get_data_root", return_value=Path(root)),
+        patch("orpheus_ui.storage_categories.read_state", return_value=None),
     ):
         mock_cls.get_instance.return_value = cfg
         return build_headroom_payload(report)
