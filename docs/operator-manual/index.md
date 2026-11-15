@@ -478,6 +478,8 @@ it will not refuse to run because you declined.
 - [Gotchas](../agent-instructions/99-gotchas.md) — the field-tested traps.
 - [Audio output](audio-output.md) — the speaker never connects, drops, or
   plays nothing; capture-interface conflicts.
+- [Kiosk display](kiosk.md) — the optional always-on screen: opening it from
+  any browser, URL settings, where to run it and what that costs.
 - [Version compatibility matrix](../version-compat-matrix.md).
 
 ---

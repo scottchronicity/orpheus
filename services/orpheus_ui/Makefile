@@ -24,7 +24,7 @@ include ../../make/common_deploy.mk
 # -- Phony declarations (component-specific only) ----------------------------
 .PHONY: help install install-backend install-frontend install-e2e \
 	run run-backend run-frontend \
-	test test-all test-backend test-frontend test-e2e \
+	test test-all test-backend test-frontend test-e2e test-kiosk-e2e kiosk-demo \
 	coverage lint format check clean clean-node \
 	build build-frontend \
 	update
@@ -50,6 +50,8 @@ help:
 	@echo "  make test-backend     Run Python unit tests"
 	@echo "  make test-frontend    Run TypeScript unit tests"
 	@echo "  make test-e2e         Run Playwright e2e tests"
+	@echo "  make test-kiosk-e2e   Kiosk display in a real browser (backend mocked)"
+	@echo "  make kiosk-demo       Kiosk with sample data: http://localhost:5173/kiosk?demo=1"
 	@echo "  make coverage         Run backend tests with coverage"
 	@echo "  make lint             Lint all code"
 	@echo "  make format           Format all code"
@@ -126,6 +128,18 @@ test-e2e: build-frontend
 	@echo "Running Playwright e2e tests (data root: $(ORPHEUS_E2E_DATA_ROOT))..."
 	@mkdir -p $(ORPHEUS_E2E_DATA_ROOT)
 	@cd e2e && ORPHEUS_DATA_ROOT=$(ORPHEUS_E2E_DATA_ROOT) npx playwright test
+
+# Kiosk display (/kiosk) in a real browser, backend mocked inside the spec:
+# needs only the frontend deps and Playwright's browser (make install-e2e).
+# KIOSK_BROWSER=webkit or firefox picks another engine where Playwright has it.
+test-kiosk-e2e:
+	@echo "Running kiosk browser tests..."
+	@cd e2e && npx playwright test -c playwright.kiosk.config.ts
+
+# Kiosk with built-in sample data and no backend, for a laptop browser.
+kiosk-demo:
+	@echo "Open http://localhost:5173/kiosk?demo=1 (sample data; Ctrl-C to stop)"
+	@cd frontend && npm run dev -- --port 5173
 
 coverage:
 	@echo "Running backend tests with coverage..."

@@ -132,6 +132,29 @@ Weather ingestion is *stubbed*: the card, the storage, and the ingestor are writ
 but the Ecowitt field mapping is not, so no reading reaches the card on any
 installation today. You will not see this card until that lands.
 
+## Kiosk display
+
+`/kiosk` is a full-screen, read-only view of the station for a screen that is
+always on: a tablet by the window, a small monitor, or a laptop tab. Open
+`http://<station>:8080/kiosk`. It signs in as the guest by itself, and nothing
+on it can be clicked into or changed. It shows:
+
+- **Latest sightings:** the most recent entity, large, with how long ago it was
+  heard, which microphone heard it and how confident Orpheus is, and the next
+  few below it. Sounds Orpheus played itself are left out.
+- **Last 24 hours:** detections and species counted, the most-heard species, and
+  activity by hour of the day, with the current hour highlighted.
+- **Camera:** the latest saved snapshot, rotating through the cameras.
+- **Listening:** a live level meter per microphone.
+- **Station:** CPU, memory and disk use, how many services are running, and any
+  that are not.
+
+The header shows the time, the weather when a station reports it, and one line
+of status ("All systems normal", "1 service need attention", or "Station
+unreachable", with the time of the last good data). Choosing panels, cameras,
+night dimming and text size is done in the address; see
+[Kiosk display](../operator-manual/kiosk.md#configure) in the Operator's Manual.
+
 ## Diagnostics page
 
 Shows live system health without you having to log into the box: correlator health
