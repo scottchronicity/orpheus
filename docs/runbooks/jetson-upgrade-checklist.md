@@ -46,13 +46,9 @@ make verify-deploy                 # baseline: must be GREEN before you change a
 `/data/orpheus` is orpheus-owned — sudo throughout.
 
 ```bash
-BACKUP=/data/orpheus/backups/$(date +%Y%m%d-%H%M); sudo mkdir -p "$BACKUP"
-sudo sqlite3 /data/orpheus/detections/orpheus.db "VACUUM INTO '$BACKUP/orpheus.db'"
-for db in /data/orpheus/*.db; do [ -f "$db" ] && sudo sqlite3 "$db" "VACUUM INTO '$BACKUP/$(basename "$db")'"; done
-sudo cp /opt/orpheus/config/orpheus.yaml "$BACKUP/"
-sudo cp /opt/orpheus/config/.env "$BACKUP/.env" 2>/dev/null || true   # backbone URL, and its
-                                                 # credentials on an auth-gated broker; absent
-                                                 # on a single-host install
+BACKUP=/data/orpheus/backups/$(date +%Y%m%d-%H%M)
+make backup-databases ARGS="--dest $BACKUP"   # every DB + orpheus.yaml + .env; no sqlite3 CLI needed
+make verify-backup BACKUP="$BACKUP"           # checksums + integrity, from the files on disk
 grep -A30 'retention:' /opt/orpheus/config/orpheus.yaml  # ceilings + floors the sweep will enforce
 make storage-report                                      # what the sweep would delete — deletes nothing
 sudo ls -l "$BACKUP"    # eyeball it: a backup you did not confirm is not a backup

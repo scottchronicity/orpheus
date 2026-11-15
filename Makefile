@@ -27,7 +27,7 @@
 	backfill-root-event-ids backfill-root-event-ids-dry-run \
 	backfill-entity-types backfill-entity-types-dry-run test-bdd test-bash sim-matrix-ci reconcile manifests guardrails \
 	storage-report storage-sweep \
-	show-deployed \
+	show-deployed backup-databases verify-backup \
 	dev-stack dev-stop dev-restart dev-status dev-logs
 
 # Python projects in the monorepo
@@ -105,6 +105,8 @@ help:
 	@echo "  make test-bash                       - Run bash script tests (bats-core, tests/bats)"
 	@echo "  make update-services    - Update all services (code + restart)"
 	@echo "  make verify-deploy      - Read-only post-upgrade health check (venv imports + systemd units + models)"
+	@echo "  make backup-databases   - Consistent snapshot of every SQLite DB + runtime config (no sqlite3 CLI needed)"
+	@echo "  make verify-backup BACKUP=DIR - Re-check a backup's checksums and integrity before restoring"
 	@echo ""
 	@echo "Storage retention (one component owns every deletion):"
 	@echo "  make storage-report     - What the sweep WOULD delete, deleting nothing"
@@ -1346,12 +1348,13 @@ verify-deploy:
 	db="$(ORPHEUS_DATA_ROOT)/detections/orpheus.db"; \
 	if [ ! -f "$$db" ]; then \
 		echo "  (no DB at $$db - fresh host? skipped)"; \
-	elif ! command -v sqlite3 >/dev/null 2>&1; then \
-		echo "  (sqlite3 not found - data-read smoke skipped)"; \
+	elif ! command -v python3 >/dev/null 2>&1; then \
+		echo "  (python3 not found - data-read smoke skipped)"; \
 	else \
-		dc=$$(sqlite3 "$$db" "SELECT count(*) FROM detections" 2>&1); \
+		count='import sqlite3, sys; c = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True); print(c.execute("SELECT count(*) FROM " + sys.argv[2]).fetchone()[0])'; \
+		dc=$$(python3 -c "$$count" "$$db" detections 2>&1 | tail -n 1); \
 		if echo "$$dc" | grep -qE '^[0-9]+$$'; then \
-			ec=$$(sqlite3 "$$db" "SELECT count(*) FROM entities" 2>/dev/null || echo "n/a"); \
+			ec=$$(python3 -c "$$count" "$$db" entities 2>/dev/null || echo "n/a"); \
 			echo "  OK  detections=$$dc  entities=$$ec - old data reads after migration"; \
 		else \
 			echo "  FAIL detections read failed: $$dc"; \
@@ -1522,6 +1525,21 @@ SWEEP_BIN = $(shell \
 	else \
 		echo "platform/orpheus-common/venv/bin/orpheus-storage-sweep"; \
 	fi)
+
+# backup-databases — the pre-upgrade safety net: a VACUUM INTO snapshot of
+# every SQLite database under ORPHEUS_DATA_ROOT (live agents keep running),
+# integrity-checked, with SHA256SUMS + manifest.json, plus the deployed
+# orpheus.yaml and .env. Stdlib Python only: JetPack ships no sqlite3 CLI.
+# Root because /opt/orpheus/config/.env is root-only; the result is chowned
+# to the data root's owner. ARGS passes flags (--dry-run, --quick, --dest DIR).
+backup-databases:
+	@sudo python3 scripts/backup-databases.py --data-root "$(ORPHEUS_DATA_ROOT)" \
+		--config-dir "$(DEPLOY_PREFIX)/config" $(ARGS)
+
+# verify-backup BACKUP=DIR — re-check a backup before restoring from it.
+verify-backup:
+	@[ -n "$(BACKUP)" ] || { echo "usage: make verify-backup BACKUP=/data/orpheus/backups/<stamp>"; exit 2; }
+	@sudo python3 scripts/backup-databases.py --verify "$(BACKUP)" $(ARGS)
 
 # storage-report — what the retention sweep would delete, without deleting it.
 #
