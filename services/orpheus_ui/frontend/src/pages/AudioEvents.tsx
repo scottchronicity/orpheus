@@ -660,6 +660,9 @@ export default function AudioEventsPage() {
         page_size: String(ITEMS_PER_PAGE),
       })
       if (labelsParam) params.set('labels', labelsParam)
+      // Always sent: the hour-of-day chart must bucket in the same zone the
+      // timestamps are displayed in, filter or no filter.
+      params.set('tz', browserTz)
       if (timeFilterActive) {
         params.set('start_time', startTime)
         params.set('end_time', endTime)

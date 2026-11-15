@@ -22,7 +22,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
-import { scatterXDomain } from './chartDomain'
+import { scatterXDomain, scatterTickFormatter } from './chartDomain'
 import { formatBytes } from '../lib/utils'
 
 // Color palette for charts
@@ -51,6 +51,15 @@ interface BirdDetectionPoint {
 /**
  * Bar chart for hourly activity data
  */
+/** "2pm" rather than "14:00" — short enough to fit a phone axis. */
+function hourLabel(hour: number): string {
+  if (!Number.isFinite(hour)) return ''
+  const h = ((hour % 24) + 24) % 24
+  if (h === 0) return '12am'
+  if (h === 12) return '12pm'
+  return h < 12 ? `${h}am` : `${h - 12}pm`
+}
+
 export function HourlyActivityChart({ data }: { data: HourlyData[] }) {
   if (!data || data.length === 0) {
     return <div className="text-slate-500 text-center py-8">No hourly data available</div>
@@ -59,20 +68,25 @@ export function HourlyActivityChart({ data }: { data: HourlyData[] }) {
   // Format hour labels
   const formattedData = data.map(d => ({
     ...d,
-    label: `${d.hour}:00`,
+    label: hourLabel(d.hour),
   }))
 
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={formattedData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-        <XAxis 
-          dataKey="hour" 
+        <XAxis
+          dataKey="hour"
           stroke="#64748b"
           tick={{ fill: '#64748b', fontSize: 10 }}
-          tickFormatter={(value) => value % 4 === 0 ? `${value}` : ''}
+          // interval, not a formatter returning '': blanking most labels still
+          // asked Recharts to lay out 24 ticks, and its overlap detection then
+          // dropped the real ones — which is why a phone showed only 0, 4, 8
+          // and you could not tell which hour a lone bar sat on.
+          interval={3}
+          tickFormatter={(value) => hourLabel(Number(value))}
         />
-        <YAxis 
+        <YAxis
           stroke="#64748b"
           tick={{ fill: '#64748b', fontSize: 10 }}
         />
@@ -83,7 +97,7 @@ export function HourlyActivityChart({ data }: { data: HourlyData[] }) {
             borderRadius: '8px',
             color: '#f1f5f9',
           }}
-          labelFormatter={(value) => `${value}:00`}
+          labelFormatter={(value) => hourLabel(Number(value))}
         />
         <Bar dataKey="count" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
       </BarChart>
@@ -155,11 +169,14 @@ export function ConfidenceScatterChart({
   maxPoints = 500,
   startDate,
   endDate,
+  displayTz,
 }: {
   data: BirdDetectionPoint[]
   maxPoints?: number
   startDate?: string
   endDate?: string
+  /** Intl timeZone for axis/tooltip: undefined = browser-local, "UTC" = UTC. */
+  displayTz?: string
 }) {
   if (!data || data.length === 0) {
     return <div className="text-slate-500 text-center py-8">No detection data available</div>
@@ -189,7 +206,7 @@ export function ConfidenceScatterChart({
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
   // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
-  const xDomain = scatterXDomain(startDate, endDate)
+  const xDomain = scatterXDomain(startDate, endDate, Date.now(), chartData.map((d) => d.x))
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -201,7 +218,7 @@ export function ConfidenceScatterChart({
           domain={xDomain}
           stroke="#64748b"
           tick={{ fill: '#64748b', fontSize: 10 }}
-          tickFormatter={(value) => new Date(value).toLocaleDateString()}
+          tickFormatter={scatterTickFormatter(xDomain, displayTz)}
         />
         <YAxis
           type="number"
@@ -260,11 +277,14 @@ export function EntityScatterChart({
   maxPoints = 500,
   startDate,
   endDate,
+  displayTz,
 }: {
   data: Array<{ timestamp: string; common_name: string; species_code: string; confidence: number }>
   maxPoints?: number
   startDate?: string
   endDate?: string
+  /** Intl timeZone for the tooltip: undefined = browser-local, "UTC" = UTC. */
+  displayTz?: string
 }) {
   if (!data || data.length === 0) {
     return <div className="text-slate-500 text-center py-8">No entity data available</div>
@@ -297,7 +317,7 @@ export function EntityScatterChart({
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
   // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
-  const xDomain = scatterXDomain(startDate, endDate)
+  const xDomain = scatterXDomain(startDate, endDate, Date.now(), chartData.map((d) => d.x))
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -309,7 +329,7 @@ export function EntityScatterChart({
           domain={xDomain}
           stroke="#64748b"
           tick={{ fill: '#64748b', fontSize: 10 }}
-          tickFormatter={(value) => new Date(value).toLocaleDateString()}
+          tickFormatter={scatterTickFormatter(xDomain, displayTz)}
         />
         <YAxis
           type="number"
@@ -336,7 +356,7 @@ export function EntityScatterChart({
               >
                 <p style={{ fontWeight: 600, marginBottom: '4px' }}>{data.species}</p>
                 <p style={{ fontSize: '12px', color: '#94a3b8' }}>
-                  {new Date(data.x).toLocaleString()}
+                  {new Date(data.x).toLocaleString(undefined, displayTz ? { timeZone: displayTz } : undefined)}
                 </p>
                 <p style={{ fontSize: '14px', marginTop: '4px' }}>
                   Confidence: {data.y.toFixed(1)}%
@@ -462,10 +482,13 @@ export function CrowScatterChart({
   data,
   startDate,
   endDate,
+  displayTz,
 }: {
   data: Array<{ timestamp: string; call_type: string; confidence: number | null }>
   startDate?: string
   endDate?: string
+  /** Intl timeZone for axis/tooltip: undefined = browser-local, "UTC" = UTC. */
+  displayTz?: string
 }) {
   if (!data || data.length === 0) {
     return <div className="text-slate-500 text-center py-8">No crow detections in this date range — try 7 Days or 30 Days</div>
@@ -492,7 +515,7 @@ export function CrowScatterChart({
   // Use local-time boundaries (no 'Z' suffix) so the domain aligns with the
   // local calendar days shown by toLocaleDateString() tick labels.
   // Clamp the X-axis to 'now' so the right side isn't an empty future gap.
-  const xDomain = scatterXDomain(startDate, endDate)
+  const xDomain = scatterXDomain(startDate, endDate, Date.now(), chartData.map((d) => d.x))
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -504,7 +527,7 @@ export function CrowScatterChart({
           domain={xDomain}
           stroke="#64748b"
           tick={{ fill: '#64748b', fontSize: 10 }}
-          tickFormatter={(value) => new Date(value).toLocaleDateString()}
+          tickFormatter={scatterTickFormatter(xDomain, displayTz)}
         />
         <YAxis
           type="number"

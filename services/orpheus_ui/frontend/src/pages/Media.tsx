@@ -525,9 +525,12 @@ export default function Media() {
                     className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden"
                   >
                     {videoBlobUrls[timelapse.filename] ? (
+                      /* No aspect-video here: the element takes the clip's own
+                         aspect ratio instead of having 16:9 forced onto it, so a
+                         3:2 timelapse plays at its real shape rather than boxed. */
                       <video
                         controls
-                        className="w-full aspect-video bg-slate-900"
+                        className="w-full bg-slate-900"
                         preload="metadata"
                       >
                         <source src={videoBlobUrls[timelapse.filename]} type="video/mp4" />
