@@ -43,8 +43,25 @@ install *into* `/opt/orpheus` from the checkout, and git only works in the check
 
 Record the deployed revision from an authoritative deployment record. `/opt/orpheus`
 is an rsync tree without Git metadata, and `show-deployed` does not establish its
-source commit. If the exact revision or baseline health cannot be established, stop.
-If `verify-deploy` is already ❌ before deployment, resolve that first.
+source commit. Without a record, derive it from the deployed files, and check the
+candidate against it:
+
+```bash
+make match-deployed                        # the commits each deployed component matches exactly
+make match-deployed REV=<candidate>        # ❌ = deploying <candidate> would revert that component
+```
+
+A ❌ against the candidate means the station runs commits the candidate does not
+contain (local fixes deployed from a checkout and never pushed, for example).
+Merge them into the candidate on a development branch, keeping their SHAs, and
+re-check; never rewrite or reset the station's own checkout to get there. The
+check needs those commits in the checkout it runs from (`git fetch` first) and
+reads only the source trees: re-run it with `sudo` if a component is unreadable.
+
+If the exact revision or baseline health cannot be established, stop.
+If `verify-deploy` is already ❌ before deployment, resolve that first. Its
+deployment-isolation section fails on runtime unit overrides and on anything
+that depends on a home directory; the gates below say how to resolve each.
 
 ## 0a. Branch-specific runtime and audio gates
 
@@ -137,6 +154,41 @@ Resolve these gates against the station's actual config and installed environmen
 - `make services-install` invokes the audio-output installer; it is not a dry run.
   `make update-services` deploys code and restarts components. Use the cold cutover
   below. Never run these against active writers as a preflight.
+- **Runtime unit overrides.** A drop-in under `/run/systemd/system/<unit>.d/`
+  (from `systemctl edit --runtime` or a trial) outranks `/etc`, is in no repo,
+  survives the deploy, and vanishes at the next reboot: the service then runs one
+  way after the deploy and another after a power cut. `verify-deploy` fails on it
+  and on any unit `Environment`/`ExecStart` path into a home directory. The
+  `systemctl cat` capture above records it. Carry the setting you want to keep into
+  `orpheus.yaml`, and remove the drop-in during the cutover with that component
+  stopped (`sudo rm /run/systemd/system/<unit>.d/<name>.conf && sudo systemctl
+  daemon-reload`).
+- **PANNs backend after a trial override.** A GPU trial drop-in typically sets
+  `ORPHEUS_AUDIO_EVENTS__BACKEND=gpu_worker` and a `PYTHONPATH` into a home-directory
+  checkout. The deployed agent at the candidate has the worker client, so drop the
+  `PYTHONPATH`. Then decide: `audio_events.backend: gpu_worker` (GPU required) or
+  `auto` keeps the worker; `inprocess` (the default) runs on CPU on JetPack 5,
+  because the agent venv's Torch has no CUDA there, so `device: auto` resolves to
+  CPU. The worker's memory gates are checked at start and while running: if
+  `last_error` in its health reports MemAvailable below the start gate (timelapse
+  encodes and the other model agents compete for memory), size the
+  `audio_events.gpu_worker` budgets from measurements
+  ([PANNs on GPU](../operator-manual/panns-gpu.md)) before relying on it.
+- **Python 3.12/3.13 for GPS and the correlator.** JetPack 5 ships 3.8 and 3.9.
+  `sudo scripts/provision-python.sh` installs a pinned CPython under
+  `/opt/orpheus/python` (a distribution package also works). Never point a deployed
+  venv at an interpreter under a home directory (a user's uv or pyenv Python):
+  `verify-deploy` fails such a venv. `make … install-service` runs each installer
+  under `sudo`, which drops `PYTHON_BIN`, so invoke these two directly:
+  `sudo PYTHON_BIN=/opt/orpheus/python/bin/python3.12 bash services/orpheus-gps/systemd/install-service.sh`,
+  and the same for `agents/orpheus-agent-event-correlator/systemd/install-service.sh`.
+  A global `PYTHON_BIN` would also reach bird-detection, which requires 3.9.
+- **BirdNET's venv.** Its installer copies only the agent's payload (never a
+  working-tree or old venv beside the source), rebuilds the venv with Python 3.9
+  on every install, and fails if the result references a home directory. A deployed
+  venv that `verify-deploy` reports as depending on a home directory is replaced
+  by a normal install. `sudo ONNX_RUNTIME=cuda bash agents/orpheus-agent-bird-detection/systemd/install-service.sh`
+  selects `onnxruntime-gpu`; the default is CPU.
 
 Stop if a required interpreter or dependency is unavailable, accelerator selection
 does not match the installed runtime, effective audio settings or competing-unit
@@ -380,9 +432,12 @@ while code and environments change, then starts components in explicit stages.
    installer can restart it. Deploy one component at a time and verify its venv
    (`pip list` — new platform dependencies like nats-py must appear; no paths into
    `/home`) before continuing.
-   **Gotcha**: agent installers `cp -r .` — a working-tree `venv/` will be
-   copied over the deployed venv. Remove/quarantine working-tree venvs first
-   (see backlog: fix the installers to exclude venv).
+   **Gotcha when installing from an older checkout**: its bird-detection and
+   event-correlator installers `cp -r .`, so a working-tree `venv/` (or an
+   untracked `oldvenv/` beside the source) is copied into `/opt`, over the
+   deployed venv. Those two installers now copy only the payload; GPS copies only
+   `src/` and `systemd/`. With an older checkout, move working-tree venvs out of
+   the agent directories first.
    A component `deploy` syncs source before installing its package. If it returns
    nonzero, treat that component as partially changed: keep its unit stopped, do
    not continue the rollout or start it, and restore/redeploy the tagged known-good
@@ -395,7 +450,8 @@ while code and environments change, then starts components in explicit stages.
    open / index build to complete and "Connected to NATS". A read-only python3
    row-count doubles as the data-read smoke where sqlite3 is absent.
 7. **Staged rollout**: verify NATS first; then GPS and the correlator using the
-   confirmed Python 3.12/3.13 interpreter. Start light agents, then model agents
+   confirmed Python 3.12/3.13 interpreter, passed as `PYTHON_BIN` on the `sudo`
+   command line of each installer (§0a). Start light agents, then model agents
    one at a time while watching memory and accelerator health. Install audio output
    only after confirming its effective config and saved prior audio-unit state;
    verify capture isolation before starting audio-motion or playback. Start

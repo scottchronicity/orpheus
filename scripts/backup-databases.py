@@ -21,8 +21,10 @@ empty files are listed and skipped):
 Then the runtime config (``orpheus.yaml``, and ``.env`` with its mode kept) is
 copied, ``SHA256SUMS`` (``sha256sum -c`` compatible) and ``manifest.json`` are
 written, and when run as root everything is chowned to the data root's owner
-like the backups before it. The destination must not exist yet, and there
-must be room for the databases plus a margin, or nothing is written.
+like the backups before it. The destination may already exist (e.g. holding
+the unit-state capture taken just before) but must not contain any file this
+backup writes, and there must be room for the databases plus a margin, or
+nothing is written.
 
 ``--verify DIR`` re-checks a finished backup (sha256 and integrity) before you
 restore from it. Exit status is non-zero if anything failed.
@@ -164,9 +166,15 @@ def backup(args: argparse.Namespace) -> int:
         log(f"  config    {c}")
     log(f"  needs about {need / 1e9:.2f} GB; {free / 1e9:.1f} GB free on {probe}")
 
+    # An existing directory is fine (the rollout runbook captures unit state
+    # into the same one first) as long as nothing in it would be overwritten.
     if dest.exists():
-        log(f"ERROR: {dest} already exists; refusing to mix backups")
-        return 1
+        planned = ["SHA256SUMS", "manifest.json"] + [backup_name(d, dbs, data_root) for d in dbs]
+        planned += [c.name for c in configs]
+        clash = sorted(n for n in planned if (dest / n).exists() or (dest / (n + ".partial")).exists())
+        if not dest.is_dir() or clash:
+            log(f"ERROR: {dest} already holds {', '.join(clash) or 'a non-directory'}; refusing to mix backups")
+            return 1
     if need > free:
         log("ERROR: not enough free space; nothing was written")
         return 1
@@ -174,9 +182,11 @@ def backup(args: argparse.Namespace) -> int:
         log("dry run: nothing was written")
         return 0
 
-    dest.mkdir(parents=True)
-    os.chmod(dest, 0o750)
-    written: List[Path] = [dest]
+    written: List[Path] = []
+    if not dest.exists():
+        dest.mkdir(parents=True)
+        os.chmod(dest, 0o750)
+        written.append(dest)
     manifest = {
         "created": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "host": socket.gethostname(),
