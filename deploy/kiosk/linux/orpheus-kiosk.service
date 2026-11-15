@@ -1,0 +1,34 @@
+# Optional systemd USER unit: start the Orpheus kiosk browser with a graphical
+# session and restart it if it exits. For a display machine with an
+# auto-login desktop (e.g. Raspberry Pi OS). It does not create a session or
+# a display server, and nothing in Orpheus installs it.
+#
+# Install for the logged-in desktop user, not root:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/kiosk/linux/orpheus-kiosk.service ~/.config/systemd/user/
+#   install -m 0755 deploy/kiosk/linux/orpheus-kiosk-browser.sh ~/.local/bin/
+#   systemctl --user edit orpheus-kiosk    # set ORPHEUS_KIOSK_URL (see below)
+#   systemctl --user enable --now orpheus-kiosk
+# Remove: systemctl --user disable --now orpheus-kiosk and delete the files.
+
+[Unit]
+Description=Orpheus kiosk display (browser)
+Documentation=https://github.com/scottchronicity/orpheus/blob/main/docs/operator-manual/kiosk.md
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+# Point at the station's dashboard, e.g. http://jetson1:8080/kiosk
+Environment=ORPHEUS_KIOSK_URL=http://localhost:8080/kiosk
+ExecStart=%h/.local/bin/orpheus-kiosk-browser.sh
+Restart=on-failure
+RestartSec=10
+# Bound what a misbehaving browser can write to the journal (as every
+# Orpheus unit does), and name it there.
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=500
+SyslogIdentifier=orpheus-kiosk
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
@@ -14,6 +15,10 @@ import Media from './pages/Media'
 import Settings from './pages/Settings'
 import DiagnosticsPage from './pages/Diagnostics'
 import Layout from './components/Layout'
+
+// The kiosk display (/kiosk) is optional: its code loads only when a browser
+// opens it, so the dashboard bundle is unchanged for everyone else.
+const KioskPage = lazy(() => import('./kiosk/KioskPage'))
 
 /**
  * ProtectedLayout wraps the Layout with authentication check.
@@ -50,6 +55,15 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Always-on station display; signs in as the read-only guest itself. */}
+      <Route
+        path="/kiosk"
+        element={
+          <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+            <KioskPage />
+          </Suspense>
+        }
+      />
       
       {/* Protected routes with shared Layout */}
       <Route element={<ProtectedLayout />}>

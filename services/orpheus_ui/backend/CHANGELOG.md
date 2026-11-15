@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New optional `/kiosk` page: a full-screen, read-only station display (latest sightings, the last 24 hours' counts, a rotating saved camera snapshot, live microphone levels and station health). It is configured by URL parameters, signs in as the read-only guest and renews that session without redirecting, keeps its token apart from an operator's, and has a compact layout for 800×480 screens and a no-backend demo mode (`?demo=1`). It loads as its own chunk, so the dashboard bundle is unchanged. No backend change. See docs/operator-manual/kiosk.md.
+
 ## 0.4.0 — 2026-08-26
 
 - The storage headroom panel reads the sweep's published report instead of the motion agents' health payloads, so every recording category now shows a ceiling and a floor — including timelapses, which previously showed as having nothing that cleaned them.

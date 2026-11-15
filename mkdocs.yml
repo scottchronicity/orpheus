@@ -116,6 +116,7 @@ nav:
       - Installation: INSTALLATION.md
       - PANNs GPU worker (opt-in): operator-manual/panns-gpu.md
       - Audio output (speaker): operator-manual/audio-output.md
+      - Kiosk display (optional): operator-manual/kiosk.md
       - Installing with an AI assistant: llm-assisted-install.md
       - Quickstarts:
           - macOS: MACOS_QUICKSTART.md

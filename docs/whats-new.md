@@ -51,6 +51,7 @@ JetStream.
 | **Audio Events page** | Browse and filter the non-bird soundscape by AudioSet label. |
 | **Equivalences page** | Review, accept, or reject proposed cross-classifier equivalences, and see when the discovery scan last ran. |
 | **Entity type chips and self-generated tags** | Visible on entity rows. |
+| **Kiosk display** — *optional* | `/kiosk` is a full-screen, read-only station view for an always-on screen: latest sightings, today's counts, a camera snapshot, live microphone levels and station health. It opens in any browser, signs in as the guest, is configured by its URL, and installs nothing on the station. See [Kiosk display](operator-manual/kiosk.md). |
 | **Diagnostics page** | Correlator health (including chain-completion latency), storage trend, a cross-agent error feed, agent presence, audio system health, and a service log viewer. |
 | **Weather card** — *stubbed* | The card, the database table, and the `orpheus-weather` ingestor are in place, but the Ecowitt field mapping is unimplemented: the provider raises on every parse, so the ingestor exits on its first poll and no reading reaches the card. Tracked as *Finish the weather integration — real gateway parsing and a dashboard card*. |
 | **External species links** | Detections link out to iNaturalist, Wikipedia, and GBIF (AudioSet for sound labels). |
