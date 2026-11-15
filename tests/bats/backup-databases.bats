@@ -72,12 +72,17 @@ EOF
   assert_output "7"
 }
 
-@test "an existing destination is refused and left alone" {
-  mkdir -p "$DEST"; echo keep > "$DEST/KEEP"
+@test "an existing directory with other captures in it is used; one holding a backup is refused" {
+  mkdir -p "$DEST/config-before-review"; echo state > "$DEST/unit-state.txt"
+  backup
+  assert_success
+  [ -f "$DEST/orpheus.db" ] && [ -f "$DEST/unit-state.txt" ]
+  before=$(sha256sum "$DEST/orpheus.db")
   backup
   assert_failure
-  assert_output --partial "already exists"
-  [ "$(ls "$DEST")" = "KEEP" ]
+  assert_output --partial "refusing to mix backups"
+  assert_output --partial "SHA256SUMS"
+  [ "$(sha256sum "$DEST/orpheus.db")" = "$before" ]
 }
 
 @test "dry run writes nothing" {
