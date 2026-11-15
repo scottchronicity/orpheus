@@ -45,6 +45,10 @@ fail_preflight() {
 # --- preflight ----------------------------------------------------------------------
 mkdir -p "$(dirname "${DEPLOY_ROOT}")"
 STAGE="$(mktemp -d "${DEPLOY_ROOT}.stage.XXXXXX")"
+# mktemp -d creates the directory 0700, and the stage is renamed into place:
+# left alone, the deployment is unreadable to everyone but root, so the
+# read-only checks (make verify-deploy) cannot see the venv the unit runs.
+chmod 0755 "${STAGE}"
 say "building the new deployment in ${STAGE}"
 cp -r "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/systemd" "${STAGE}/"
 cp "${PROJECT_ROOT}"/{pyproject.toml,requirements.txt,VERSION,README.md} "${STAGE}/"
