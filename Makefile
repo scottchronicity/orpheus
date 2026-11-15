@@ -1156,6 +1156,12 @@ download-models:
 #      nothing and a timer that has not fired yet reports amber, not red.
 #      This shipped once: orpheus-storage-sweep named a platform venv no
 #      installer built.
+#   2c. Deployment isolation (scripts/verify-deploy-isolation.sh): no runtime
+#      /run/systemd drop-ins or units, no home-directory path in a unit's
+#      effective ExecStart/Environment/WorkingDirectory/EnvironmentFile, and
+#      no deployed venv depending on a home directory. A runtime drop-in once
+#      kept an agent on experimental home-directory code across a deploy,
+#      and a copied dev venv left a deployed one importing from a checkout.
 #   3. Event-bus broker probe (scripts/verify-broker.sh): the configured
 #      backend's broker must answer, or the freshly-restarted agents are
 #      crash-looping on connect(). Skipped when no deployed config exists.
@@ -1275,6 +1281,8 @@ verify-deploy:
 				echo "  ⚠️  $$u — could not read ExecStart"; \
 			elif [ -x "$$bin" ]; then \
 				echo "  ✅ $$u → $$bin"; \
+			elif stat "$$bin" 2>&1 | grep -q "Permission denied"; then \
+				echo "  ⚠️  $$u → $$bin cannot be checked as $$(id -un) (a parent directory is not readable); rerun with sudo"; \
 			else \
 				echo "  ❌ $$u → $$bin does not exist — this unit cannot start"; \
 				fail=1; \
@@ -1282,6 +1290,14 @@ verify-deploy:
 		done; \
 	else \
 		echo "  ⚠️  systemctl not found (not a systemd host) — ExecStart checks skipped"; \
+	fi; \
+	echo ""; \
+	echo "Deployment isolation (no /run/systemd overrides; nothing depends on a home directory):"; \
+	if out=$$(scripts/verify-deploy-isolation.sh "$(DEPLOY_PREFIX)" 2>&1); then \
+		echo "$$out" | sed 's/^/  /'; \
+	else \
+		echo "$$out" | sed 's/^/  /'; \
+		fail=1; \
 	fi; \
 	echo ""; \
 	echo "systemd timers (the timer must be active; its one-shot is idle between runs):"; \
