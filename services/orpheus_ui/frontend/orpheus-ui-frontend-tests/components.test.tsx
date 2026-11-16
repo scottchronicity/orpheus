@@ -424,8 +424,11 @@ describe('CrowEntitySection', () => {
       <CrowEntitySection startDate="2026-01-01" endDate="2026-01-07" />
     )).not.toThrow()
 
+    // A failed request is reported, not shown as "loading" forever.
     await waitFor(() => {
-      expect(screen.queryByText(/loading entity data/i)).toBeInTheDocument()
+      expect(
+        screen.queryByText(/could not load crow call events|loading crow call events/i)
+      ).toBeInTheDocument()
     })
   })
 })

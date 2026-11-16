@@ -32,7 +32,9 @@ table](../assets/entities.png)
 
 - **Birds** — species detections (BirdNET). Browse, filter, and play back the audio
   clip that triggered each detection.
-- **Crows** — the corvid-specialist channel (call type / context).
+- **Crows** — the corvid-specialist channel (call type / context). Its "Crow Call
+  Events" section counts correlated events whose evidence includes a crow-call
+  classification; one event is one sighting, not one identified bird.
 - **Audio Events** — non-bird sounds (PANNs / AudioSet): dogs, vehicles, speech,
   sirens, and the rest of the soundscape, each labelled by type.
 - **Dashboard** — the station at a glance: CPU, memory, disks, uptime, the GPU
@@ -123,8 +125,9 @@ same links appear in the detail view and on the Entities page. AudioSet labels
 link to the AudioSet ontology. Links prefer the scientific name so they land on
 the right taxon; legacy detections without one fall back to a common-name search.
 
-Date filters on the detection and video pages use your browser’s timezone.
-Hourly and daily activity summaries use UTC.
+Date filters on the detection and video pages use your browser’s timezone, and
+so do the per-day and hour-of-day activity charts beside them; on the Entities
+page the Local/UTC switch chooses the zone for the table and both charts.
 The snapshot archive uses UTC date and hour filters. The timelapse archive uses
 the date from each camera’s schedule.
 

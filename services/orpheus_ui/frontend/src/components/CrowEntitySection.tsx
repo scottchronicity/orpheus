@@ -1,9 +1,11 @@
 /**
  * CrowEntitySection — "Clean Signal" correlated entity view for the Crows page.
  *
- * Fetches crow entities from `/api/entities?species=corvus,crow` and renders an
- * activity chart that mirrors the raw-detection charts on the same page,
- * enabling easy comparison between de-duplicated entities and raw detections.
+ * Fetches correlated entities from `/api/entities?species=corvus,crow` and keeps
+ * the ones whose evidence includes a crow-call classification (`crow.analyzed`,
+ * the crow classifier); BirdNET- or PANNs-only corvid detections (ravens, jays)
+ * are left out. Each is one correlated event, not an identified individual bird.
+ * The charts mirror the raw-detection charts on the same page.
  *
  * Reuses the existing chart components from Charts.tsx for visual consistency.
  */
@@ -20,6 +22,7 @@ interface EntityEvidence {
   sensor_id: string
   clip_path?: string
   confidence: number
+  detection_type?: string
 }
 
 interface MetadataAggregate {
@@ -184,44 +187,78 @@ function deriveHourlyAges(entities: EntityEvent[]): { hour: number; [key: string
   }))
 }
 
+/** An entity belongs here when the crow classifier analysed one of its calls. */
+export function hasCrowCall(entity: { evidence?: { detection_type?: string }[] }): boolean {
+  return entity.evidence?.some((ev) => ev.detection_type === 'crow.analyzed') ?? false
+}
+
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function SectionHeader() {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <Sparkles className="w-5 h-5 text-emerald-400 self-center" />
+      <h2 className="text-lg font-semibold text-white">Crow Call Events (correlated)</h2>
+      <span className="text-xs text-slate-500">
+        1 dot = 1 correlated event with a crow-call classification, not an individual bird
+      </span>
+    </div>
+  )
+}
+
 export function CrowEntitySection({ startDate, endDate }: { startDate: string; endDate: string }) {
-  const { data, isLoading } = useQuery<EntitiesResponse>({
+  const { data, isLoading, error } = useQuery<EntitiesResponse>({
     queryKey: ['crow-entities', startDate, endDate],
-    queryFn: () =>
-      fetchJson<EntitiesResponse>(
-        `/api/entities?species=corvus,crow&start_date=${startDate}&end_date=${endDate}`
-      ),
+    queryFn: () => {
+      const params = new URLSearchParams({
+        species: 'corvus,crow',
+        start_date: startDate,
+        end_date: endDate,
+        tz: browserTimeZone(),
+      })
+      return fetchJson<EntitiesResponse>(`/api/entities?${params.toString()}`)
+    },
     refetchInterval: POLLING_INTERVALS.HISTORY,
   })
 
-  if (isLoading || !data?.entities) {
+  if (error && !data) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-semibold text-white">Verified Entities (De-duplicated)</h2>
-          <span className="text-xs text-slate-500 ml-2">1 dot = 1 real crow</span>
-        </div>
+        <SectionHeader />
         <Card className="p-6 text-center">
-          <p className="text-slate-400">Loading entity data...</p>
+          <p className="text-amber-300">Could not load crow call events</p>
+          <p className="text-slate-500 text-sm mt-1">{String(error)}</p>
         </Card>
       </div>
     )
   }
 
-  const entities = data.entities
+  if (isLoading || !data?.entities) {
+    return (
+      <div className="space-y-4">
+        <SectionHeader />
+        <Card className="p-6 text-center">
+          <p className="text-slate-400">Loading crow call events…</p>
+        </Card>
+      </div>
+    )
+  }
+
+  const entities = data.entities.filter(hasCrowCall)
 
   // Show empty state if no entities
   if (entities.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-semibold text-white">Verified Entities (De-duplicated)</h2>
-          <span className="text-xs text-slate-500 ml-2">1 dot = 1 real crow</span>
-        </div>
+        <SectionHeader />
         <Card className="p-6 text-center">
-          <p className="text-slate-400">No crow entities in this date range</p>
+          <p className="text-slate-400">No crow call events in this date range</p>
           <p className="text-slate-500 text-sm mt-1">Entities appear once the event correlator processes detections</p>
         </Card>
       </div>
@@ -244,17 +281,13 @@ export function CrowEntitySection({ startDate, endDate }: { startDate: string; e
   return (
     <div className="space-y-4">
       {/* Section Header */}
-      <div className="flex items-center gap-2">
-        <Sparkles className="w-5 h-5 text-emerald-400" />
-        <h2 className="text-lg font-semibold text-white">Correlated Crow Events (De-duplicated)</h2>
-        <span className="text-xs text-slate-500 ml-2">1 dot = 1 real crow visit</span>
-      </div>
+      <SectionHeader />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          title="Crow Entities"
-          value={data.count}
+          title="Crow Call Events"
+          value={entities.length}
           icon={Bird}
           color="blue"
         />
@@ -269,7 +302,7 @@ export function CrowEntitySection({ startDate, endDate }: { startDate: string; e
             <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
               <Sparkles className="w-5 h-5" />
             </div>
-            <span className="text-sm text-slate-400">Avg Sensors / Entity</span>
+            <span className="text-sm text-slate-400">Avg Evidence / Event</span>
           </div>
           <p className="text-lg font-medium text-white">
             {entities.length > 0
@@ -282,7 +315,7 @@ export function CrowEntitySection({ startDate, endDate }: { startDate: string; e
       {/* Charts Grid - 2x2 layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Crow Entities Over Time</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Crow Call Events Over Time</h2>
           <HourlyActivityChart data={hourlyData} />
         </Card>
 

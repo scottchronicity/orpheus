@@ -345,7 +345,7 @@ export default function BirdsPage() {
       {/* Trends over time + species distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Detections per Day (UTC)</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Detections per Day (local time)</h2>
           <p className="text-xs text-slate-500 mb-3">All detections across selected date range</p>
           <DailyActivityChart data={data?.stats?.daily_activity ?? []} />
         </Card>
@@ -358,7 +358,7 @@ export default function BirdsPage() {
       </div>
 
       <Card>
-        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
+        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (local time)</h2>
         <p className="text-xs text-slate-500 mb-3">All detections grouped by hour of day</p>
         <HourlyActivityChart data={data?.stats?.hourly_activity ?? []} />
       </Card>

@@ -77,6 +77,31 @@ interface EntityEventSignature {
   also_detected?: EntityAlsoDetected[]
 }
 
+/**
+ * The name to show for an entity. ``common_name`` is empty when no classifier
+ * named the sound — on this station almost always the crow classifier's
+ * "unknown" verdict — so fall back to a real species code, then to a plain
+ * "Unidentified" label instead of a blank cell. Display only: the stored
+ * record is unchanged.
+ */
+export function entityDisplayName(e: {
+  common_name?: string | null
+  species_code?: string | null
+  entity_type?: string | null
+}): { label: string; identified: boolean } {
+  const name = e.common_name?.trim()
+  if (name) return { label: name, identified: true }
+  const code = e.species_code?.trim()
+  if (code && code.toLowerCase() !== 'unknown') return { label: code, identified: true }
+  if (e.entity_type?.endsWith('.Crow')) return { label: 'Unidentified (crow classifier)', identified: false }
+  return { label: 'Unidentified', identified: false }
+}
+
+function EntityName({ entity }: { entity: Parameters<typeof entityDisplayName>[0] }) {
+  const { label, identified } = entityDisplayName(entity)
+  return identified ? <>{label}</> : <span className="italic text-slate-400">{label}</span>
+}
+
 interface EntityEvent {
   entity_id: string
   timestamp: string
@@ -351,7 +376,7 @@ function EntityDetail({ entity, onClose, displayTz }: { entity: EntityEvent; onC
         <div className="sticky top-0 z-10 bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium text-white">
-              {entity.common_name}
+              <EntityName entity={entity} />
               {entity.is_self_generated && (
                 <span
                   className="ml-2 align-middle rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-300"
@@ -740,7 +765,7 @@ export default function EntitiesPage() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
-              <h2 className="text-lg font-medium text-white mb-4">Entities per Day (UTC)</h2>
+              <h2 className="text-lg font-medium text-white mb-4">Entities per Day ({tzMode === 'utc' ? 'UTC' : 'local time'})</h2>
               <p className="text-xs text-slate-500 mb-3">All entities across selected date range</p>
               <DailyActivityChart data={data.stats?.daily_activity ?? []} />
             </Card>
@@ -760,7 +785,7 @@ export default function EntitiesPage() {
             </Card>
 
             <Card>
-              <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
+              <h2 className="text-lg font-medium text-white mb-4">Hourly Activity ({tzMode === 'utc' ? 'UTC' : 'local time'})</h2>
               <p className="text-xs text-slate-500 mb-3">All entities grouped by hour of day</p>
               <HourlyActivityChart data={hourlyData} />
             </Card>
@@ -805,7 +830,7 @@ export default function EntitiesPage() {
                         {formatDateTime(entity.timestamp, displayTz)}
                       </td>
                       <td className="py-3 pr-4 text-white">
-                        {entity.common_name}
+                        <EntityName entity={entity} />
                         {entity.is_self_generated && (
                           <span
                             className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-300"
