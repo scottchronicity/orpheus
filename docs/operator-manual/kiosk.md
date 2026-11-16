@@ -92,14 +92,14 @@ case.
 | **Chromium on the Jetson** with a minimal kiosk session | Browser about 400 MB of RAM (measured in headless Chromium showing the kiosk at 1080p: about 400–440 MiB across six processes, 10 MiB of page heap), plus a display server or compositor, plus CPU for rendering; GPU memory unless the GPU is disabled | A display session (Xorg or a Wayland kiosk compositor such as `cage`), Chromium, and the monitor attached and detected |
 | **The Jetson's GNOME desktop** | GNOME was stopped on 2026-11-12 to give inference its memory back; a full desktop costs far more than a kiosk session (not measured here) | Not recommended |
 
-**Recommendation:** run the screen on a separate device. A Raspberry Pi with
-Raspberry Pi OS, auto-login to its desktop, and the user unit below is the
-simplest permanent display, and it keeps the Jetson's memory and GPU for
-inference.
+jetson1 runs the kiosk on its own monitor; see
+[On the Jetson's own monitor](#on-the-jetsons-own-monitor) for the setup and its
+measured cost. A separate device costs the Jetson nothing beyond API requests: a
+Raspberry Pi with auto-login to its desktop and the user unit below is the
+simplest one.
 
-Running a display on the Jetson itself is a deployment decision. It needs a
-graphical stack running, and nothing in this repository installs one. Before
-proposing it, measure on the station:
+Running a display on the Jetson itself is a deployment decision. Before
+enabling it on another station, measure there:
 - memory with the browser and session running, against the inference memory
   floors in [PANNs GPU worker](panns-gpu.md);
 - CPU while the audio and video agents are busy.
@@ -120,11 +120,76 @@ so the kernel lists no connectors. The script says so rather than claiming
 nothing is attached. Only a running display session can confirm the monitor
 there.
 
-The station's 7-inch screen is documented as connected through a USB-C hub's
-HDMI port into a USB-A port
-([display hardware notes](https://github.com/scottchronicity/orpheus/tree/main/platform/jetson-orin-nx-yahboom/hardware/display)).
-Whether that path can drive a screen from this Jetson is unverified. Check it,
-with the monitor powered, before planning to run a screen on the Jetson.
+On jetson1 the station's 7-inch 800×480 screen reports itself as `HCT HDMI`
+and is driven from the Jetson's own DisplayPort output (`DP-0`): X reads its
+EDID there and sets 800×480. A USB port carries no video on this carrier board
+(it has no USB-C DisplayPort Alt Mode), so whatever the cabling, the picture
+comes from the DisplayPort output. With no display session running nothing
+drives that output, which is why the screen went dark when GNOME was stopped.
+
+### On the Jetson's own monitor
+
+`deploy/kiosk/jetson/` runs the kiosk on the attached screen without a desktop:
+a bare X server and one full-screen Chromium, started at boot by
+`orpheus-kiosk.service`. Measured on jetson1 (800×480, GPU off, PANNs on the
+GPU worker): X and Chromium together about 285 MiB (PSS); MemAvailable through
+the 13:00 and 14:00 timelapse encodes stayed far above the worker's floor, with
+no worker stops or rejected clips.
+
+- It runs as the unprivileged `orpheus-kiosk` user, which must be in the
+  `video` group (as `gdm` is) or X fails with "Failed to initialize the NVIDIA
+  graphics device".
+- The browser starts only while a monitor is attached and closes when it is
+  unplugged; a headless station carries only an idle X server.
+- Nice 10 and `OOMScoreAdjust=900` reach X and every browser process. The memory
+  and CPU caps go on the kiosk user's slice, because PAM and the Chromium snap
+  move those processes out of the service's own cgroup.
+- It signs in as the read-only guest by itself (`ui.guest_quick_login`); no
+  credentials are stored anywhere.
+- It plays no sound and must not run an audio server: the install step below
+  masks PulseAudio for `orpheus-kiosk`. Confirm with
+  `make -C services/orpheus-audio-output health` that `capture_isolation` is
+  `ok` with the kiosk running.
+- `orpheus-kiosk-update.timer` applies the browser's snap security updates every
+  Sunday at 03:10, after the 03:00 encode. snapd's automatic refresh is held for
+  those snaps so it never replaces the browser mid-day.
+
+Install, check or remove it with `deploy/kiosk/jetson/install.sh`, as root,
+from the repository checkout. It is safe to run again, and sets up everything
+above: the Chromium snap and its update hold, the `orpheus-kiosk` user (video
+group, locked password, PulseAudio masked), the slice caps, the units and the
+weekly update timer, and the Ctrl+Alt+Del protection below.
+
+```bash
+sudo deploy/kiosk/jetson/install.sh --no-start   # install; enabled at boot, not started yet
+sudo systemctl start orpheus-kiosk               # try it on the monitor
+sudo deploy/kiosk/jetson/install.sh --check      # every installed piece matches the checkout
+sudo deploy/kiosk/jetson/install.sh              # after an update: reinstall and restart
+sudo deploy/kiosk/jetson/install.sh --uninstall  # remove it (keeps the user and snaps)
+```
+
+The snap store sometimes refuses connections; the installer and the update job
+retry, and the update job leaves the kiosk running when it cannot reach the
+store.
+
+List `orpheus-kiosk` in `dashboard.services` so the dashboard and the kiosk's
+own footer show its state with the other services.
+
+Turn it off and get its memory back, without touching any wildlife service:
+`sudo systemctl disable --now orpheus-kiosk`.
+
+**Remote access.** The kiosk opens no network port. An `x11vnc` unit left over
+from a desktop install would, once the kiosk's X server is running, share the
+screen on every interface. Check with `systemctl is-enabled x11vnc`, and turn it
+off unless you use it: `sudo systemctl disable --now x11vnc`.
+
+**Keyboard reboots.** With a keyboard attached, Ctrl+Alt+Del reboots the
+station by default. The installer masks `ctrl-alt-del.target` and installs
+`50-orpheus-no-ctrl-alt-del.conf`, which also stops the seven-presses forced
+reboot. `kernel.sysrq` is left as it is.
+
+Undo: `sudo systemctl unmask ctrl-alt-del.target`, delete the file, and
+`sudo systemctl daemon-reexec`.
 
 ## Launchers (optional, platform-specific)
 
@@ -136,6 +201,8 @@ Nothing installs these.
   - it refuses to run without `DISPLAY` or `WAYLAND_DISPLAY`;
   - it never installs a browser;
   - `ORPHEUS_KIOSK_GPU=0` keeps it off the GPU;
+  - `ORPHEUS_KIOSK_WINDOW=W,H` places the window at 0,0 with that size, for an
+    X session with no window manager (`--kiosk` alone leaves a margin there);
   - `ORPHEUS_KIOSK_DRY_RUN=1` prints the command instead of running it.
 
   To start it automatically with the desktop, install the user unit
@@ -148,8 +215,11 @@ Nothing installs these.
 
 ## Turn it off
 
-There is nothing to turn off on the station. Close the tab, or on a display
-machine run `systemctl --user disable --now orpheus-kiosk`. To stop
+On a station running the kiosk on its own monitor:
+`sudo systemctl disable --now orpheus-kiosk` stops X and the browser and frees
+their memory; the wildlife services are not touched. Otherwise there is nothing
+to turn off on the station. Close the tab, or on a display machine run
+`systemctl --user disable --now orpheus-kiosk`. To stop
 unauthenticated viewing altogether (dashboard and kiosk), set
 `ui.guest_quick_login: false`.
 

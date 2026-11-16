@@ -5,43 +5,36 @@
 Display configuration for the Jetson Orin NX. While the Orpheus project is primarily headless, a display is useful for development, debugging, and visualization.
 
 ### Actual Orpheus Display Hardware
-- **HMTECH 7 Inch Raspberry Pi Screen** (800×480 IPS LCD)
-- **Connection Path**: HMTECH monitor → Anker 555 USB-C Hub (HDMI port) → BLACK+DECKER USB-C to USB-A adapter → Jetson USB-A port
-- **Note**: Jetson DisplayPort is **UNUSED** in this setup
-- **Remote Display**: VNC or NoMachine for remote access
-- **Headless** mode for production deployment
+- **HMTECH 7 Inch Raspberry Pi Screen** (800×480 IPS LCD); its EDID names it `HCT HDMI`
+- **Video**: driven from the Jetson's own **DisplayPort output**, `DP-0`
+  (verified on jetson1, 2026-11-16: X reads the panel's EDID on `DP-0` and sets 800×480)
+- **Keyboard**: Logitech K400 Plus on its Unifying USB receiver (not Bluetooth)
+- **Use**: the local kiosk (`deploy/kiosk/jetson/`); the station runs without a desktop
 
-### Important: USB-Based Display Connection
+### Important: video comes from the DisplayPort output, not USB
 
-This setup uses an **Anker 555 USB-C Hub** with HDMI output, connected to the Jetson via USB-A port. The Jetson's native DisplayPort and HDMI capabilities are NOT used. The display signal is routed through the USB hub's HDMI port.
+This carrier board (P3768) has no USB-C DisplayPort Alt Mode and no USB graphics
+adapter is attached, so no USB port can carry video to the Anker 555 hub's HDMI
+port. Whatever the cabling, the picture comes from the Jetson's DisplayPort
+output. With no X server running nothing drives that output, so the screen is
+dark while the station is headless; it lights up when the kiosk starts.
 
 ## Physical Display Setup
 
-### Actual Setup: HMTECH 7" via USB Hub
-
 ```bash
-# The HMTECH monitor connects via the Anker 555 hub's HDMI port
-# Connection chain:
-# 1. HMTECH monitor HDMI input
-# 2. Anker 555 USB-C Hub HDMI output
-# 3. BLACK+DECKER USB-C to USB-A adapter
-# 4. Jetson USB-A port
+# What the X server sees (as the kiosk user, while the kiosk runs)
+sudo -u orpheus-kiosk env DISPLAY=:0 xrandr --query
+#   DP-0 connected primary 800x480+0+0 ...
 
-# Check connected displays
-xrandr
-
-# The display will show up as a USB display device
-lsusb | grep -i display
-
-# Check display information
-xrandr --verbose
+# Read-only report of connectors, USB display adapters and graphical sessions
+deploy/kiosk/linux/orpheus-display-info.sh
 ```
 
 ### HMTECH 7" Display Resolution
 
 ```bash
 # Native resolution: 800×480
-xrandr --output HDMI-0 --mode 800x480
+xrandr --output DP-0 --mode 800x480
 
 # If auto-detection doesn't work, you may need to create custom mode:
 cvt 800 480 60

@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly security updates for the Orpheus kiosk browser (snap refresh)
+Documentation=https://github.com/scottchronicity/orpheus/blob/main/docs/operator-manual/kiosk.md
+After=network-online.target snapd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/orpheus-kiosk/orpheus-kiosk-update.sh
+TimeoutStartSec=30min
+Nice=10
+SyslogIdentifier=orpheus-kiosk-update
