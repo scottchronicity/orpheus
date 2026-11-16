@@ -1157,18 +1157,22 @@ class DetectionConfig:
         )
 
 
+# The fallback for a config with no ``dashboard.services``. It must list the same
+# units, in the same order, as ``config/orpheus.example.yaml`` (the canonical
+# inventory); a test fails when the two drift apart.
 DEFAULT_DASHBOARD_SERVICES = [
     "orpheus-backplane",
     "orpheus-ui",                          # FastAPI/React backend
     "orpheus-agent-audio-motion",
     "orpheus-agent-audio-playback",
     "orpheus-agent-audio-events",          # PANNs SED (cross-classifier-identity)
+    "orpheus-agent-video-motion",
     "orpheus-agent-bird-detection",
     "orpheus-agent-crow-detection",
-    "orpheus-agent-event-correlator",      # Layer 2/3 correlator + auto-discovery
-    "orpheus-agent-video-motion",
+    "orpheus-audio-output",                # output device + audio server manager
     "orpheus-agent-video-snapshotter",
     "orpheus-agent-video-timelapser",
+    "orpheus-agent-event-correlator",      # Layer 2/3 correlator + auto-discovery
 ]
 
 

@@ -58,7 +58,7 @@ class ServiceStatus(BaseModel):
 
     name: str
     status: str  # "running", "stopped", "unknown"
-    reason: str
+    reason: str  # why, when not plainly running; names a stale dashboard.services entry
 
 
 class ServicesResponse(BaseModel):
@@ -229,6 +229,62 @@ def get_storage_hardware(user: User = Depends(current_active_user)):
     return get_storage_hardware_info()
 
 
+# dashboard.services entries already reported as stale, so a dashboard polling
+# every few seconds logs each one once rather than on every request.
+_reported_stale_services: set = set()
+
+
+def _unit_status(systemctl_path: str, name: str) -> tuple:
+    """Status and reason for one dashboard.services entry, from systemd.
+
+    Reads the unit's load state and canonical name as well as whether it is
+    active, so a stale entry is reported as stale: a retired unit that is no
+    longer installed would otherwise read as merely "stopped", and an
+    ``Alias=`` left over from a rename (orpheus-mqtt for orpheus-backplane)
+    would read as "running" under its old name.
+    """
+    unit = f"{name}.service"
+    result = subprocess.run(
+        [systemctl_path, "show", unit, "--property=Id,LoadState,ActiveState,SubState"],
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+    props = dict(
+        line.split("=", 1) for line in (result.stdout or "").splitlines() if "=" in line
+    )
+    load_state = props.get("LoadState", "")
+    if result.returncode != 0 or not load_state:
+        detail = (result.stderr or "").strip() or "no unit state returned"
+        return "unknown", f"Could not read {unit} from systemd: {detail}"
+
+    stale = None
+    if load_state == "not-found":
+        stale = (
+            f"{unit} is not installed. Remove '{name}' from dashboard.services in "
+            "orpheus.yaml if the service was retired or renamed."
+        )
+    else:
+        canonical = props.get("Id", unit)
+        if canonical != unit:
+            stale = (
+                f"'{name}' is an alias of {canonical}. List "
+                f"'{canonical[: -len('.service')]}' in dashboard.services instead."
+            )
+    if stale is not None and name not in _reported_stale_services:
+        _reported_stale_services.add(name)
+        logger.warning("Stale dashboard.services entry", service_name=name, detail=stale)
+
+    if load_state == "not-found":
+        return "unknown", stale
+    active_state = props.get("ActiveState", "")
+    if active_state == "active":
+        return "running", stale or ""
+    sub_state = props.get("SubState", "")
+    state = f"{active_state} ({sub_state})" if sub_state else active_state or "unknown"
+    return "stopped", stale or f"Service is not running: {state}"
+
+
 @router.get("/services/status", response_model=ServicesResponse)
 def get_services_status(user: User = Depends(current_active_user)):
     """Get status of all Orpheus services.
@@ -273,19 +329,7 @@ def get_services_status(user: User = Depends(current_active_user)):
 
         try:
             logger.debug("Checking service", service_name=name)
-            result = subprocess.run(
-                [systemctl_path, "is-active", f"{name}.service"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-
-            if result.returncode == 0:
-                status = "running"
-                reason = ""
-            else:
-                status = "stopped"
-                reason = "Service is not running"
+            status, reason = _unit_status(systemctl_path, name)
 
         except subprocess.TimeoutExpired:
             logger.error("Timeout querying service", service_name=name)

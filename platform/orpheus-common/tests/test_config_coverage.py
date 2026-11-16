@@ -145,6 +145,28 @@ class TestDashboardConfigServices:
         config = DashboardConfig.from_dict(data)
         assert config.services == ["service1", "service2", "service3"]
 
+    def test_default_services_match_the_canonical_example(self):
+        """The code fallback and config/orpheus.example.yaml are one inventory.
+
+        Regression: the fallback drifted from the example (it lacked
+        orpheus-audio-output), so a config without dashboard.services and a
+        config copied from the example showed different services.
+        """
+        import yaml
+
+        from orpheus_common.config import DEFAULT_DASHBOARD_SERVICES
+
+        example = Path(__file__).resolve().parents[3] / "config" / "orpheus.example.yaml"
+        services = yaml.safe_load(example.read_text())["dashboard"]["services"]
+        assert DEFAULT_DASHBOARD_SERVICES == services
+        assert DashboardConfig.from_dict({}).services == services
+
+    def test_default_services_name_no_retired_units(self):
+        from orpheus_common.config import DEFAULT_DASHBOARD_SERVICES
+
+        assert "orpheus-mqtt" not in DEFAULT_DASHBOARD_SERVICES
+        assert "orpheus-bluetooth-autoconnect" not in DEFAULT_DASHBOARD_SERVICES
+
     def test_dashboard_services_invalid_type(self):
         """DashboardConfig should raise ConfigError for invalid services type."""
         data = {"services": 123}
