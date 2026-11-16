@@ -185,3 +185,83 @@ async def test_audio_source_player_failure_is_reported(agent, mock_mqtt_client, 
     assert failed["status"] == "error"
     assert "Connection refused" in failed["error"]
     assert failed["source"] == str(clip)
+
+
+async def _legacy_request_argv(agent, mock_mqtt_client, tmp_path, monkeypatch, payload):
+    """Run a sound_name request through the bus dispatch thread with a real
+    SubprocessAudioPlayer and a fake ffplay, and return the argv it received."""
+    argv_file = tmp_path / "argv"
+    fake = tmp_path / "ffplay"
+    fake.write_text(f'#!/bin/sh\necho "$@" > {argv_file}\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+    config = MagicMock()
+    config.audio.playback_command = "ffplay"
+    player = SubprocessAudioPlayer(config=config)
+
+    sound = tmp_path / "test_tone_1.wav"
+    sound.write_text("fake audio")
+    registry = MagicMock()
+    registry.get_sound_path.return_value = sound
+    agent._event_loop = asyncio.get_running_loop()  # noqa: SLF001
+
+    with (
+        patch("orpheus_agent_audio_playback.main.get_audio_player", return_value=player),
+        patch("orpheus_agent_audio_playback.main.get_sound_registry", return_value=registry),
+    ):
+        t = threading.Thread(
+            target=agent._handle_playback_request,  # noqa: SLF001
+            args=(agent.TOPIC_REQUEST, payload),
+        )
+        t.start()
+        t.join()
+        for _ in range(100):
+            events = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+            if any(event.get("phase") == "finished" for event in events):
+                break
+            await asyncio.sleep(0.05)
+    return argv_file.read_text().split()
+
+
+@pytest.mark.asyncio
+async def test_sound_name_request_honors_volume(agent, mock_mqtt_client, tmp_path, monkeypatch):
+    """Regression: sound_name requests ignored ``volume`` and always played at 100,
+    while file_path requests honored it."""
+    argv = await _legacy_request_argv(
+        agent, mock_mqtt_client, tmp_path, monkeypatch, {"sound_name": "test_tone_1", "volume": 30}
+    )
+
+    volumes = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-volume"]
+    assert volumes and set(volumes) == {"30"}
+    started, finished = _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)
+    assert started["playback_id"] == finished["playback_id"]
+    assert finished["playback_status"] == "completed"
+    assert finished["sound_name"] == "test_tone_1"
+
+
+@pytest.mark.asyncio
+async def test_sound_name_request_without_volume_is_unchanged(
+    agent, mock_mqtt_client, tmp_path, monkeypatch
+):
+    """A request that names no volume still plays at the player's default."""
+    argv = await _legacy_request_argv(
+        agent, mock_mqtt_client, tmp_path, monkeypatch, {"sound_name": "test_tone_1"}
+    )
+
+    volumes = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-volume"]
+    assert volumes == ["100"]
+    phases = [e["phase"] for e in _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK)]
+    assert phases == ["started", "finished"]
+
+
+@pytest.mark.parametrize("volume", [150, -1, "loud"])
+def test_sound_name_request_rejects_invalid_volume(agent, mock_mqtt_client, volume):
+    with patch.object(agent, "_play_sound") as play:
+        agent._handle_playback_request(  # noqa: SLF001
+            agent.TOPIC_REQUEST, {"sound_name": "test_tone_1", "volume": volume}
+        )
+
+    play.assert_not_called()
+    (error,) = _published(mock_mqtt_client, agent.TOPIC_RESPONSE)
+    assert error["status"] == "error"
+    assert _published(mock_mqtt_client, agent.TOPIC_ACTUATION_AUDIO_PLAYBACK) == []
