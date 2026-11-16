@@ -227,11 +227,14 @@ class AudioPlaybackAgent:
 
         repeat_count = payload.get("repeat_count", 1)
         pause_between = payload.get("pause_between", 0.0)
+        volume = payload.get("volume")
 
         # Validate parameters
         try:
             repeat_count = int(repeat_count)
             pause_between = float(pause_between)
+            if volume is not None:
+                volume = int(volume)
         except (TypeError, ValueError) as e:
             logger.exception("Invalid parameter types")
             self._publish_error(f"Invalid parameter types: {e}")
@@ -247,21 +250,28 @@ class AudioPlaybackAgent:
             self._publish_error("pause_between must be >= 0")
             return
 
+        if volume is not None and (volume < 0 or volume > MAX_VOLUME):
+            logger.warning("Invalid volume", volume=volume)
+            self._publish_error(f"volume must be between 0 and {MAX_VOLUME}")
+            return
+
         logger.info(
             "Processing playback request",
             sound_name=sound_name,
             repeat_count=repeat_count,
             pause_between=pause_between,
+            volume=volume,
         )
 
         # Execute playback synchronously
-        self._play_sound(sound_name, repeat_count, pause_between)
+        self._play_sound(sound_name, repeat_count, pause_between, volume)
 
     def _play_sound(
         self,
         sound_name: str,
         repeat_count: int,
         pause_between: float,
+        volume: Optional[int] = None,
     ) -> None:
         """Play a sound with given parameters.
 
@@ -269,6 +279,7 @@ class AudioPlaybackAgent:
             sound_name: Name of sound to play
             repeat_count: Number of repeats
             pause_between: Pause duration between repeats
+            volume: Optional volume level (0-100); None keeps the player default
         """
         try:
             # Get sound file path
@@ -288,7 +299,9 @@ class AudioPlaybackAgent:
 
             # Use call_soon_threadsafe to schedule task from MQTT thread
             asyncio.run_coroutine_threadsafe(
-                self._play_sound_async(player, sound_path, repeat_count, pause_between, sound_name),
+                self._play_sound_async(
+                    player, sound_path, repeat_count, pause_between, sound_name, volume=volume
+                ),
                 self._event_loop,
             )
             logger.debug(
@@ -322,6 +335,7 @@ class AudioPlaybackAgent:
         repeat_count: int,
         pause_between: float,
         sound_name: str,
+        volume: Optional[int] = None,
     ) -> None:
         """Async wrapper for sound playback.
 
@@ -333,6 +347,8 @@ class AudioPlaybackAgent:
             repeat_count: Number of repeats
             pause_between: Pause between repeats
             sound_name: Name of sound (for logging)
+            volume: Optional volume level (0-100); passed to the player only
+                when given, so a request without one plays exactly as before
         """
         try:
             logger.debug(
@@ -340,7 +356,10 @@ class AudioPlaybackAgent:
                 sound_name=sound_name,
                 task_id=id(asyncio.current_task()),
             )
-            await self._run_playback(player, sound_name, sound_path, repeat_count, pause_between)
+            segment = {} if volume is None else {"volume": volume}
+            await self._run_playback(
+                player, sound_name, sound_path, repeat_count, pause_between, **segment
+            )
         except asyncio.CancelledError:
             logger.warning(
                 "Playback task cancelled",

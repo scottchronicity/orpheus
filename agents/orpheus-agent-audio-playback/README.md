@@ -71,7 +71,8 @@ The agent supports two request formats for backward compatibility:
 {
   "sound_name": "test_tone_1",
   "repeat_count": 3,
-  "pause_between": 1.0
+  "pause_between": 1.0,
+  "volume": 30
 }
 ```
 
@@ -80,6 +81,8 @@ The agent supports two request formats for backward compatibility:
 - `sound_name` (required): Registered sound identifier
 - `repeat_count` (optional): Number of times to play (default: 1)
 - `pause_between` (optional): Seconds to pause between repeats (default: 0.0)
+- `volume` (optional): Volume level 0-100 (default: the player's default, 100;
+  requires ffplay). Out-of-range values are rejected with an error response.
 
 #### New Format (File Path or Detection ID)
 
