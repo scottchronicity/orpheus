@@ -20,9 +20,9 @@ import Dashboard from '../src/pages/Dashboard'
 
 type Svc = { name: string; status: string; reason: string }
 
-function withData(services: Svc[], video = { running: true, camera_count: 4 }) {
+function withData(services: Svc[], video = { running: true, camera_count: 4 }, gpu?: unknown) {
   const byKey: Record<string, unknown> = {
-    health: { status: 'ok', cpu_percent: 10, memory_percent: 50, disk_percent: 70, uptime_seconds: 60 },
+    health: { status: 'ok', cpu_percent: 10, memory_percent: 50, disk_percent: 70, uptime_seconds: 60, gpu },
     services: { services },
     'audio-diagnostics': { running: true, channels: [{ id: '1', active: true }] },
     'video-diagnostics': video,
@@ -82,5 +82,38 @@ describe('Dashboard service inventory', () => {
     withData([])
     expect(screen.queryByText(/Connect to MQTT/)).toBeNull()
     expect(screen.queryByText(/Real-time detection events will appear here/)).toBeNull()
+  })
+})
+
+const GiB = 1024 ** 3
+
+describe('Dashboard GPU card', () => {
+  it('shows utilization, temperature and the shared memory the worker uses', () => {
+    withData([], undefined, {
+      available: true,
+      utilization_percent: 23.6,
+      temperature_c: 59.4,
+      memory: {
+        shared: true,
+        total_bytes: 15.1 * GiB,
+        available_bytes: 6.8 * GiB,
+        inference_reserved_bytes: 2.0 * GiB,
+        inference_allocated_bytes: 0.3 * GiB,
+        inference_floor_bytes: 3.7 * GiB,
+      },
+    })
+    expect(screen.getByText('GPU')).toBeInTheDocument()
+    expect(screen.getByText('24')).toBeInTheDocument()
+    expect(screen.getByText('59')).toBeInTheDocument()
+    expect(screen.getByText('Shared memory (CPU + GPU)')).toBeInTheDocument()
+    expect(screen.getByText('6.8 GiB')).toBeInTheDocument()
+    expect(screen.getByText('PANNs worker: 2.0 GiB CUDA (0.3 GiB in use)')).toBeInTheDocument()
+    expect(screen.getByText('Worker pauses below 3.7 GiB free')).toBeInTheDocument()
+    expect(screen.queryByText(/VRAM/)).toBeNull()
+  })
+
+  it('is hidden on a host without a GPU', () => {
+    withData([], undefined, { available: false })
+    expect(screen.queryByText('Shared memory (CPU + GPU)')).toBeNull()
   })
 })
