@@ -285,7 +285,7 @@ function BirdCorrelationPanel({ startDate, endDate, tz }: { startDate: string; e
       {/* Daily breakdown */}
       {daily_counts.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-xs uppercase text-slate-500 mb-1">By day (UTC)</div>
+          <div className="text-xs uppercase text-slate-500 mb-1">By day (local time)</div>
           <div className="flex items-center gap-3 text-xs text-slate-400 mb-2">
             <span className="flex items-center gap-1">
               <span className="inline-block w-3 h-3 bg-green-500/70 rounded-sm" />
@@ -762,7 +762,7 @@ export default function AudioEventsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <h2 className="text-lg font-medium text-white mb-4">Events per Day (UTC)</h2>
+          <h2 className="text-lg font-medium text-white mb-4">Events per Day (local time)</h2>
           <p className="text-xs text-slate-500 mb-3">All events across selected date range</p>
           <DailyActivityChart data={data?.stats?.daily_activity ?? []} />
         </Card>
@@ -785,7 +785,7 @@ export default function AudioEventsPage() {
       </Card>
 
       <Card>
-        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (UTC)</h2>
+        <h2 className="text-lg font-medium text-white mb-4">Hourly Activity (local time)</h2>
         <p className="text-xs text-slate-500 mb-3">All events grouped by hour of day</p>
         <HourlyActivityChart data={data?.stats?.hourly_activity ?? []} />
       </Card>

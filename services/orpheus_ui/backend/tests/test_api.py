@@ -4540,3 +4540,18 @@ class TestEntityStatsScatterSampling:
         )
         assert result["total_count"] == 42
         assert len(result["scatter_sample"]) == 42
+
+
+class TestLocalDayBuckets:
+    """Per-day charts bucket in the viewer's zone, like the hour-of-day chart."""
+
+    def test_late_evening_utc_is_the_previous_local_day(self):
+        from orpheus_ui.api.diagnostics import _local_day
+
+        # 02:30 UTC on the 16th is 21:30 on the 15th in New York.
+        assert _local_day("2026-11-16T02:30:00+00:00", "America/New_York") == "2026-11-15"
+
+    def test_without_a_zone_the_utc_date_is_kept(self):
+        from orpheus_ui.api.diagnostics import _local_day
+
+        assert _local_day("2026-11-16T02:30:00+00:00", None) == "2026-11-16"

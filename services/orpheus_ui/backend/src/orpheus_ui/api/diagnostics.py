@@ -868,6 +868,12 @@ def _row_intervals_dump(row: Any) -> Optional[List[Dict[str, Any]]]:
     ]
 
 
+def _local_day(timestamp: str, tz: Optional[str]) -> str:
+    """The viewer's calendar date for a stored UTC timestamp, so a per-day chart
+    buckets in the same zone as the hour-of-day chart and the date filter."""
+    return to_zone(datetime.fromisoformat(timestamp), tz).date().isoformat()
+
+
 @router.get("/data/birds/history")
 def get_bird_history(
     days: Optional[int] = Query(
@@ -1021,7 +1027,7 @@ def get_bird_history(
         # Daily activity: count per calendar date (for trend-over-time chart)
         daily_counts: Dict[str, int] = defaultdict(int)
         for r in all_results:
-            daily_counts[r["timestamp"][:10]] += 1
+            daily_counts[_local_day(r["timestamp"], tz)] += 1
         daily_activity = [
             {"date": d, "count": daily_counts[d]} for d in sorted(daily_counts.keys())
         ]
@@ -1234,7 +1240,7 @@ def get_audio_events_history(
 
         daily_counts: Dict[str, int] = defaultdict(int)
         for r in all_results:
-            daily_counts[r["timestamp"][:10]] += 1
+            daily_counts[_local_day(r["timestamp"], tz)] += 1
         daily_activity = [
             {"date": d, "count": daily_counts[d]} for d in sorted(daily_counts.keys())
         ]
@@ -1411,7 +1417,7 @@ def get_audio_events_bird_correlation(
         for evt in audio_motion:
             src = evt["event_id"]
             evt_ts = _row_ts(evt)
-            day = evt_ts.date().isoformat()
+            day = to_zone(evt_ts, tz).date().isoformat()
             bucket = daily[day]
             bucket["audio_motion_count"] += 1
 
@@ -1581,7 +1587,7 @@ def get_crow_stats(
 
             hour = to_zone(ts, tz).hour
             hourly_counts[hour] += 1
-            daily_counts[ts.date().isoformat()] += 1
+            daily_counts[to_zone(ts, tz).date().isoformat()] += 1
 
             age = attributes.get("age", "unknown") if attributes else "unknown"
             age_counts[age] += 1
