@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Orpheus kiosk browser updates (Sunday 03:10, after the 03:00 encode)
+
+[Timer]
+OnCalendar=Sun *-*-* 03:10:00
+Persistent=false
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

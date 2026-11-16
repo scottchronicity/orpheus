@@ -52,6 +52,8 @@ already-seeded install one of two ways:
 
 - Sign in and `PATCH /users/me` with a new password — keeps your data and any accounts
   you created.
+  Rotating the guest's password does not affect a kiosk display: guest sign-in has
+  the server mint the session itself, with no password involved.
 - Or stop the UI, remove the accounts database (the backend logs its path at startup;
   `/data/orpheus/users.db` on a station), and restart with the variables above set,
   which re-seeds both accounts from them — and destroys any hand-made accounts along

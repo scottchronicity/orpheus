@@ -16,7 +16,7 @@ setup() {
   chmod +x "$BIN/chromium"
   export PATH="$BIN:/usr/bin:/bin"
   export HOME="$BATS_TEST_TMPDIR/home"
-  unset DISPLAY WAYLAND_DISPLAY ORPHEUS_KIOSK_URL ORPHEUS_KIOSK_BROWSER ORPHEUS_KIOSK_GPU
+  unset DISPLAY WAYLAND_DISPLAY ORPHEUS_KIOSK_URL ORPHEUS_KIOSK_BROWSER ORPHEUS_KIOSK_GPU ORPHEUS_KIOSK_WINDOW
 }
 
 @test "refuses to start without a graphical session" {
@@ -43,6 +43,28 @@ setup() {
   assert_success
   grep -qx -- "--disable-gpu" "$BATS_TEST_TMPDIR/argv"
   grep -qx -- "--app=http://localhost:8080/kiosk" "$BATS_TEST_TMPDIR/argv"
+}
+
+@test "fills a window-manager-less screen when given its size" {
+  export DISPLAY=:0 ORPHEUS_KIOSK_WINDOW=800,480
+  run bash "$LINUX"
+  assert_success
+  grep -qx -- "--window-position=0,0" "$BATS_TEST_TMPDIR/argv"
+  grep -qx -- "--window-size=800,480" "$BATS_TEST_TMPDIR/argv"
+}
+
+@test "leaves window placement alone unless asked" {
+  export DISPLAY=:0
+  run bash "$LINUX"
+  assert_success
+  ! grep -q -- "--window-size" "$BATS_TEST_TMPDIR/argv"
+}
+
+@test "rejects a malformed window size" {
+  export DISPLAY=:0 ORPHEUS_KIOSK_WINDOW="800x480"
+  run bash "$LINUX"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"must be W,H"* ]]
 }
 
 @test "rejects a URL that is not an Orpheus kiosk page" {

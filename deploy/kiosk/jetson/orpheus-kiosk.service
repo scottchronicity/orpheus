@@ -1,0 +1,57 @@
+# Orpheus kiosk on the Jetson's own monitor: a bare X server and one
+# full-screen Chromium showing /kiosk. No desktop, no display manager.
+#
+# Independent of every wildlife service: nothing Wants= or Requires= it, it
+# requires nothing, and stopping or failing it touches nothing else. It runs as
+# the unprivileged orpheus-kiosk user (in the video group, as gdm is, so X can
+# open the display). The browser runs with GPU rendering off, inside a memory
+# cap, and is the first process the kernel kills under memory pressure, so it
+# cannot take memory from PANNs inference.
+#
+#   Turn off and recover its memory:  sudo systemctl disable --now orpheus-kiosk
+#   Turn back on:                     sudo systemctl enable --now orpheus-kiosk
+# See docs/operator-manual/kiosk.md.
+
+[Unit]
+Description=Orpheus kiosk on the attached monitor (X + Chromium, no desktop)
+Documentation=https://github.com/scottchronicity/orpheus/blob/main/docs/operator-manual/kiosk.md
+After=systemd-user-sessions.service orpheus-ui.service
+Conflicts=getty@tty7.service gdm.service gdm3.service
+# A host that cannot start X (no driver) gives up after five tries in ten minutes.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=orpheus-kiosk
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty7
+UtmpMode=user
+Environment=ORPHEUS_KIOSK_URL=http://127.0.0.1:8082/kiosk
+Environment=ORPHEUS_KIOSK_GPU=0
+ExecStart=/usr/bin/xinit /usr/local/lib/orpheus-kiosk/orpheus-kiosk-session.sh -- /usr/bin/X :0 vt7 -keeptty -nolisten tcp -novtswitch -s 0 -dpms
+# xinit exits 1 when it is stopped; count that as a clean stop, and restart
+# after any exit instead (a crash, or X failing to start), within the limit.
+SuccessExitStatus=1
+Restart=always
+RestartSec=20
+# Protect inference. Nice and OOMScoreAdjust are inherited by X and every
+# browser process: lower CPU priority, and the first processes the kernel kills
+# under memory pressure. The memory and CPU caps cannot live here: PAM moves X
+# into the kiosk user's login session and the Chromium snap starts its own
+# scope, both under user-<uid>.slice, so install.sh sets the caps on that
+# slice.
+Nice=10
+OOMScoreAdjust=900
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=500
+SyslogIdentifier=orpheus-kiosk
+
+[Install]
+WantedBy=multi-user.target

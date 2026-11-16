@@ -1173,6 +1173,7 @@ DEFAULT_DASHBOARD_SERVICES = [
     "orpheus-agent-video-snapshotter",
     "orpheus-agent-video-timelapser",
     "orpheus-agent-event-correlator",      # Layer 2/3 correlator + auto-discovery
+    "orpheus-kiosk",                       # optional local kiosk display
 ]
 
 

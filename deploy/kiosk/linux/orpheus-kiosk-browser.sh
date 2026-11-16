@@ -17,6 +17,9 @@
 #                          browser does not take GPU memory.
 #   ORPHEUS_KIOSK_PROFILE  profile directory (default ~/.cache/orpheus-kiosk),
 #                          kept separate from any everyday browser profile
+#   ORPHEUS_KIOSK_WINDOW   "W,H": place the window at 0,0 with that size. For an
+#                          X session with no window manager (the Jetson's own
+#                          monitor), where --kiosk alone leaves a margin
 #   ORPHEUS_KIOSK_DRY_RUN  "1" to print the command instead of running it
 set -euo pipefail
 
@@ -65,6 +68,13 @@ args=(
 )
 if [[ "${ORPHEUS_KIOSK_GPU:-1}" == "0" ]]; then
     args+=(--disable-gpu --disable-gpu-compositing)
+fi
+if [[ -n "${ORPHEUS_KIOSK_WINDOW:-}" ]]; then
+    if [[ ! "${ORPHEUS_KIOSK_WINDOW}" =~ ^[0-9]+,[0-9]+$ ]]; then
+        echo "orpheus-kiosk-browser: ORPHEUS_KIOSK_WINDOW must be W,H (got '${ORPHEUS_KIOSK_WINDOW}')" >&2
+        exit 2
+    fi
+    args+=(--window-position=0,0 --window-size="${ORPHEUS_KIOSK_WINDOW}")
 fi
 
 if [[ "${ORPHEUS_KIOSK_DRY_RUN:-0}" == "1" ]]; then
