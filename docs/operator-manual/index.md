@@ -248,6 +248,14 @@ the video’s time window, including when the window crosses midnight.
   the dashboard's read pressure on the SQLite DB (the read-contention lever short of the
   read-only mirror below); the value is served on `GET /api/config` and applied before
   first render, so a bad/absent value falls back to the built-in defaults.
+- **Dashboard services (`dashboard.services`):** the units the dashboard's Service
+  Status card shows, in order; without the key, the list in
+  `config/orpheus.example.yaml` is used. An upgrade keeps your list as it was, so after
+  a service is renamed or retired, update it from the example. Until you do, the card
+  flags each stale entry: a retired unit as not installed, a renamed one as an alias
+  of its replacement (`orpheus-mqtt` → `orpheus-backplane`,
+  `orpheus-bluetooth-autoconnect` → `orpheus-audio-output`). `make verify-deploy`
+  lists the same entries under "Dashboard service inventory".
 - **Operational vs domain planes (the law):** operational signal (health, metrics,
   traces) is kept off the durable domain event log; agent health is moving onto a
   zero-dependency NATS **KV** plane, and deep telemetry is optional OpenTelemetry/OTLP

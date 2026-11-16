@@ -11,7 +11,6 @@ import {
   Mic,
   Video,
   Bird as BirdIcon,
-  Activity,
   Server,
   Database,
   CloudSun,
@@ -164,9 +163,12 @@ function ServiceStatusCard({ services }: { services: ServiceStatus[] }) {
       <CardHeader title="Service Status" icon={Server} iconColor="purple" />
       <div className="space-y-3">
         {services.map((service) => (
-          <div key={service.name} className="flex items-center justify-between">
-            <span className="text-sm text-slate-300">{service.name}</span>
-            <div className="flex items-center gap-2">
+          <div key={service.name} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm text-slate-300">{service.name}</span>
+              {service.reason && <p className="text-xs text-slate-500">{service.reason}</p>}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
               <StatusIcon status={service.status} />
               <span className={`text-sm ${getStatusColor(service.status)}`}>
                 {service.status}
@@ -281,6 +283,11 @@ export default function Dashboard() {
   if (healthLoading || servicesLoading) {
     return <LoadingSpinner />
   }
+
+  // Both cards come from runtime data: the bird agent's entry in the configured
+  // inventory (dashboard.services), and the cameras video-motion reports.
+  const birdService = services?.services.find((s) => s.name === 'orpheus-agent-bird-detection')
+  const cameraCount = videoDiag?.camera_count ?? 0
 
   return (
     <div className="space-y-6">
@@ -409,19 +416,22 @@ export default function Dashboard() {
             running={videoDiag?.running ?? false}
             message={videoDiag?.running ? `${videoDiag.camera_count ?? 0} cameras` : undefined}
           />
-          <DiagnosticsCard title="Bird Detection" icon={BirdIcon} running={true} message="BirdNET active" />
-          <DiagnosticsCard title="Camera Feeds" icon={Camera} running={true} message="4 cameras" />
+          {birdService && (
+            <DiagnosticsCard
+              title="Bird Detection"
+              icon={BirdIcon}
+              running={birdService.status === 'running'}
+              message={birdService.status === 'running' ? 'BirdNET running' : birdService.status}
+            />
+          )}
+          <DiagnosticsCard
+            title="Camera Feeds"
+            icon={Camera}
+            running={(videoDiag?.running ?? false) && cameraCount > 0}
+            message={videoDiag?.running ? `${cameraCount} cameras` : undefined}
+          />
         </div>
       </div>
-
-      {/* Activity Section */}
-      <Card>
-        <CardHeader title="Recent Activity" icon={Activity} iconColor="blue" />
-        <div className="text-center py-8 text-slate-500">
-          <p>Real-time detection events will appear here.</p>
-          <p className="text-sm mt-1">Connect to MQTT for live updates.</p>
-        </div>
-      </Card>
     </div>
   )
 }

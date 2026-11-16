@@ -1312,6 +1312,13 @@ verify-deploy:
 		fail=1; \
 	fi; \
 	echo ""; \
+	echo "Dashboard service inventory (dashboard.services names installed units; warns, does not fail):"; \
+	if command -v systemctl >/dev/null 2>&1; then \
+		scripts/check-dashboard-services.sh "$(DEPLOY_PREFIX)/config/orpheus.yaml" 2>&1 | sed 's/^/  /'; \
+	else \
+		echo "  ⚠️  systemctl not found (not a systemd host) — dashboard inventory not checked"; \
+	fi; \
+	echo ""; \
 	echo "systemd timers (the timer must be active; its one-shot is idle between runs):"; \
 	if command -v systemctl >/dev/null 2>&1; then \
 		timers=$$(systemctl list-unit-files 'orpheus-*.timer' --no-legend 2>/dev/null | awk '{print $$1}'); \

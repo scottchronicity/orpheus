@@ -191,6 +191,9 @@ class TestSystemAPI:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
+        mock_result.stdout = (
+            "Id=orpheus-ui.service\nLoadState=loaded\nActiveState=active\nSubState=running\n"
+        )
 
         with patch("shutil.which", return_value="/bin/systemctl"):
             with patch("subprocess.run", return_value=mock_result) as _:
@@ -198,6 +201,7 @@ class TestSystemAPI:
                     result = get_services_status(user=mock_user)
                     assert len(result.services) == 1
                     assert result.services[0].status == "running"
+                    assert result.services[0].reason == ""
 
     def test_get_services_status_timeout(self):
         """Test services status handles timeout."""
