@@ -321,7 +321,9 @@ def _compute_entity_stats(
 
         cursor.execute(
             f"SELECT COALESCE(NULLIF(common_name,''), species) as name, COUNT(*) as count "
-            f"FROM entities WHERE {where} GROUP BY species ORDER BY count DESC",
+            # "+species": group without walking idx_entity_species, which made the
+            # planner scan the whole table instead of using the date range.
+            f"FROM entities WHERE {where} GROUP BY +species, name ORDER BY count DESC",
             params,
         )
         species_dist: Dict[str, int] = {}
@@ -451,7 +453,9 @@ def _compute_all_species_in_range(
         where = " AND ".join(where_clauses)
         cursor.execute(
             f"SELECT COALESCE(NULLIF(common_name,''), species) as name, COUNT(*) as count "
-            f"FROM entities WHERE {where} GROUP BY species ORDER BY count DESC",
+            # "+species": group without walking idx_entity_species, which made the
+            # planner scan the whole table instead of using the date range.
+            f"FROM entities WHERE {where} GROUP BY +species, name ORDER BY count DESC",
             params,
         )
         # Sum-by-name (don't assign): two distinct ``species`` slugs
