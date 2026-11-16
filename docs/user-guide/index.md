@@ -35,6 +35,12 @@ table](../assets/entities.png)
 - **Crows** — the corvid-specialist channel (call type / context).
 - **Audio Events** — non-bird sounds (PANNs / AudioSet): dogs, vehicles, speech,
   sirens, and the rest of the soundscape, each labelled by type.
+- **Dashboard** — the station at a glance: CPU, memory, disks, uptime, the GPU
+  card, and the services it runs. The GPU card shows its load and temperature
+  and the memory it uses. A Jetson's GPU has no memory of its own; it shares
+  the system's, so the card shows how much of that shared memory is free, how
+  much the sound classifier (PANNs) holds on the GPU, and the level below which
+  that classifier pauses itself until memory frees up.
 - **Entities** — the correlator's fused view: one entity per real-world animal/event,
   built from the evidence of several classifiers (e.g. a crow seen by BirdNET +
   crow-tools + audio-events collapses into one entity). Each entity shows a small
@@ -146,8 +152,9 @@ on it can be clicked into or changed. It shows:
   activity by hour of the day, with the current hour highlighted.
 - **Camera:** the latest saved snapshot, rotating through the cameras.
 - **Listening:** a live level meter per microphone.
-- **Station:** CPU, memory and disk use, how many services are running, and any
-  that are not.
+- **Station:** CPU, memory, disk and GPU use (with the GPU's temperature), how
+  many services are running, and any that are not. On the small 800×480 screen
+  this is one line at the bottom.
 
 The header shows the time, the weather when a station reports it, and one line
 of status ("All systems normal", "1 service need attention", or "Station

@@ -42,6 +42,7 @@ export function health(): KioskHealth {
     disk_percent: 47,
     uptime_seconds: 9 * 86400 + 4 * 3600,
     disk_data: { percent: 47, ok: true },
+    gpu: { available: true, utilization_percent: 24, temperature_c: 58 },
   }
 }
 

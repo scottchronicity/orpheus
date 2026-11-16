@@ -35,6 +35,12 @@ export interface KioskHealth {
   disk_percent: number
   uptime_seconds: number
   disk_data?: { percent: number; ok: boolean } | null
+  /** Absent on an older station; ``available: false`` on a host without a GPU. */
+  gpu?: {
+    available: boolean
+    utilization_percent?: number | null
+    temperature_c?: number | null
+  } | null
 }
 
 export interface KioskServices {

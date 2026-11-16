@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from orpheus_ui.api._responses import set_cache_control
 from orpheus_ui.auth.backend import current_active_user
 from orpheus_ui.auth.models import User
+from orpheus_ui.gpu import average_utilization, gpu_info
 from orpheus_ui.storage_categories import build_headroom_payload
 from orpheus_ui.storage_history import compute_rate_and_projection, get_storage_history_db
 
@@ -41,6 +42,28 @@ class DiskInfo(BaseModel):
     error: Optional[str] = None
 
 
+class GpuMemory(BaseModel):
+    """GPU memory on a shared-memory SoC: the system RAM pool the GPU uses,
+    and what the PANNs worker's CUDA allocator holds of it."""
+
+    shared: bool = True
+    total_bytes: int
+    available_bytes: int
+    inference_reserved_bytes: Optional[int] = None
+    inference_allocated_bytes: Optional[int] = None
+    inference_floor_bytes: Optional[int] = None
+
+
+class GpuInfo(BaseModel):
+    """GPU telemetry; ``available`` is false on a host without a readable GPU."""
+
+    available: bool
+    utilization_percent: Optional[float] = None  # mean over the window below
+    utilization_window_seconds: Optional[int] = None
+    temperature_c: Optional[float] = None
+    memory: Optional[GpuMemory] = None
+
+
 class HealthResponse(BaseModel):
     """System health metrics."""
 
@@ -51,6 +74,19 @@ class HealthResponse(BaseModel):
     uptime_seconds: int
     disk_system: Optional[DiskInfo] = None
     disk_data: Optional[DiskInfo] = None
+    gpu: Optional[GpuInfo] = None
+
+
+def _gpu_worker_floor_mib() -> Optional[int]:
+    """The PANNs worker's memory floor from orpheus.yaml, when it runs on the GPU."""
+    from orpheus_common import OrpheusConfig
+
+    raw = getattr(OrpheusConfig.get_instance(), "_raw", None) or {}
+    section = raw.get("audio_events") or {}
+    if section.get("backend") != "gpu_worker":
+        return None
+    floor = (section.get("gpu_worker") or {}).get("floor_memory_mib")
+    return int(floor) if isinstance(floor, (int, float)) else None
 
 
 class ServiceStatus(BaseModel):
@@ -101,14 +137,30 @@ def get_health(user: User = Depends(current_active_user)):
         error=data_storage.get("error"),
     )
 
+    memory = psutil.virtual_memory()
+    try:
+        from orpheus_ui.api.entities import get_audio_events_health
+
+        gpu = gpu_info(
+            memory.total,
+            memory.available,
+            get_audio_events_health(user=user),
+            _gpu_worker_floor_mib(),
+            average_utilization(),
+        )
+    except Exception as e:  # noqa: BLE001 - telemetry must never fail the health check
+        logger.warning("GPU telemetry unavailable", error=str(e))
+        gpu = {"available": False}
+
     return HealthResponse(
         status="ok",
         cpu_percent=round(psutil.cpu_percent(interval=1), 1),
-        memory_percent=round(psutil.virtual_memory().percent, 1),
+        memory_percent=round(memory.percent, 1),
         disk_percent=round(root_usage.percent, 1),
         uptime_seconds=uptime,
         disk_system=disk_system,
         disk_data=disk_data,
+        gpu=GpuInfo(**gpu),
     )
 
 

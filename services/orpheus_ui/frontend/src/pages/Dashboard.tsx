@@ -14,6 +14,7 @@ import {
   Server,
   Database,
   CloudSun,
+  Gauge,
 } from 'lucide-react'
 import {
   LoadingSpinner,
@@ -43,6 +44,23 @@ interface HealthData {
   uptime_seconds: number
   disk_system?: DiskInfo
   disk_data?: DiskInfo
+  gpu?: GpuInfo
+}
+
+/** GPU telemetry; on a Jetson the GPU shares system RAM (no separate VRAM). */
+export interface GpuInfo {
+  available: boolean
+  utilization_percent?: number | null
+  utilization_window_seconds?: number | null
+  temperature_c?: number | null
+  memory?: {
+    shared: boolean
+    total_bytes: number
+    available_bytes: number
+    inference_reserved_bytes?: number | null
+    inference_allocated_bytes?: number | null
+    inference_floor_bytes?: number | null
+  } | null
 }
 
 interface ServiceStatus {
@@ -255,6 +273,83 @@ function bytesToGiB(bytes: number | undefined): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GiB`
 }
 
+const BAR_COLOR = { blue: 'bg-blue-500', green: 'bg-green-500', amber: 'bg-amber-500', red: 'bg-red-500' }
+
+function Meter({ percent, color }: { percent: number; color: keyof typeof BAR_COLOR }) {
+  return (
+    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+      <div
+        className={`h-full rounded-full transition-all ${BAR_COLOR[color]}`}
+        style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+      />
+    </div>
+  )
+}
+
+function temperatureColor(celsius: number): 'blue' | 'amber' | 'red' {
+  if (celsius >= 85) return 'red'
+  if (celsius >= 75) return 'amber'
+  return 'blue'
+}
+
+/** GPU load, temperature and the shared memory the GPU and inference use. */
+export function GpuCard({ gpu }: { gpu: GpuInfo }) {
+  const mem = gpu.memory
+  const usedPercent = mem ? ((mem.total_bytes - mem.available_bytes) / mem.total_bytes) * 100 : 0
+  return (
+    <Card>
+      <CardHeader title="GPU" icon={Gauge} iconColor="purple" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div>
+          <p className="text-xs text-slate-500 mb-1">
+            Utilization{gpu.utilization_window_seconds ? ` (${gpu.utilization_window_seconds} s average)` : ''}
+          </p>
+          <div className="flex items-baseline gap-1 mb-2">
+            <span className="text-3xl font-bold text-white">
+              {gpu.utilization_percent == null ? '—' : Math.round(gpu.utilization_percent)}
+            </span>
+            {gpu.utilization_percent != null && <span className="text-slate-400">%</span>}
+          </div>
+          <Meter percent={gpu.utilization_percent ?? 0} color={getUsageColor(gpu.utilization_percent ?? 0)} />
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">Temperature</p>
+          <div className="flex items-baseline gap-1 mb-2">
+            <span className="text-3xl font-bold text-white">
+              {gpu.temperature_c == null ? '—' : gpu.temperature_c.toFixed(0)}
+            </span>
+            {gpu.temperature_c != null && <span className="text-slate-400">°C</span>}
+          </div>
+          {gpu.temperature_c != null && (
+            <Meter percent={gpu.temperature_c} color={temperatureColor(gpu.temperature_c)} />
+          )}
+        </div>
+        {mem && (
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Shared memory (CPU + GPU)</p>
+            <div className="flex items-baseline gap-1 mb-2">
+              <span className="text-3xl font-bold text-white">{bytesToGiB(mem.available_bytes)}</span>
+              <span className="text-slate-400">free of {bytesToGiB(mem.total_bytes)}</span>
+            </div>
+            <Meter percent={usedPercent} color={getUsageColor(usedPercent)} />
+            {mem.inference_reserved_bytes != null && (
+              <p className="text-xs text-slate-400 mt-2">
+                PANNs worker: {bytesToGiB(mem.inference_reserved_bytes)} CUDA
+                {mem.inference_allocated_bytes != null && ` (${bytesToGiB(mem.inference_allocated_bytes)} in use)`}
+              </p>
+            )}
+            {mem.inference_floor_bytes != null && (
+              <p className="text-xs text-slate-500">
+                Worker pauses below {bytesToGiB(mem.inference_floor_bytes)} free
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export default function Dashboard() {
   const { data: health, isLoading: healthLoading } = useQuery<HealthData>({
     queryKey: ['health'],
@@ -323,6 +418,9 @@ export default function Dashboard() {
           color="blue"
         />
       </div>
+
+      {/* GPU — hidden on a host without a readable GPU */}
+      {health?.gpu?.available && <GpuCard gpu={health.gpu} />}
 
       {/* Current conditions — hidden entirely unless a weather station reports */}
       <WeatherCard />

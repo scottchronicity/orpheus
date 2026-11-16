@@ -281,7 +281,7 @@ function UsageRow({ label, value }: { label: string; value: number | undefined }
   const color = fraction > 0.9 ? 'bg-rose-400' : fraction > 0.75 ? 'bg-amber-300' : 'bg-orpheus-500'
   return (
     <div className="flex items-center gap-3 text-sm">
-      <span className="w-16 shrink-0 text-slate-400">{label}</span>
+      <span className="w-20 shrink-0 whitespace-nowrap text-slate-400">{label}</span>
       <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800" aria-hidden="true">
         <div className={`h-full ${color}`} style={{ width: percent(fraction) }} />
       </div>
@@ -306,12 +306,19 @@ export function SystemPanel({
   services: KioskServices | undefined
 }) {
   const summary = serviceSummary(services)
+  const gpu = health?.gpu?.available ? health.gpu : undefined
   return (
     <Panel title="Station" icon={<Cpu className="h-4 w-4" />} testId="kiosk-system">
       <div className="flex flex-col gap-2">
         <UsageRow label="CPU" value={health?.cpu_percent} />
         <UsageRow label="Memory" value={health?.memory_percent} />
         <UsageRow label="Disk" value={health?.disk_data?.percent ?? health?.disk_percent} />
+        {gpu && (
+          <UsageRow
+            label={gpu.temperature_c != null ? `GPU ${Math.round(gpu.temperature_c)}°C` : 'GPU'}
+            value={gpu.utilization_percent ?? undefined}
+          />
+        )}
         <p className="mt-1 text-sm text-slate-300" data-testid="kiosk-services">
           {services ? `${summary.running} of ${summary.total} services running` : 'Services: —'}
           {health ? ` · up ${uptime(health.uptime_seconds)}` : ''}
@@ -334,12 +341,22 @@ export function SystemStrip({
 }) {
   const summary = serviceSummary(services)
   const part = (label: string, v: number | undefined) => `${label} ${v === undefined ? '—' : `${Math.round(v)}%`}`
+  const gpu = health?.gpu?.available ? health.gpu : undefined
+  const gpuPart = gpu
+    ? [
+        part('GPU', gpu.utilization_percent ?? undefined),
+        gpu.temperature_c != null ? `${Math.round(gpu.temperature_c)} °C` : null,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : null
   return (
     <span data-testid="kiosk-system" className="truncate">
       {[
         part('CPU', health?.cpu_percent),
         part('Mem', health?.memory_percent),
         part('Disk', health?.disk_data?.percent ?? health?.disk_percent),
+        gpuPart,
         services ? `${summary.running}/${summary.total} services` : null,
       ]
         .filter(Boolean)
