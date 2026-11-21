@@ -4,7 +4,7 @@ Documentation=https://github.com/scottchronicity/orpheus
 # The data root is its own drive: wait for it at boot and never run without
 # it, so recordings and the database cannot land on the root filesystem.
 RequiresMountsFor=/data/orpheus
-After=network.target orpheus-backplane.service
+After=network.target time-sync.target orpheus-backplane.service
 Wants=orpheus-backplane.service
 
 [Service]

@@ -204,13 +204,16 @@ DATA_ROOT_UNITS_EXTRA = (
 )
 
 
+def _data_root_units() -> List[str]:
+    agent_units = REPO.glob("agents/orpheus-agent-*/systemd/*.service")
+    return sorted(str(p.relative_to(REPO)) for p in agent_units) + list(DATA_ROOT_UNITS_EXTRA)
+
+
 def check_data_root_mount_dependency() -> List[str]:
     """A service that starts before the data drive is mounted writes recordings and a
     fresh, empty database onto the root filesystem instead, and nothing says so."""
     problems: List[str] = []
-    agent_units = REPO.glob("agents/orpheus-agent-*/systemd/*.service")
-    units = sorted(str(p.relative_to(REPO)) for p in agent_units)
-    for rel in units + list(DATA_ROOT_UNITS_EXTRA):
+    for rel in _data_root_units():
         path = REPO / rel
         if not path.exists():
             problems.append(f"{rel}: missing")
@@ -223,6 +226,20 @@ def check_data_root_mount_dependency() -> List[str]:
     return problems
 
 
+def check_data_root_time_sync() -> List[str]:
+    """A service that starts before the clock is set stamps recordings, file names and
+    database rows with 1970 after a cold boot (jetson1, 2026-11-21). With
+    systemd-time-wait-sync enabled (deploy/clock/), time-sync.target means NTP has set it."""
+    problems: List[str] = []
+    for rel in _data_root_units():
+        path = REPO / rel
+        if path.exists() and not re.search(
+            r"^After=(.*\s)?time-sync\.target(\s|$)", path.read_text(), re.M
+        ):
+            problems.append(f"{rel}: no After=time-sync.target in [Unit]")
+    return problems
+
+
 CHECKS: Tuple[Tuple[str, Callable[[], List[str]]], ...] = (
     ("agent wiring (#5)", check_agent_wiring),
     ("manifest catalog (#5)", check_manifest_catalog),
@@ -230,6 +247,7 @@ CHECKS: Tuple[Tuple[str, Callable[[], List[str]]], ...] = (
     ("non-negotiable count (#11)", check_nonnegotiable_count),
     ("roadmap counts (#12)", check_roadmap_counts),
     ("data-drive mount dependency", check_data_root_mount_dependency),
+    ("data-root services wait for the clock", check_data_root_time_sync),
 )
 
 

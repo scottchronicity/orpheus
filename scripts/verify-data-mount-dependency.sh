@@ -14,15 +14,11 @@ set -uo pipefail
 
 data_root="${1:-/data/orpheus}"
 systemctl="${SYSTEMCTL:-systemctl}"
-units=(
-    orpheus-agent-audio-events orpheus-agent-audio-motion orpheus-agent-audio-playback
-    orpheus-agent-bird-detection orpheus-agent-crow-detection orpheus-agent-event-correlator
-    orpheus-agent-video-motion orpheus-agent-video-snapshotter orpheus-agent-video-timelapser
-    orpheus-ui orpheus-storage-sweep
-)
+# shellcheck source=data-root-units.sh
+source "$(dirname "$0")/data-root-units.sh"
 
 bad=0
-for name in "${units[@]}"; do
+for name in "${DATA_ROOT_UNITS[@]}"; do
     unit="${name}.service"
     load=$("${systemctl}" show "${unit}" -p LoadState --value 2>/dev/null)
     [[ "${load}" == "loaded" ]] || continue   # not installed on this host
