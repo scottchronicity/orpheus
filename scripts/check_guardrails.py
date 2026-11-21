@@ -196,12 +196,40 @@ def check_roadmap_counts() -> List[str]:
     return problems
 
 
+# Units whose service reads or writes $ORPHEUS_DATA_ROOT (default /data/orpheus,
+# its own drive on a station). Every agent, plus these two.
+DATA_ROOT_UNITS_EXTRA = (
+    "services/orpheus_ui/systemd/orpheus-ui.service",
+    "platform/orpheus-common/systemd/orpheus-storage-sweep.service",
+)
+
+
+def check_data_root_mount_dependency() -> List[str]:
+    """A service that starts before the data drive is mounted writes recordings and a
+    fresh, empty database onto the root filesystem instead, and nothing says so."""
+    problems: List[str] = []
+    agent_units = REPO.glob("agents/orpheus-agent-*/systemd/*.service")
+    units = sorted(str(p.relative_to(REPO)) for p in agent_units)
+    for rel in units + list(DATA_ROOT_UNITS_EXTRA):
+        path = REPO / rel
+        if not path.exists():
+            problems.append(f"{rel}: missing")
+            continue
+        declared = re.search(
+            r"^RequiresMountsFor=(.*\s)?/data/orpheus(\s|$)", path.read_text(), re.M
+        )
+        if not declared:
+            problems.append(f"{rel}: no RequiresMountsFor=/data/orpheus in [Unit]")
+    return problems
+
+
 CHECKS: Tuple[Tuple[str, Callable[[], List[str]]], ...] = (
     ("agent wiring (#5)", check_agent_wiring),
     ("manifest catalog (#5)", check_manifest_catalog),
     ("docs-site nav (#12)", check_docs_nav),
     ("non-negotiable count (#11)", check_nonnegotiable_count),
     ("roadmap counts (#12)", check_roadmap_counts),
+    ("data-drive mount dependency", check_data_root_mount_dependency),
 )
 
 

@@ -1319,6 +1319,18 @@ verify-deploy:
 		echo "  ⚠️  systemctl not found (not a systemd host) — dashboard inventory not checked"; \
 	fi; \
 	echo ""; \
+	echo "Data-drive dependency (services using $(ORPHEUS_DATA_ROOT) wait for it to be mounted):"; \
+	if command -v systemctl >/dev/null 2>&1; then \
+		if out=$$(scripts/verify-data-mount-dependency.sh "$(ORPHEUS_DATA_ROOT)" 2>&1); then \
+			echo "$$out" | sed 's/^/  /'; \
+		else \
+			echo "$$out" | sed 's/^/  /'; \
+			fail=1; \
+		fi; \
+	else \
+		echo "  ⚠️  systemctl not found (not a systemd host) — data-drive dependency not checked"; \
+	fi; \
+	echo ""; \
 	echo "systemd timers (the timer must be active; its one-shot is idle between runs):"; \
 	if command -v systemctl >/dev/null 2>&1; then \
 		timers=$$(systemctl list-unit-files 'orpheus-*.timer' --no-legend 2>/dev/null | awk '{print $$1}'); \
