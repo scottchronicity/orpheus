@@ -201,10 +201,13 @@ All Orpheus services follow these patterns:
 
 ### Time Synchronization
 
-Most services include `After=time-sync.target` so the system clock is synchronized
-before they start. Two units do not yet: `orpheus-agent-video-snapshotter` and
-`orpheus-agent-video-timelapser`. Ordering
-against the clock prevents:
+Every service that reads or writes the data root includes `After=time-sync.target`
+(`make guardrails` enforces it). The ordering only waits for a real clock when
+`systemd-time-wait-sync` is enabled, which `make install-clock-guard` does
+(bounded at 300 s, and on a Jetson it also stops NVIDIA's `nvrtc-sync-boot` from
+setting the clock back to 1970; see the operator manual, "The clock at boot").
+Without it, `time-sync.target` is reached as soon as timesyncd starts. Ordering
+against a synchronized clock prevents:
 
 - Log timestamps showing Unix epoch (1970)
 - Incorrect timestamps in recorded events
