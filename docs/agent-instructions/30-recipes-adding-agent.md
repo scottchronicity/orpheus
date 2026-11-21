@@ -233,6 +233,9 @@ of an unrelated `lib/` rule interference.
 ```ini
 [Unit]
 Description=Orpheus <Name> Agent
+# The data root is its own drive: wait for it at boot and never run without
+# it, so recordings and the database cannot land on the root filesystem.
+RequiresMountsFor=/data/orpheus
 After=network.target time-sync.target orpheus-backplane.service
 Wants=orpheus-backplane.service
 
@@ -254,6 +257,9 @@ SyslogIdentifier=orpheus-<name>
 [Install]
 WantedBy=multi-user.target
 ```
+
+Keep `RequiresMountsFor=/data/orpheus`: `make guardrails` fails an agent unit
+without it.
 
 Adjust `User=orpheus` only if the agent needs different perms
 (`audio` group for ALSA, `video` group for video devices, etc).

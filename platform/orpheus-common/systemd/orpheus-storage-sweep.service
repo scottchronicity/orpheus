@@ -9,6 +9,9 @@ Documentation=https://github.com/scottchronicity/orpheus
 # mtimes. A clock reading ahead of real time puts that cutoff past every real
 # file and makes a whole category evictable. Every other unit waits for the
 # clock; this is the one where getting it wrong is irreversible.
+# The data root is its own drive: wait for it at boot and never run without
+# it, so recordings and the database cannot land on the root filesystem.
+RequiresMountsFor=/data/orpheus
 After=local-fs.target time-sync.target
 
 [Service]

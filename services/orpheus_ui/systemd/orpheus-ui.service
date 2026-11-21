@@ -6,6 +6,9 @@
 # file was never installed anywhere.
 [Unit]
 Description=Orpheus UI Web Service
+# The data root is its own drive: wait for it at boot and never run without
+# it, so recordings and the database cannot land on the root filesystem.
+RequiresMountsFor=/data/orpheus
 After=network.target time-sync.target
 Documentation=https://github.com/scottchronicity/orpheus
 

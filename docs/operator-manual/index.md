@@ -313,6 +313,20 @@ the video’s time window, including when the window crosses midnight.
 - Detections + entities persist to SQLite under `$ORPHEUS_DATA_ROOT`
   (default `/data/orpheus`); clips live alongside under retention caps configured in
   `storage:`.
+- **The data drive at boot.** On a station the data root is its own drive. Every
+  service that reads or writes it (the nine agents, the UI, and the storage sweep)
+  declares `RequiresMountsFor=/data/orpheus`, so it waits for the drive at boot,
+  does not start without it, and stops if the drive goes away, instead of writing
+  recordings and a fresh, empty database onto the root filesystem.
+  `make verify-deploy` checks what systemd has loaded ("Data-drive dependency"),
+  and `make guardrails` fails a unit in the repository that lacks it.
+  The mount itself is host configuration, outside the repository: an `/etc/fstab`
+  line such as `UUID=<the drive's UUID> /data/orpheus ext4 defaults,nofail 0 2`
+  (`blkid` gives the UUID). Keep `nofail`: without the drive the station still
+  boots and answers on SSH, with the data services held back. After such a boot,
+  reconnect the drive and run `sudo systemctl start data-orpheus.mount`, then start
+  the services in the order the [rollout runbook](../runbooks/jetson-rollout.md)
+  gives, or reboot.
 - **`orpheus-storage-sweep` is the only thing that deletes a recording.** It is a
   one-shot unit driven by `orpheus-storage-sweep.timer` every 15 minutes, installed
   with the platform library by `make services-install`. No agent trims its own
