@@ -9,4 +9,6 @@ Type=oneshot
 ExecStart=/usr/local/lib/orpheus-kiosk/orpheus-kiosk-update.sh
 TimeoutStartSec=30min
 Nice=10
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=500
 SyslogIdentifier=orpheus-kiosk-update
