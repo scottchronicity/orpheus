@@ -102,7 +102,7 @@ Everything else — cameras, the event bus, retention, dashboard, bird detection
 
 ### Camera credentials
 
-The video agents connect to cameras over **RTSP** on your LAN. The config ships with 4 cameras pre-configured (`orpheus-eye-1` through `orpheus-eye-4`) using credentials `orpheus` / `orpheus-station-2025`. Without RTSP cameras the video agents start but stay idle — everything else (audio, bird/crow classification, event correlation, UI) works without them.
+The video agents connect to cameras over **RTSP** on your LAN. The config ships with 4 cameras pre-configured (`orpheus-eye-1` through `orpheus-eye-4`) with the RTSP user `orpheus` and a placeholder password: set your cameras' password as `cameras.auth.password`, or better as `ORPHEUS_CAMERAS__AUTH__PASSWORD` in `/opt/orpheus/config/.env`. Without RTSP cameras the video agents start but stay idle — everything else (audio, bird/crow classification, event correlation, UI) works without them.
 
 ### Running individual agents (without dev-stack)
 

@@ -174,7 +174,7 @@ Resolve these gates against the station's actual config and installed environmen
   ```yaml
   audio_events:
     backend: gpu_worker        # GPU required: clips that arrive while the worker is
-                               # down are rejected, never run on CPU
+                               # down wait for it; they never run on CPU
     gpu_worker:
       start_memory_mib: 8704   # worker cost (~4.7 GiB, ~5.0 GiB transient) + the floor
       floor_memory_mib: 3800   # below this the worker stops itself, and restarts

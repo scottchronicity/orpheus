@@ -147,7 +147,7 @@ If audio capture isn't working, the `audio-motion` agent will log errors but the
 
 ### Camera credentials
 
-Video agents connect to cameras over **RTSP** over your LAN. WSL2's default NAT networking should reach them fine. The config ships with 4 cameras pre-configured using credentials `orpheus` / `orpheus-station-2025`. Without RTSP cameras, the video agents start but stay idle.
+Video agents connect to cameras over **RTSP** over your LAN. WSL2's default NAT networking should reach them fine. The config ships with 4 cameras pre-configured with the RTSP user `orpheus` and a placeholder password: set your cameras' password as `cameras.auth.password`, or better as `ORPHEUS_CAMERAS__AUTH__PASSWORD` in `/opt/orpheus/config/.env`. Without RTSP cameras, the video agents start but stay idle.
 
 ---
 

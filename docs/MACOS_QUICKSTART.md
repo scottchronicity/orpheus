@@ -137,7 +137,7 @@ Everything else — cameras, the event bus, retention, dashboard, bird detection
 
 The video agents connect to cameras over **RTSP**. They do **not** use the Mac's built-in camera — you need network-accessible RTSP cameras (like the Amcrest IP5M-B1186EW cameras used in production).
 
-The config ships with 4 cameras pre-configured (`orpheus-eye-1` through `orpheus-eye-4`) using credentials `orpheus` / `orpheus-station-2025`.
+The config ships with 4 cameras pre-configured (`orpheus-eye-1` through `orpheus-eye-4`) with the RTSP user `orpheus` and a placeholder password: set your cameras' password as `cameras.auth.password`, or better as `ORPHEUS_CAMERAS__AUTH__PASSWORD` in `/opt/orpheus/config/.env`.
 
 If you **don't** have access to RTSP cameras, the video agents will start but remain idle. Everything else (audio detection, bird/crow classification, event correlation, the UI) works without them.
 

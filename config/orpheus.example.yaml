@@ -14,11 +14,15 @@
 #     start_memory_mib: 8704 # host MemAvailable before model load
 #     floor_memory_mib: 3800 # observed host MemAvailable stop/admission line, not a reservation
 # Defaults above come from the tested PANNs workload, not universal minima.
-# A full queue/unavailable worker rejects with health counters; no automatic replay.
+# A full queue blocks event delivery (nothing is rejected); clips wait while the
+# worker is unavailable. Nothing is replayed after a crash. See the guide above.
 # =========================================
 # Canonical configuration for the Orpheus Observe stack.
 # Used on Jetson in production; macOS overrides go in config/.env.orpheus.
-# Copy to /etc/orpheus/orpheus.yaml (Jetson) or use as-is via ORPHEUS_CONFIG_PATH (dev).
+# On a station, the platform install seeds /opt/orpheus/config/orpheus.yaml from this
+# file when none exists; edit that copy. In development, point ORPHEUS_CONFIG_PATH here.
+# The site, cameras, audio devices and speaker below describe one example station:
+# replace them with your own. Keep secrets in /opt/orpheus/config/.env instead.
 # Override any value with environment variables: ORPHEUS_<SECTION>__<KEY>=value
 
 site:
@@ -194,7 +198,7 @@ audio_output:
   output:
     type: bluetooth
     bluetooth:
-      address: "FC:58:FA:02:AF:28"  # the paired speaker (bluetoothctl paired-devices)
+      address: "AA:BB:CC:DD:EE:FF"  # your paired speaker (bluetoothctl paired-devices)
   server:
     type: pulseaudio
     pulseaudio:
@@ -205,6 +209,8 @@ audio_output:
     max_delay_seconds: 60         # retry delay ceiling while something is down
 
 dashboard:
+  # host and port are not read by the installed service: orpheus-ui.service
+  # serves on 0.0.0.0:8082 (services/orpheus_ui/systemd/orpheus-ui.service).
   host: "0.0.0.0"
   port: 8080
   poll_interval: 5000
@@ -228,7 +234,9 @@ dashboard:
 cameras:
   auth:
     username: "orpheus"
-    password: "orpheus-station-2025"
+    # Your cameras' RTSP password. Better: leave this and set
+    # ORPHEUS_CAMERAS__AUTH__PASSWORD in /opt/orpheus/config/.env.
+    password: "change-me"
 
   # Global video motion detection settings (applies to all cameras)
   motion_detection:
@@ -250,6 +258,8 @@ cameras:
     enabled: true
     snapshots:
       interval: "5m"
+    # Each timelapse's retention_days is logged, not applied: storage.retention
+    # (the storage sweep) decides what is deleted.
     timelapses:
       - label: "daily"
         start_time: "23:00"
@@ -533,6 +543,8 @@ storage:
     # station were configured when it is not.
 
 detection:
+  # Reserved: nothing reads this section today. Each agent has its own
+  # thresholds (bird_detection.confidence_threshold, crow_detection, ...).
   min_confidence: 0.8
   species_of_interest: []
   audio_model: "birdnet"
@@ -553,8 +565,8 @@ bird_detection:
   # CUDA/CoreML require a compatible ONNX Runtime build in this agent's runtime.
   execution_provider: auto
   confidence_threshold: 0.1
-  location_lat: 42.970151
-  location_lon: -85.660179
+  # The geographic filter uses site.lat/site.lon. location_lat/location_lon here
+  # would override them for this agent only; leave them unset.
   # Geographic-filter tuning. Defaults shown; usually no need to override.
   # See agents/orpheus-agent-bird-detection/src/orpheus_agent_bird_detection/birdnet.py
   # for the full admit rule. Briefly:
@@ -730,10 +742,11 @@ public:
   # confidence_bands: {}        # unset -> the band is omitted, never guessed
 
 video_snapshotter:
-  retention_days: 547  # ~1.5 years; old snapshots are purged automatically
+  # Not applied: storage.retention (the storage sweep) decides what is deleted.
+  retention_days: 547
 
 hardware:
-  platform: "auto"
+  platform: "auto"   # reserved: nothing reads it today
 
 logging:
   level: "INFO"
