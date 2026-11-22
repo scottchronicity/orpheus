@@ -97,6 +97,30 @@ q() { python3 -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute
   [ ! -e "$CLIPS/1/20261121T200727.739736Z.flac" ]
 }
 
+mtime() { python3 -c "import os,sys; print(os.stat(sys.argv[1]).st_mtime)" "$1"; }
+
+@test "a clip written entirely on the boot clock gets its mtime moved by the step" {
+  # Otherwise the storage sweep, which ages files by mtime, sees it as 56
+  # years old and deletes it before anything recorded since.
+  touch -d @69.25 "$CLIPS/1/19700101T000047.598402Z.flac"
+  python3 "$TOOL" apply --db "$DB" --step "$STEP" --ids 10 --undo-file "$SB/undo.json"
+  got=$(mtime "$CLIPS/1/20261121T200727.739736Z.flac")
+  python3 -c "import sys; assert abs(float(sys.argv[1]) - (69.25 + float(sys.argv[2]))) < 1e-3, sys.argv[1]" "$got" "$STEP"
+}
+
+@test "a clip finished after NTP stepped the clock keeps its mtime" {
+  touch -d @1795291669.5 "$CLIPS/1/19700101T000047.598402Z.flac"   # 2026-11-21 20:07:49 UTC
+  python3 "$TOOL" apply --db "$DB" --step "$STEP" --ids 10 --undo-file "$SB/undo.json"
+  [ "$(mtime "$CLIPS/1/20261121T200727.739736Z.flac")" = "1795291669.5" ]
+}
+
+@test "undo puts back the boot-clock mtime" {
+  touch -d @69.25 "$CLIPS/1/19700101T000047.598402Z.flac"
+  python3 "$TOOL" apply --db "$DB" --step "$STEP" --ids 10 --undo-file "$SB/undo.json"
+  python3 "$TOOL" undo --db "$DB" --undo-file "$SB/undo.json"
+  [ "$(mtime "$CLIPS/1/19700101T000047.598402Z.flac")" = "69.25" ]
+}
+
 @test "purge deletes undatable 1970 rows and keeps them in the undo file" {
   run python3 "$TOOL" apply --db "$DB" --purge-detections 13 --purge-entities 6 --undo-file "$SB/undo.json"
   [ "$status" -eq 0 ]

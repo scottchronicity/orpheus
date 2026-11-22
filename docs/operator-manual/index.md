@@ -396,7 +396,7 @@ the video’s time window, including when the window crosses midnight.
   started before the step, using `busctl get-property` on
   `ExecMainStartTimestamp` and `ExecMainStartTimestampMonotonic`. Then repair
   with `scripts/repair-clock-step.py` (`plan`, then `apply` with an undo file,
-  run as the data's owner). It moves the rows by the step, renames their clips,
+  run as the data's owner). It moves the rows by the step, renames their clips (moving a clip's mtime by the step too when it was finished on the boot clock, since the storage sweep ages files by mtime),
   and repoints every detection and entity that names them.
 - **`orpheus-storage-sweep` is the only thing that deletes a recording.** It is a
   one-shot unit driven by `orpheus-storage-sweep.timer` every 15 minutes, installed

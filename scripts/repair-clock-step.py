@@ -16,7 +16,9 @@ For each audio.motion row given with --ids (all from the same boot), this:
   - moves `timestamp` by the step, and `metadata.duration_seconds` back by it
     when the duration was measured across the step, keeping the original
     values under `metadata.clock_correction`;
-  - renames its clip to the name the corrected time gives;
+  - renames its clip to the name the corrected time gives, and moves the
+    clip's mtime by the step when the clip was finished on the boot clock
+    (the storage sweep ages files by mtime);
   - points every detection and entity that references the old clip at the new
     name (they carry correct timestamps; only the path changes).
 --purge-detections/--purge-entities delete pre-2000 rows that cannot be dated
@@ -198,6 +200,13 @@ def apply(db: str, plan: dict, undo_file: Path, args: argparse.Namespace) -> Non
         "step_seconds": args.step,
         **{k: plan[k] for k in ("clips", "before", "updates", "purges")},
     }
+    # A clip written entirely on the boot clock has a 1970 mtime, which the
+    # storage sweep (it ages files by mtime) would delete before anything newer.
+    # Record each clip's times so undo can put them back.
+    record["clips"] = [
+        {**clip, "atime_ns": st.st_atime_ns, "mtime_ns": st.st_mtime_ns}
+        for clip, st in ((c, os.stat(c["old"])) for c in plan["clips"])
+    ]
     with open(undo_file, "x") as f:
         json.dump(record, f, indent=1)
         f.flush()
@@ -230,7 +239,11 @@ def apply(db: str, plan: dict, undo_file: Path, args: argparse.Namespace) -> Non
             os.unlink(path)
         undo_file.unlink()
         raise
-    for clip in plan["clips"]:
+    cutoff_ns = int(datetime.fromisoformat(EPOCH_CUTOFF).replace(tzinfo=timezone.utc).timestamp()) * 10**9
+    step_ns = round(args.step * 10**9)
+    for clip in record["clips"]:
+        if clip["mtime_ns"] < cutoff_ns:  # finished before NTP stepped the clock
+            os.utime(clip["new"], ns=(clip["atime_ns"], clip["mtime_ns"] + step_ns))
         os.unlink(clip["old"])
     print(f"applied; undo with: {sys.argv[0]} undo --db {db} --undo-file {undo_file}")
 
@@ -262,6 +275,8 @@ def undo(db: str, undo_file: Path) -> None:
     finally:
         conn.close()
     for clip in record["clips"]:
+        if "mtime_ns" in clip:  # undo files from before mtimes were recorded have none
+            os.utime(clip["old"], ns=(clip["atime_ns"], clip["mtime_ns"]))
         if os.path.lexists(clip["new"]):
             os.unlink(clip["new"])
     print("undone")
