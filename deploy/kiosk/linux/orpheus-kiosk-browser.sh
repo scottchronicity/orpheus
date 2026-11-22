@@ -9,7 +9,7 @@
 #   orpheus-kiosk-browser.sh [URL]
 #
 # Environment:
-#   ORPHEUS_KIOSK_URL      default URL (default http://localhost:8080/kiosk)
+#   ORPHEUS_KIOSK_URL      default URL (default http://localhost:8082/kiosk)
 #   ORPHEUS_KIOSK_BROWSER  browser binary (default: first of chromium,
 #                          chromium-browser, google-chrome found on PATH)
 #   ORPHEUS_KIOSK_GPU      "0" to disable GPU rasterisation. Use it on a host
@@ -23,7 +23,7 @@
 #   ORPHEUS_KIOSK_DRY_RUN  "1" to print the command instead of running it
 set -euo pipefail
 
-url="${1:-${ORPHEUS_KIOSK_URL:-http://localhost:8080/kiosk}}"
+url="${1:-${ORPHEUS_KIOSK_URL:-http://localhost:8082/kiosk}}"
 case "${url}" in
     http://*/kiosk* | https://*/kiosk*) ;;
     *)

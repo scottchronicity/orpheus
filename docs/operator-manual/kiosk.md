@@ -16,7 +16,9 @@ backend:
 - station health.
 
 A station that never opens `/kiosk` pays nothing: no extra process, unit or
-package, and its code loads only when a browser opens it.
+package, and its code loads only when a browser opens it. Showing it on the
+Jetson's own monitor is a separate, optional install, the `orpheus-kiosk` unit
+(see [On the Jetson's own monitor](#on-the-jetsons-own-monitor)).
 
 Orpheus runs normally with no monitor, no desktop and no kiosk anything. Keep the
 Jetson headless. The kiosk is a browser tab pointed at the station.
@@ -26,7 +28,7 @@ Jetson headless. The kiosk is a browser tab pointed at the station.
 From any browser on the station's network, for example a laptop:
 
 ```
-http://jetson1:8080/kiosk
+http://jetson1:8082/kiosk
 ```
 
 It signs itself in as the read-only guest, the same account as the login page's
@@ -88,7 +90,7 @@ case.
 
 | Option | Cost to the Jetson | Needs |
 |---|---|---|
-| **Another device's browser** (Raspberry Pi, laptop, tablet, old phone) pointed at `http://jetson1:8080/kiosk` | API requests only | That device's own display and browser |
+| **Another device's browser** (Raspberry Pi, laptop, tablet, old phone) pointed at `http://jetson1:8082/kiosk` | API requests only | That device's own display and browser |
 | **Chromium on the Jetson** with a minimal kiosk session | Browser about 400 MB of RAM (measured in headless Chromium showing the kiosk at 1080p: about 400–440 MiB across six processes, 10 MiB of page heap), plus a display server or compositor, plus CPU for rendering; GPU memory unless the GPU is disabled | A display session (Xorg or a Wayland kiosk compositor such as `cage`), Chromium, and the monitor attached and detected |
 | **The Jetson's GNOME desktop** | GNOME was stopped on 2026-11-12 to give inference its memory back; a full desktop costs far more than a kiosk session (not measured here) | Not recommended |
 
@@ -227,7 +229,7 @@ unauthenticated viewing altogether (dashboard and kiosk), set
 
 | On screen | Meaning |
 |---|---|
-| "Connecting to the station…" that never clears | The browser cannot reach the UI at that address; open `http://<host>:8080/` to check |
+| "Connecting to the station…" that never clears | The browser cannot reach the UI at that address; open `http://<host>:8082/` to check |
 | "This display needs a viewer sign-in" | Guest viewing is off (`ui.guest_quick_login`), or was turned off while it ran; sign in once with a viewer account |
 | "Station unreachable · showing data from HH:MM" | The last refreshes failed; the screen keeps the last data and recovers by itself |
 | "*N* services need attention" | Those units are not running; the Station panel names them |

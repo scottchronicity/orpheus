@@ -145,7 +145,7 @@ installation today. You will not see this card until that lands.
 
 `/kiosk` is a full-screen, read-only view of the station for a screen that is
 always on: a tablet by the window, a small monitor, or a laptop tab. Open
-`http://<station>:8080/kiosk`. It signs in as the guest by itself, and nothing
+`http://<station>:8082/kiosk`. It signs in as the guest by itself, and nothing
 on it can be clicked into or changed. It shows:
 
 - **Latest sightings:** the most recent entity, large, with how long ago it was

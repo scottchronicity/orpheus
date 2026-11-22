@@ -42,7 +42,7 @@ setup() {
   run bash "$LINUX"
   assert_success
   grep -qx -- "--disable-gpu" "$BATS_TEST_TMPDIR/argv"
-  grep -qx -- "--app=http://localhost:8080/kiosk" "$BATS_TEST_TMPDIR/argv"
+  grep -qx -- "--app=http://localhost:8082/kiosk" "$BATS_TEST_TMPDIR/argv"
 }
 
 @test "fills a window-manager-less screen when given its size" {

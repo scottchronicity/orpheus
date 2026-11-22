@@ -1,14 +1,14 @@
 #!/bin/bash
 # Open the Orpheus kiosk display on a Mac. Optional; any browser tab works.
 #
-#   open-orpheus-kiosk.sh [URL]          # default http://jetson1:8080/kiosk
+#   open-orpheus-kiosk.sh [URL]          # default http://jetson1:8082/kiosk
 #
 # With Google Chrome installed, opens it full screen in kiosk mode (Cmd-Q to
 # leave) with its own profile. Otherwise opens the URL in the default browser;
 # use View > Enter Full Screen (Ctrl-Cmd-F) there.
 set -euo pipefail
 
-url="${1:-${ORPHEUS_KIOSK_URL:-http://jetson1:8080/kiosk}}"
+url="${1:-${ORPHEUS_KIOSK_URL:-http://jetson1:8082/kiosk}}"
 case "${url}" in
     http://*/kiosk* | https://*/kiosk*) ;;
     *)

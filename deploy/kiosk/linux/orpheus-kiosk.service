@@ -19,8 +19,8 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-# Point at the station's dashboard, e.g. http://jetson1:8080/kiosk
-Environment=ORPHEUS_KIOSK_URL=http://localhost:8080/kiosk
+# Point at the station's dashboard, e.g. http://jetson1:8082/kiosk
+Environment=ORPHEUS_KIOSK_URL=http://localhost:8082/kiosk
 ExecStart=%h/.local/bin/orpheus-kiosk-browser.sh
 Restart=on-failure
 RestartSec=10

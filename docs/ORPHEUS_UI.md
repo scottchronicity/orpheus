@@ -30,7 +30,7 @@ Diagnostics), see the [User Guide](user-guide/index.md).
 
 | Service | Port | Notes |
 | --------- | ------ | ------- |
-| **Orpheus UI Backend** | 8082 | FastAPI backend (nginx proxies port 80 to it in production) |
+| **Orpheus UI Backend** | 8082 | FastAPI backend; serves the built UI directly. No reverse proxy ships with Orpheus. |
 | **Orpheus UI Frontend (dev)** | 5173 | Vite dev server, proxies to 8082 |
 
 The backend runs on port **8082** and serves the UI directly.
