@@ -1436,6 +1436,12 @@ verify-deploy:
 			echo "  ⚠️  the journal is in RAM (no /var/log/journal): it is lost on every reboot,"; \
 			echo "      so a crash takes its own evidence with it, and any SystemMaxUse is inert"; \
 		fi; \
+		retention=$$(systemd-analyze cat-config systemd/journald.conf 2>/dev/null | grep -iE '^\s*MaxRetentionSec=' | tail -1 | cut -d= -f2 | tr -d ' '); \
+		case "$$retention" in ""|0) ;; *) \
+			echo "  ⚠️  journald MaxRetentionSec=$$retention: after a power cut it deletes the crashed"; \
+			echo "      boot's journal, which journald renames before the clock is set (2024/1970)."; \
+			echo "      Remove it; make install-log-bounds ships a drop-in without it";; \
+		esac; \
 		if [ -f /etc/systemd/journald.conf.d/10-orpheus.conf ]; then \
 			echo "  OK  host log bounds installed (journald persistent + capped, no syslog mirror)"; \
 		else \

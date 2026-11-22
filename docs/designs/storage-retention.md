@@ -291,8 +291,8 @@ ones — to bound something that is already bounded at 4 GiB and currently using
 
 ### Option B — opt-in system-wide drop-in
 
-Keep `/etc/systemd/journald.conf.d/10-orpheus.conf` (`SystemMaxUse=2G`,
-`MaxRetentionSec=2month`) but **never install it silently**:
+Keep `/etc/systemd/journald.conf.d/10-orpheus.conf` (`SystemMaxUse=1G`,
+`SystemKeepFree=2G`) but **never install it silently**:
 
 - The deploy does not write it. `make verify-deploy` inspects the effective
   journald configuration and reports what it finds: the effective `SystemMaxUse`,
@@ -361,8 +361,12 @@ this order because each step makes the next one safe:
 1. `Storage=persistent` (+ create `/var/log/journal`) — turns the existing size
    cap from inert into real, and keeps forensics across the crash you want to
    investigate.
-2. `SystemMaxUse=1G`, `SystemKeepFree=2G`, `MaxRetentionSec=2month` — a bound
-   that now applies to something.
+2. `SystemMaxUse=1G`, `SystemKeepFree=2G` — a bound that now applies to
+   something. **No `MaxRetentionSec`:** after a power cut journald renames the
+   journal it was writing with the current time, about 13 s into boot and
+   before the clock is set (2024 or 1970), so any retention limit deletes the
+   crashed boot's journal at the next vacuum. jetson1 lost every unclean boot's
+   journal this way until 2026-11-22.
 3. `ForwardToSyslog=no` — removes the unbounded mirror, safe only *after* step 1.
 
 An operator who relies on `/var/log/syslog` should skip it and bound their own

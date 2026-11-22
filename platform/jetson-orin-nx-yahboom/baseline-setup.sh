@@ -404,8 +404,8 @@ if [[ ! -f "$JOURNALD_CONF" ]]; then
 # Increase journal size for better debugging
 SystemMaxUse=500M
 RuntimeMaxUse=100M
-# Keep logs for 2 weeks
-MaxRetentionSec=2week
+# No MaxRetentionSec: after a power cut it deletes the crashed boot's journal
+# (renamed while the clock still reads 2024). See deploy/journald/10-orpheus.conf.
 # Forward to syslog
 ForwardToSyslog=no
 EOF

@@ -142,3 +142,11 @@ setup_trim() {
   grep -qi 'delete this file' "$REPO_ROOT/deploy/journald/10-orpheus.conf"
   grep -qi 'logrotate' "$REPO_ROOT/deploy/journald/10-orpheus.conf"
 }
+
+@test "the drop-in sets no retention limit, which deletes the journal of a boot that lost power" {
+  # After a power cut journald renames the journal it was writing, stamped with
+  # the clock ~13 s into boot: the kernel's build date or 1970, before NTP. A
+  # retention limit deletes that file at the next vacuum (jetson1, 2026-11-21/22).
+  ! grep -qiE '^\s*MaxRetentionSec=' "$REPO_ROOT/deploy/journald/10-orpheus.conf"
+  ! grep -qiE '^\s*MaxRetentionSec=' "$REPO_ROOT/platform/jetson-orin-nx-yahboom/baseline-setup.sh"
+}
