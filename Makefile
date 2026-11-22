@@ -491,8 +491,8 @@ coverage-gps:
 	@echo "📊 Coverage for orpheus-gps..."
 	@echo "============================================"
 	@cd services/orpheus-gps && \
-		if [ -d venv ]; then \
-			. venv/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_gps $(COV_REPORTS) --cov-fail-under=70; \
+		if [ -d $(GPS_VENV) ]; then \
+			. $(GPS_VENV)/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_gps $(COV_REPORTS) --cov-fail-under=70; \
 		else \
 			echo "⚠️  No venv found. Run 'make install-gps' first."; \
 			exit 1; \
@@ -611,8 +611,8 @@ coverage-event-correlator:
 	@echo "📊 Coverage for orpheus-agent-event-correlator..."
 	@echo "============================================"
 	@cd agents/orpheus-agent-event-correlator && \
-		if [ -d venv ]; then \
-			. venv/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_agent_event_correlator $(COV_REPORTS) --cov-fail-under=70; \
+		if [ -d $(CORRELATOR_VENV) ]; then \
+			. $(CORRELATOR_VENV)/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_agent_event_correlator $(COV_REPORTS) --cov-fail-under=70; \
 		else \
 			echo "⚠️  No venv found. Run 'make install-event-correlator' first."; \
 			exit 1; \
@@ -1527,8 +1527,8 @@ backfill-entity-types-dry-run:
 # End-to-end BDD scenarios (tests/bdd/) — drives the correlation loop in-process
 # via the event-correlator venv (which has behave + orpheus-common). See
 # docs/TESTING.md.
-BDD_BEHAVE ?= agents/orpheus-agent-event-correlator/venv/bin/behave
-BDD_PYTEST ?= agents/orpheus-agent-event-correlator/venv/bin/pytest
+BDD_BEHAVE ?= agents/orpheus-agent-event-correlator/$(CORRELATOR_VENV)/bin/behave
+BDD_PYTEST ?= agents/orpheus-agent-event-correlator/$(CORRELATOR_VENV)/bin/pytest
 BDD_FEATURES ?= tests/bdd
 test-bdd:
 	@if [ ! -x "$(BDD_BEHAVE)" ]; then \
