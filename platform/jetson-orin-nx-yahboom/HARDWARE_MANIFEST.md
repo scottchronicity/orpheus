@@ -26,9 +26,11 @@ Last updated: 2025-11-07
 
 ### Display (Development Only)
 - **HMTECH 7 Inch Raspberry Pi Screen** (800×480 IPS LCD)
-  - Connection: Anker 555 USB-C Hub → HDMI → Monitor
-  - Hub connects to Jetson via USB-C to USB-A adapter → Jetson USB-A port
-  - **Note:** Jetson DisplayPort is UNUSED
+  - Picture: the Jetson's own DisplayPort output (`DP-0`). X reports the screen
+    as `HCT HDMI`, and the Orin has no USB-C DisplayPort Alt Mode, so the picture
+    comes from DisplayPort whatever the cabling. See
+    [the kiosk guide](../../docs/operator-manual/kiosk.md).
+  - Power: from a powered hub, not the Anker 555 (see Storage)
 
 ### Input Devices
 - **Logitech K400 Plus Wireless Touch TV Keyboard**
@@ -167,8 +169,7 @@ Last updated: 2025-11-07
 
 - All USB devices connect to Jetson USB-A ports (via hubs where needed)
 - Samsung T7 SSD on the externally powered USB 3 hub at 5 Gb/s (see Storage), not the native USB-C port
-- Jetson DisplayPort is UNUSED
-- Display connection: Anker 555 Hub HDMI → HMTECH monitor
+- Display: driven from the Jetson's DisplayPort output (`DP-0`); see Display
 - Purchased 4 cameras at $64.99 each (below $70 estimate)
 - XLR cables: 6-pack purchased, 4 in use, 2 spares
 - CAT6 cables: 5× 50ft purchased, 4 in use, 1 spare

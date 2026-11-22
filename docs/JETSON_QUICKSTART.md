@@ -90,13 +90,10 @@ Key settings to review:
 
 Orpheus writes audio clips, video, snapshots, and detection data continuously. An external SSD is recommended.
 
-```bash
-# Example: Samsung T7 mounted at /data
-sudo mkdir -p /data/orpheus
-sudo chown $USER:$USER /data/orpheus
-```
-
-Ensure `storage.base_path` in your config points to this path.
+Mount the drive at `/data/orpheus` itself (step 0 below), not at `/data`:
+the services restart with that mount. Give it to the service user:
+`sudo chown -R orpheus:orpheus /data/orpheus`. Keep `storage.base_path` at
+`/data/orpheus` on a station; the installed units require that path.
 
 ---
 
@@ -133,6 +130,11 @@ These are host settings that the component installs below don't make. Do
 them once on a new or replacement station. `make install-host` runs steps 3
 and 4 itself.
 
+1. **Packages:** `sudo apt install python3.9 python3.9-venv python3.8-venv` (the
+   3.9 components and the optional PANNs worker build their venvs from these), and
+   [uv](https://docs.astral.sh/uv/), which `make provision-python` uses. Define
+   the `orpheus_umc` ALSA alias the example config's audio devices name; see the
+   [audio-motion README](https://github.com/scottchronicity/orpheus/blob/main/agents/orpheus-agent-audio-motion/README.md).
 1. **Data drive.** Mount it at `/data/orpheus` through an `/etc/fstab` line
    naming it by UUID, with `nofail`, for example
    `UUID=<from blkid> /data/orpheus ext4 defaults,nofail 0 2`. Connect it
@@ -330,7 +332,7 @@ sudo chown -R orpheus:orpheus /data/orpheus/
 
 ```bash
 # Test RTSP connectivity
-ffprobe "rtsp://orpheus:orpheus-station-2025@orpheus-eye-1:554/cam/realmonitor?channel=1&subtype=0"
+ffprobe "rtsp://<user>:<password>@orpheus-eye-1:554/cam/realmonitor?channel=1&subtype=0"
 ```
 
 Check that cameras are powered, on the same network, and credentials are correct in `/opt/orpheus/config/orpheus.yaml`.

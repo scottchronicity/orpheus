@@ -11,7 +11,7 @@ This platform configuration targets the NVIDIA Jetson Orin NX 16GB module mounte
 - **GPU**: 1024-core NVIDIA Ampere architecture GPU with 32 Tensor Cores
 - **AI Performance**: 100 TOPS (INT8)
 - **Memory**: 16GB 128-bit LPDDR5
-- **Storage**: Samsung T7 2TB External SSD (USB-C connection)
+- **Storage**: Samsung T7 2TB External SSD (on a powered USB 3 hub; see wiring below)
 - **Network**: Gigabit Ethernet + WiFi 6E/BT 5.2
 - **Power**: 19V DC input, ~15-25W typical operation
 - **USB Expansion**: 
@@ -19,26 +19,26 @@ This platform configuration targets the NVIDIA Jetson Orin NX 16GB module mounte
   - 1× Anker 7-Port Powered USB Hub: 36W power adapter, USB 3.0
   - BLACK+DECKER USB-C to USB-A Adapter (2-pack) for hub connections
 
-### Orpheus-Specific USB Configuration
-- **Jetson Native USB-C Port**: Samsung T7 2TB SSD (dedicated)
-- **Jetson Native USB-A Ports** (4× available):
-  - Anker 555 Hub #1 (via USB-C to USB-A adapter) → HMTECH display via HDMI
-  - Anker 555 Hub #2 (via USB-C to USB-A adapter) → Network Ethernet port
-  - Anker 7-Port Hub → Behringer UMC404HD, Logitech K400 Plus keyboard
-  - Direct connection options for additional devices
-- **Note**: Jetson native DisplayPort is UNUSED
+### Orpheus-Specific Wiring
+How jetson1 is wired, including which USB hub carries the data drive and why,
+is recorded in [HARDWARE_MANIFEST.md](HARDWARE_MANIFEST.md). In short: the T7
+data drive on the externally powered USB 3 hub (5 Gb/s), and the display on the
+Jetson's DisplayPort output.
 
 ## Baseline System Requirements
 
 ### Operating System
-- **OS**: Ubuntu 24.04 LTS (Noble Numbat)
-- **Kernel**: 5.15.x or later (Jetson-specific)
-- **JetPack**: 6.0 or later
-  - CUDA 12.2+
-  - cuDNN 8.9+
-  - TensorRT 8.6+
-  - VPI 3.0+
-  - OpenCV 4.8+ with CUDA support
+Validated on jetson1 (JetPack 5.1.3). The PANNs GPU worker requires this
+combination: Python 3.8 and a CUDA 11.4 PyTorch build.
+- **OS**: Ubuntu 20.04 LTS (Focal Fossa), as shipped with JetPack 5.1.3
+- **Kernel**: 5.10.x (Jetson-specific, 5.10.192-tegra on jetson1)
+- **JetPack**: 5.1.3 (L4T R35.5.0)
+  - CUDA 11.4
+  - cuDNN 8.6
+  - TensorRT 8.5
+- **System Python**: 3.8 (JetPack). Most Orpheus components use Python 3.9 from
+  Ubuntu's packages, and GPS and the event correlator use 3.12; see
+  [Component Python environments](../../docs/operator-manual/index.md#component-python-environments).
 
 ### Verification Commands
 ```bash
@@ -60,15 +60,16 @@ cat /etc/nv_tegra_release
 
 ### Expected Output
 ```
-NVIDIA Jetson Orin NX (16GB ram)
-JetPack 6.0 [L4T 36.3.0]
-CUDA compilation tools, release 12.2
+NVIDIA Orin NX Developer Kit
+Version: 5.1.3-b29
+Cuda compilation tools, release 11.4
+# R35 (release), REVISION: 5.0
 ```
 
 ## Quick Setup Checklist
 
 ### Initial Setup (First Boot)
-- [ ] Flash JetPack 6.0+ using NVIDIA SDK Manager
+- [ ] Flash JetPack 5.1.3 (L4T R35.5) using NVIDIA SDK Manager
 - [ ] Connect to network (Ethernet recommended for initial setup)
 - [ ] Update system: `sudo apt update && sudo apt upgrade`
 - [ ] Verify all hardware detected: `lshw`, `lsusb`, `lspci`
