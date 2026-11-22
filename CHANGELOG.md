@@ -8,6 +8,70 @@ For a reader-facing tour of what changed and how to turn each thing on, see
 `CHANGELOG.md` and `VERSION` alongside their `pyproject.toml`; this file is the
 repository-wide record.
 
+## [Unreleased]
+
+Station hardening from the jetson1 rollout (Python 3.12, the PANNs GPU worker,
+the managed audio output, the kiosk) and from the 2026-11-21/22 power-loss and
+data-drive incidents. Additive: configuration and databases from 0.4.0 work
+unchanged. See [What's new](docs/whats-new.md) for how to turn each thing on.
+
+### Added
+
+- **Audio output service.** `orpheus-audio-output` replaces
+  `orpheus-bluetooth-autoconnect`: it keeps the speaker connected, runs its own
+  PulseAudio away from the recording interface, and reports health. It has a
+  transactional install and a rollback that preserves state.
+- **PANNs GPU worker** for audio-events (opt-in). It isolates the GPU process,
+  keeps a bounded queue that drains on shutdown, and honours the deployment's
+  inference policy.
+- **Portable accelerator selection** for bird detection (ONNX providers, fails
+  closed when a provider falls back) and crow detection.
+- **Kiosk display.** `/kiosk`, a read-only station view, and a kiosk that runs
+  on a Jetson's own monitor.
+- **Dashboard:** GPU load, temperature and shared memory. The service inventory
+  now shows the configured services as they really are.
+- **Data-drive recovery.** `make install-data-root-recovery` (run by
+  `make install-host`) adds a udev rule that remounts the data drive when it
+  reappears, and every data-root unit has `WantedBy=data-orpheus.mount`, so the
+  services restart with it. The drive is read from `/etc/fstab`.
+  `make verify-deploy` checks both.
+- **Clock guard.** `make install-clock-guard`: the data-root services start
+  only on a real clock after a cold boot. `scripts/repair-clock-step.py`
+  repairs rows recorded on a wrong boot clock.
+- **Deploy tooling:**
+  - a pinned CPython at `/opt/orpheus/python`;
+  - SQLite backups that need no `sqlite3` CLI;
+  - the deployed commit named from file contents, failing a deploy that would
+    revert it;
+  - `verify-deploy` fails on runtime unit overrides and on any dependency on a
+    home directory.
+
+### Changed
+
+- **Data-root services** require `/data/orpheus` (`RequiresMountsFor`) and
+  start after `time-sync.target`. Guardrails enforce both.
+- **Installers** deploy only the payload: never a dev venv or a home-directory
+  path, and with world-readable files.
+- **Entities and charts** page in SQL and bucket by the viewer's timezone, and
+  the species chart is served from the date range.
+
+### Fixed
+
+- **Journald drop-in:** no longer sets `MaxRetentionSec`, which deleted the
+  journal of every boot that lost power (it is renamed with a pre-sync clock).
+- **Audio playback:** honours the volume on `sound_name` requests.
+- **UI:** crow-call events are accurate, entities are named, and charts use the
+  viewer's zone.
+- **Kiosk:** the update job's journal output is bounded.
+
+### Operational notes
+
+- **Data drive:** give it a powered USB 3 link and check `lsusb -t`. To unplug
+  it, stop the data-root services before the mount. The operator manual §7
+  explains both.
+- **Known issue:** crow-detection can abort on shutdown ("terminate called
+  without an active exception"). systemd kills it after 90 s.
+
 ## [0.4.0] - 2026-09-01
 
 The summer update. Everything here is additive and backwards compatible: a
