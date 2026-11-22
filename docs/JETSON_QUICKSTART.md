@@ -12,7 +12,7 @@ For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows
 | --- | --- | --- |
 | **NVIDIA Jetson Orin NX** | Edge GPU for real-time inference | [Yahboom dev board](https://www.yahboom.net/) or similar |
 | **JetPack + L4T** | CUDA and cuDNN for the board | The version this project targets is recorded in [`platform/jetson-orin-nx-yahboom/README.md`](https://github.com/scottchronicity/orpheus/blob/main/platform/jetson-orin-nx-yahboom/README.md) — that file is the authority for the board's OS and JetPack, and this page does not restate it |
-| **Python 3.9.x** | Every component pins `>=3.9, <3.10` | See the note below |
+| **Python 3.9 and 3.12** | Components choose their own: most need 3.9 (at least 3.9.5); GPS and the event correlator need 3.12 | See the note below |
 | **libportaudio2** | Audio I/O (sounddevice) | `sudo apt install libportaudio2` |
 | **libsndfile1** | Audio file reading/writing | `sudo apt install libsndfile1` |
 | **mosquitto** (optional) | Only for the `mqtt` fallback backplane — the default NATS broker is downloaded by the backplane's `make install` | `sudo apt install mosquitto mosquitto-clients` |
@@ -28,11 +28,10 @@ For macOS development, see [macOS Quick Start](MACOS_QUICKSTART.md). For Windows
 > interpreter for that worker unless it has been validated against the installed
 > JetPack/CUDA libraries.
 
-GPS and event-correlator use independent Python 3.12 or 3.13 environments and
-do not share the PANNs CUDA runtime. Their systemd installers need a compatible
-interpreter available as `python3.12` or supplied through `PYTHON_BIN`; this
-does not replace the Jetson's system Python. See the
-[component runtime notes](operator-manual/index.md#component-python-environments).
+GPS and the event correlator need Python 3.12, which `make provision-python`
+installs at `/opt/orpheus/python` without replacing the Jetson's system Python
+(step 0 below). Which component uses which interpreter, and how to override it,
+is in [Component Python environments](operator-manual/index.md#component-python-environments).
 
 ---
 

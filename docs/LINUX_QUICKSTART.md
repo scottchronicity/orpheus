@@ -45,7 +45,7 @@ uv python find 3.9.5    # Should print the path to the installed interpreter
 
 The repo's `.python-version` file tells uv (and the Makefiles) which version to use.
 
-> **Note:** On Jetson, you use the system Python 3.9.5 from JetPack (which carries CUDA/cuDNN bindings). On generic Linux without a CUDA-aware Python, uv-managed 3.9.5 is the right default — see [Jetson Quick Start](JETSON_QUICKSTART.md) if you're on NVIDIA hardware.
+> **Note:** 3.9.5 serves the components that use the repository default. GPS and the event correlator use Python 3.12 or 3.13; see [Component Python environments](operator-manual/index.md#component-python-environments). On a Jetson, follow the [Jetson Quick Start](JETSON_QUICKSTART.md) instead: GPU inference there runs in a separate Python 3.8 environment.
 
 ---
 
