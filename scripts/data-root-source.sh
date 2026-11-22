@@ -16,6 +16,21 @@ data_root_source() {
     findmnt --tab-file "$2" -n -o SOURCE --mountpoint "$1" 2>/dev/null || true
 }
 
+# data_root_parent <data_root> <fstab>: "MOUNTPOINT SOURCE" of the deepest fstab
+# entry that mounts a directory above data_root (other than /), or nothing. A
+# station drive mounted at /data, with /data/orpheus a directory on it, never
+# gets a data-orpheus.mount, so the services would never restart with it.
+data_root_parent() {
+    [[ -f "$2" ]] || return 0
+    local target source best="" best_source=""
+    while read -r target source; do
+        [[ "${target}" != "/" && "$1" == "${target%/}/"* && ${#target} -gt ${#best} ]] || continue
+        best="${target}" best_source="${source}"
+    done < <(findmnt --tab-file "$2" -n -r -o TARGET,SOURCE 2>/dev/null)
+    [[ -n "${best}" ]] && echo "${best} ${best_source}"
+    return 0
+}
+
 # udev_match <fstab source>: sets UDEV_KEY/UDEV_VALUE, the udev property that
 # identifies that drive whatever port or kernel name it comes back on.
 # Returns 1 for a kernel name (/dev/sda1 ...), which can change on reconnect,

@@ -23,6 +23,18 @@ source "$(dirname "$0")/data-root-units.sh"
 source "$(dirname "$0")/data-root-source.sh"
 
 source_spec="$(data_root_source "${data_root}" "${fstab}")"
+if [[ -z "${source_spec}" && "${data_root}" == "${STATION_DATA_ROOT}" ]]; then
+    read -r parent parent_source <<< "$(data_root_parent "${data_root}" "${fstab}")"
+    if [[ -n "${parent:-}" ]]; then
+        parent_match=0; udev_match "${parent_source}" || parent_match=$?
+        if (( parent_match == 2 )); then
+            echo "✅ ${data_root} is on '${parent_source}' (mounted at ${parent}), not a local drive: nothing to recover"
+            exit 0
+        fi
+        echo "❌ /etc/fstab mounts ${parent} from '${parent_source}', with ${data_root} a directory on it: the services restart with ${data_root}'s own mount, which never exists. Fix: mount the drive at ${STATION_DATA_ROOT} itself"
+        exit 1
+    fi
+fi
 if [[ -z "${source_spec}" ]]; then
     echo "✅ ${data_root} is not a separate drive in /etc/fstab: nothing to recover"
     exit 0

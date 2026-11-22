@@ -364,8 +364,9 @@ the video’s time window, including when the window crosses midnight.
   any local disk works with no source change. The requirements:
   - **Mount point:** the drive must be mounted at `/data/orpheus`. Every
     shipped unit requires and restarts with that mount. The installer refuses
-    a separate drive mounted elsewhere, and `ORPHEUS_DATA_ROOT` elsewhere is
-    for development hosts only.
+    a separate drive mounted elsewhere, including one mounted at `/data` with
+    `/data/orpheus` a directory on it, and `verify-deploy` fails it.
+    `ORPHEUS_DATA_ROOT` elsewhere is for development hosts only.
   - **How fstab names it:** by `UUID=`, `LABEL=`, `PARTUUID=`, `PARTLABEL=`
     or a `/dev/disk/by-*` path. A kernel name like `/dev/sda1` can change when
     the drive reconnects. The installer skips it with a warning, so the rest of

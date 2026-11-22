@@ -118,6 +118,30 @@ service() {  # <name> <enabled|disabled>: an installed data-root service
   [ ! -e "$RULE" ]
 }
 
+@test "install: refuses a drive mounted at /data, with /data/orpheus a directory on it" {
+  # data-orpheus.mount never exists then, so nothing would restart the services.
+  printf '%s\n' "/dev/root / ext4 defaults 0 1" "UUID=$UUID /data ext4 defaults,nofail 0 2" > "$SB/root/etc/fstab"
+  run "$INSTALL"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mounts /data"*"Mount the data drive at /data/orpheus"* ]]
+  [ ! -e "$RULE" ]
+}
+
+@test "install: a network share at /data is still nothing to recover" {
+  printf '%s\n' "/dev/root / ext4 defaults 0 1" "nas:/export /data nfs defaults 0 0" > "$SB/root/etc/fstab"
+  run "$INSTALL"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not a local drive"* ]]
+  [ ! -e "$RULE" ]
+}
+
+@test "install: a development data root under a separately mounted /home needs nothing" {
+  printf '%s\n' "/dev/root / ext4 defaults 0 1" "UUID=$UUID /home ext4 defaults 0 2" > "$SB/root/etc/fstab"
+  run "$INSTALL" /home/dev/data/orpheus
+  [ "$status" -eq 0 ]
+  [ ! -e "$RULE" ]
+}
+
 @test "install: a development data root outside fstab needs nothing" {
   printf '/dev/root / ext4 defaults 0 1\n' > "$SB/root/etc/fstab"
   run "$INSTALL" "$HOME/data/orpheus"
@@ -197,6 +221,13 @@ service() {  # <name> <enabled|disabled>: an installed data-root service
   run "$CHECK" /srv/orpheus-data
   [ "$status" -eq 1 ]
   [[ "$output" == *"mount the drive there"* ]]
+}
+
+@test "verify: a drive mounted at /data, with /data/orpheus a directory on it, fails" {
+  printf '%s\n' "/dev/root / ext4 defaults 0 1" "UUID=$UUID /data ext4 defaults,nofail 0 2" > "$SB/root/etc/fstab"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"❌"*"/data"*"mount the drive at /data/orpheus"* ]]
 }
 
 @test "verify: a data root on the system disk passes" {

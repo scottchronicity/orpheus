@@ -47,6 +47,20 @@ if [[ -z "${root}" && "$(id -u)" -ne 0 ]]; then
 fi
 
 source_spec="$(data_root_source "${data_root}" "${fstab}")"
+if [[ -z "${source_spec}" && "${data_root}" == "${STATION_DATA_ROOT}" ]]; then
+    read -r parent parent_source <<< "$(data_root_parent "${data_root}" "${fstab}")"
+    if [[ -n "${parent:-}" ]]; then
+        parent_match=0; udev_match "${parent_source}" || parent_match=$?
+        if (( parent_match == 2 )); then
+            echo "${data_root} is on '${parent_source}' (mounted at ${parent}), not a local drive: nothing installed"
+            exit 0
+        fi
+        echo "ERROR: /etc/fstab mounts ${parent} from '${parent_source}', and ${data_root} is a directory on it." >&2
+        echo "       Orpheus's services restart with ${data_root}'s own mount (WantedBy=data-orpheus.mount)," >&2
+        echo "       which then never exists. Mount the data drive at ${STATION_DATA_ROOT} instead. Nothing installed." >&2
+        exit 1
+    fi
+fi
 if [[ -z "${source_spec}" ]]; then
     echo "${data_root} is not its own entry in ${fstab}: no separate drive to recover, nothing installed"
     exit 0
