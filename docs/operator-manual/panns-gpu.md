@@ -47,10 +47,15 @@ Add this to your local `orpheus.yaml`:
 
 ```yaml
 audio_events:
-  backend: auto
+  backend: gpu_worker
   gpu_worker:
     max_pending_clips: 2
 ```
+
+Name the backend you want. `auto` decides once, at agent startup, from
+`MemAvailable` against `start_memory_mib` (8,704 MiB by default). On a cold boot,
+while the other model agents are still loading, that check can fail, and the
+agent then runs the in-process CPU model until it is restarted, with no error.
 
 - `inprocess` (default) retains the existing model and `device: auto` selection
   inside Python 3.9. Set `device: cpu` for explicit CPU operation.
@@ -231,7 +236,13 @@ agent keeps at most one active clip plus `max_pending_clips` waiting references
 in FIFO order. When full, the event callback blocks until an execution slot
 opens; the agent does not reject clips due to queue capacity. Sustained demand
 above inference throughput therefore backpressures event delivery and increases
-latency. See
+latency. The blocked callback holds the agent's event-bus dispatch thread, so
+new events for the agent wait in the bus's dispatch queue (10,000 messages).
+If a stall lasts long enough to fill it, for example a long worker outage, the
+bus drops the oldest waiting messages. It logs `dispatch queue full; dropping
+oldest message` and counts the drops in the agent's health under
+`bus_dispatch.dropped`, shown on Diagnostics. These drops do not appear in
+`clips_rejected`. See
 [ADR 0019](../adr/0019-agent-owned-inference-workers.md).
 
 The agent publishes and persists `audio.classified` detections for completed

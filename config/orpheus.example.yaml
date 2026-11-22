@@ -2,7 +2,9 @@
 # PANNs GPU is opt-in; omitted settings retain the existing in-process backend.
 # See docs/operator-manual/panns-gpu.md for installation and host-memory budgets.
 # audio_events:
-#   backend: auto            # inprocess (default), auto, or gpu_worker (required GPU)
+#   backend: gpu_worker      # inprocess (default) | gpu_worker (required GPU) | auto
+#                            # (auto decides once at startup from MemAvailable and can
+#                            # silently pick CPU on a busy cold boot)
 #   device: auto             # auto | cpu | cuda; auto backend respects explicit cpu
 #   gpu_worker:
 #     python: /data/orpheus/venvs/panns-gpu/bin/python # default follows ORPHEUS_DATA_ROOT

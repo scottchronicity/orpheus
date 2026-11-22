@@ -105,7 +105,10 @@ behavioral tests. IPC exchange timeouts bound a faulty exchange; worker recovery
 does not authorize discarding work by recording age, silently loading another
 model or inventing retries. The PANNs agent bounds waiting clip references by
 configuration and blocks its callback when that capacity is full; it waits
-through temporary worker unavailability. Graceful shutdown drains within its
+through temporary worker unavailability. While it blocks, its events wait in
+the event bus's bounded dispatch queue, which drops the oldest when full and
+counts the drops in the agent's health, outside the agent's own rejection
+counters. Graceful shutdown drains within its
 configured lifecycle budget and logs/counts unfinished clips if that budget
 expires. This in-memory queue does not survive an agent/host crash, and the
 core event bus does not make it a durable work queue. See the
