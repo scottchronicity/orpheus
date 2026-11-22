@@ -87,6 +87,10 @@ async function mockStation(page: Page, opts: { guest?: boolean; servicesDown?: b
 }
 
 test.describe('kiosk display', () => {
+  // The full layout, whatever the Playwright project's device. The compact
+  // layout (the 7-inch 800x480 station display) has its own tests below.
+  test.use({ viewport: { width: 1280, height: 720 } })
+
   test('signs in as the guest and shows live station data', async ({ page }) => {
     const calls = await mockStation(page)
     await page.goto('/kiosk')
@@ -185,6 +189,37 @@ test.describe('kiosk display', () => {
     })
   }
 
+  test('on the 800x480 station display, shows live data with the station summary in the footer', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 480 })
+    const calls = await mockStation(page)
+    await page.goto('/kiosk')
+    await expect(page.locator('[data-layout]')).toHaveAttribute('data-layout', 'compact')
+    await expect(page.getByTestId('kiosk-latest')).toContainText('American Crow')
+    await expect(page.getByTestId('kiosk-total')).toHaveText('57')
+    await expect(page.getByTestId('kiosk-system')).toContainText('2/2 services')
+    await expect(page.getByTestId('kiosk-status')).toHaveText('All systems normal')
+    expect(calls.guestLogins).toBe(1)
+  })
+
+  test('keeps polling, and says the station is unreachable while keeping the last data', async ({ page }) => {
+    await page.clock.install()
+    const calls = await mockStation(page)
+    await page.goto('/kiosk')
+    await expect(page.getByTestId('kiosk-total')).toHaveText('57')
+    const polls = () => calls.paths.filter((p) => p === '/api/health').length
+    const before = polls()
+    await page.clock.runFor(35_000) // past one HISTORY poll
+    await expect.poll(polls).toBeGreaterThan(before)
+    await expect(page.getByTestId('kiosk-status')).toHaveText('All systems normal')
+
+    // The station stops answering (later routes take precedence).
+    await page.route('**/api/**', (route) => route.fulfill({ status: 503, body: 'down' }))
+    await page.clock.runFor(70_000) // two polls, with the queries' retries
+    await expect(page.getByTestId('kiosk-status')).toContainText('Station unreachable')
+    await expect(page.getByText(/showing data from/)).toBeVisible()
+    await expect(page.getByTestId('kiosk-total')).toHaveText('57')
+  })
+
   test('demo mode works with no backend at all', async ({ page }) => {
     let apiCalls = 0
     await page.route('**/api/**', (route) => {
@@ -197,5 +232,14 @@ test.describe('kiosk display', () => {
     await expect(page.getByText('Demo data — not from a station')).toBeVisible()
     // /api/config (the poll-interval bootstrap) may be tried; nothing else is.
     expect(apiCalls).toBeLessThanOrEqual(1)
+  })
+
+  test('demo mode on the 800x480 display still says the data is not real', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 480 })
+    await page.route('**/api/**', (route) => route.abort())
+    await page.route('**/auth/**', (route) => route.abort())
+    await page.goto('/kiosk?demo=1')
+    await expect(page.locator('[data-layout]')).toHaveAttribute('data-layout', 'compact')
+    await expect(page.getByText('Demo data ·')).toBeVisible()
   })
 })
