@@ -19,11 +19,17 @@ systemctl="${SYSTEMCTL:-systemctl}"
 rule="${root}/etc/udev/rules.d/90-orpheus-data-root.rules"
 # shellcheck source=data-root-units.sh
 source "$(dirname "$0")/data-root-units.sh"
+# shellcheck source=data-root-source.sh
+source "$(dirname "$0")/data-root-source.sh"
 
-source_spec=""
-[[ -f "${fstab}" ]] && source_spec="$(findmnt --tab-file "${fstab}" -n -o SOURCE --mountpoint "${data_root}" 2>/dev/null || true)"
+source_spec="$(data_root_source "${data_root}" "${fstab}")"
 if [[ -z "${source_spec}" ]]; then
     echo "✅ ${data_root} is not a separate drive in /etc/fstab: nothing to recover"
+    exit 0
+fi
+match=0; udev_match "${source_spec}" || match=$?
+if (( match == 2 )); then
+    echo "✅ ${data_root} is mounted from '${source_spec}', not a local drive: nothing to recover"
     exit 0
 fi
 mount_unit="$(systemd-escape -p --suffix=mount "${data_root}")"
@@ -33,9 +39,11 @@ ok() { echo "✅ $*"; }
 no() { echo "❌ $*"; bad=1; }
 show() { "${systemctl}" show "$1" -p "$2" --value 2>/dev/null; }
 
-identifier="${source_spec#*=}"; identifier="${identifier##*/}"; identifier="${identifier//\"/}"
-if [[ -f "${rule}" ]] && grep -q "SYSTEMD_WANTS}+=\"${mount_unit}\"" "${rule}" \
-        && grep -qF "==\"${identifier}\"" "${rule}"; then
+if [[ "${data_root}" != "${STATION_DATA_ROOT}" ]]; then
+    no "${data_root} is a separate drive, but the services require and restart with ${STATION_DATA_ROOT}: mount the drive there"
+elif (( match == 1 )); then
+    no "/etc/fstab names the data drive '${source_spec}', a kernel name that can change when it reconnects: use UUID= (lsblk -f)"
+elif [[ -f "${rule}" ]] && grep -qF "ENV{${UDEV_KEY}}==\"${UDEV_VALUE}\", ENV{SYSTEMD_WANTS}+=\"${mount_unit}\"" "${rule}"; then
     ok "the drive (${source_spec}) starts ${mount_unit} when it reappears"
 else
     no "nothing mounts ${data_root} again when the drive reappears (no rule for ${source_spec} in ${rule})"

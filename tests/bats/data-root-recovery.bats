@@ -64,12 +64,31 @@ service() {  # <name> <enabled|disabled>: an installed data-root service
   grep -q 'ENV{ID_PART_ENTRY_UUID}=="6a90dd88-aacf-4fa5-980b-0ce993528484"' "$RULE"
 }
 
-@test "install: refuses a kernel device name, which changes when the drive reconnects" {
+@test "install: a kernel device name gets no rule, and install-host carries on" {
+  # The name changes when the drive reconnects (sde -> sdf). Exit 0 so the rest
+  # of make install-host still runs; verify-deploy reports it instead.
   fstab "/dev/sde1"
   run "$INSTALL"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Use UUID="* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"*"UUID="* ]]
   [ ! -e "$RULE" ]
+}
+
+@test "install: a network share is not a drive to recover" {
+  fstab "nas:/export/orpheus"
+  run "$INSTALL"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not a local drive"* ]]
+  [ ! -e "$RULE" ]
+}
+
+@test "install: /dev/disk/by-* paths map to the same stable identifiers" {
+  fstab "/dev/disk/by-uuid/$UUID"
+  run "$INSTALL"
+  grep -q "ENV{ID_FS_UUID}==\"$UUID\"" "$RULE"
+  fstab "/dev/disk/by-partuuid/6a90dd88-aacf-4fa5-980b-0ce993528484"
+  run "$INSTALL"
+  grep -q 'ENV{ID_PART_ENTRY_UUID}=="6a90dd88-aacf-4fa5-980b-0ce993528484"' "$RULE"
 }
 
 @test "install: a data root that is not its own fstab entry needs nothing" {
@@ -80,11 +99,30 @@ service() {  # <name> <enabled|disabled>: an installed data-root service
   [ ! -e "$RULE" ]
 }
 
-@test "install: names the mount after a non-default data root" {
+@test "install: any disk UUID works; nothing about jetson1 is built in" {
+  other=0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0
+  fstab "UUID=$other"
+  run "$INSTALL"
+  [ "$status" -eq 0 ]
+  grep -q "ENV{ID_FS_UUID}==\"$other\"" "$RULE"
+  ! grep -q "$UUID" "$RULE"
+}
+
+@test "install: refuses a data drive mounted anywhere but /data/orpheus" {
+  # The units require and restart with data-orpheus.mount; a rule for another
+  # mount would remount the drive but never bring the services back.
   printf 'UUID=%s /srv/orpheus-data ext4 defaults,nofail 0 2\n' "$UUID" > "$SB/root/etc/fstab"
   run "$INSTALL" /srv/orpheus-data
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Mount the data drive at /data/orpheus"* ]]
+  [ ! -e "$RULE" ]
+}
+
+@test "install: a development data root outside fstab needs nothing" {
+  printf '/dev/root / ext4 defaults 0 1\n' > "$SB/root/etc/fstab"
+  run "$INSTALL" "$HOME/data/orpheus"
   [ "$status" -eq 0 ]
-  grep -qF 'ENV{SYSTEMD_WANTS}+="srv-orpheus\x2ddata.mount"' "$RULE"
+  [ ! -e "$RULE" ]
 }
 
 @test "install: is idempotent and leaves no temporary file in rules.d" {
@@ -138,6 +176,27 @@ service() {  # <name> <enabled|disabled>: an installed data-root service
   run "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"❌ nothing mounts /data/orpheus again"* ]]
+}
+
+@test "verify: a kernel device name in fstab fails with the fix" {
+  fstab "/dev/sde1"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"❌"*"kernel name"*"use UUID="* ]]
+}
+
+@test "verify: a network share passes, as nothing to recover" {
+  fstab "nas:/export/orpheus"
+  run "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not a local drive"* ]]
+}
+
+@test "verify: a data drive mounted elsewhere fails" {
+  printf 'UUID=%s /srv/orpheus-data ext4 defaults,nofail 0 2\n' "$UUID" > "$SB/root/etc/fstab"
+  run "$CHECK" /srv/orpheus-data
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mount the drive there"* ]]
 }
 
 @test "verify: a data root on the system disk passes" {
