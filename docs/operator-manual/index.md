@@ -336,7 +336,7 @@ the video’s time window, including when the window crosses midnight.
   seconds, taking everything else on it (the Ethernet adapter included) down
   with it. Make sure the plug cannot work loose: a loose plug at the board's
   USB-C port was enough to lose the drive at a reboot. The
-  [jetson1 hardware manifest](../../platform/jetson-orin-nx-yahboom/HARDWARE_MANIFEST.md)
+  [jetson1 hardware manifest](https://github.com/scottchronicity/orpheus/blob/main/platform/jetson-orin-nx-yahboom/HARDWARE_MANIFEST.md)
   records how that station is wired.
 - **Unplugging the data drive** (to move it or change a cable), without a reboot:
   1. `sudo systemctl stop` the data-root services by name (the nine agents and
