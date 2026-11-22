@@ -612,7 +612,7 @@ coverage-event-correlator:
 	@echo "============================================"
 	@cd agents/orpheus-agent-event-correlator && \
 		if [ -d $(CORRELATOR_VENV) ]; then \
-			. $(CORRELATOR_VENV)/bin/activate && PYTHONPATH=src python -m pytest tests/ --cov=orpheus_agent_event_correlator $(COV_REPORTS) --cov-fail-under=70; \
+			. $(CORRELATOR_VENV)/bin/activate && PYTHONPATH=src:../orpheus-agent-audio-playback/src python -m pytest tests/ --cov=orpheus_agent_event_correlator $(COV_REPORTS) --cov-fail-under=70; \
 		else \
 			echo "⚠️  No venv found. Run 'make install-event-correlator' first."; \
 			exit 1; \
