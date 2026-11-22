@@ -34,4 +34,6 @@ LogRateLimitBurst=500
 SyslogIdentifier=orpheus-agent-event-correlator
 
 [Install]
-WantedBy=multi-user.target
+# data-orpheus.mount: if the data drive drops out and comes back, the mount
+# starts this again (it stopped with the drive). See deploy/storage/.
+WantedBy=multi-user.target data-orpheus.mount

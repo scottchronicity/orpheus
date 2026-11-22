@@ -18,7 +18,7 @@
 	format-common format-ui format-gps format-audio-output format-audio-motion format-audio-playback format-audio-events format-video-motion format-video-snapshotter format-video-timelapser format-bird-detection format-crow-detection format-event-correlator format-backplane \
 	clean-common clean-ui clean-gps clean-audio-motion clean-audio-playback clean-audio-events clean-video-motion clean-video-snapshotter clean-video-timelapser clean-bird-detection clean-crow-detection clean-event-correlator clean-backplane clean-audio-output \
 	services-install services-start services-stop services-restart \
-	install-host install-backbone install-log-bounds install-clock-guard upsert-backbone-env check-installable \
+	install-host install-backbone install-log-bounds install-clock-guard install-data-root-recovery upsert-backbone-env check-installable \
 	update-services \
 	sim-up sim-down sim-logs sim-status sim-fleet-up sim-config sim-validate \
 	sim-distributed-up sim-distributed-validate sim-distributed-down \
@@ -91,6 +91,7 @@ help:
 	@echo "  make services-install   - Install system services"
 	@echo "  make install-log-bounds - Opt-in: bound host logs (persistent capped journal, no syslog mirror)"
 	@echo "  make install-clock-guard - Start Orpheus only on a real clock after a cold boot (next boot)"
+	@echo "  make install-data-root-recovery - Remount the data drive and restart Orpheus when it reconnects"
 	@echo "  make services-start     - Start all services"
 	@echo "  make services-stop      - Stop all services"
 	@echo "  make services-restart   - Restart all services"
@@ -252,6 +253,7 @@ install-host:
 	@if [ -n "$(BACKBONE)" ]; then $(MAKE) upsert-backbone-env BACKBONE="$(BACKBONE)"; fi
 	@$(MAKE) -C platform/orpheus-common install-service
 	@$(MAKE) install-clock-guard
+	@$(MAKE) install-data-root-recovery
 	@for c in $(COMPONENTS); do \
 	  [ "$$c" = common ] && continue; \
 	  d=$$(echo "$(COMPONENT_DIRS)" | tr ' ' '\n' | sed -n "s/^$$c://p"); \
@@ -281,6 +283,14 @@ install-log-bounds:   ## opt-in: bound this HOST's logs (journald persistent + c
 #   nothing is restarted. Checked by verify-deploy. See deploy/clock/.
 install-clock-guard:   ## Orpheus starts on a real clock after a cold boot (effective next boot)
 	@sudo deploy/clock/install-clock-guard.sh
+
+# install-data-root-recovery: when the data drive drops out, systemd stops every
+#   service that uses it (correctly). This udev rule mounts the drive again when it
+#   reappears, and the mount restarts the enabled services (their WantedBy=, set by
+#   each install-service). Nothing is restarted now. Checked by verify-deploy.
+#   See deploy/storage/.
+install-data-root-recovery:   ## remount the data drive and restart Orpheus when the drive reconnects
+	@sudo deploy/storage/install-data-root-recovery.sh "$(ORPHEUS_DATA_ROOT)"
 
 install-backbone:
 	@# Safety gate FIRST (before any install, so a bad invocation fails fast):
@@ -1338,6 +1348,18 @@ verify-deploy:
 		fi; \
 	else \
 		echo "  ⚠️  systemctl not found (not a systemd host) — data-drive dependency not checked"; \
+	fi; \
+	echo ""; \
+	echo "Data-drive recovery (when the drive reconnects, it is mounted again and Orpheus restarts):"; \
+	if command -v systemctl >/dev/null 2>&1; then \
+		if out=$$(scripts/verify-data-root-recovery.sh "$(ORPHEUS_DATA_ROOT)" 2>&1); then \
+			echo "$$out" | sed 's/^/  /'; \
+		else \
+			echo "$$out" | sed 's/^/  /'; \
+			fail=1; \
+		fi; \
+	else \
+		echo "  ⚠️  systemctl not found (not a systemd host) — data-drive recovery not checked"; \
 	fi; \
 	echo ""; \
 	echo "Clock at boot (services start only once NTP has set the clock, or after a bounded wait):"; \
