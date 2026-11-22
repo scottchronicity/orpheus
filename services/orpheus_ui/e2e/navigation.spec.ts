@@ -231,7 +231,7 @@ test.describe('Mobile Navigation', () => {
     await login(page)
 
     // Dashboard content should be visible
-    await expect(page.getByText(/cpu/i)).toBeVisible()
+    await expect(page.getByText(/cpu usage/i)).toBeVisible()
     
     // Navigate to each page and verify content is accessible
     const pages = [

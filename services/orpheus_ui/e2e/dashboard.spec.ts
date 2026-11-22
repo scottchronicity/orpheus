@@ -25,9 +25,11 @@ test.describe('Dashboard', () => {
 
   test('displays system health section', async ({ page }) => {
     // Should show CPU, Memory, Disk metrics
-    await expect(page.getByText(/cpu/i)).toBeVisible()
-    await expect(page.getByText(/memory/i)).toBeVisible()
-    await expect(page.getByText(/disk/i)).toBeVisible()
+    // The stat-card titles: the GPU card's "Shared memory (CPU + GPU)" also
+    // matches a bare /cpu/ or /memory/, which strict mode rejects.
+    await expect(page.getByText(/cpu usage/i)).toBeVisible()
+    await expect(page.getByText(/memory usage/i)).toBeVisible()
+    await expect(page.getByText(/system disk/i)).toBeVisible()
   })
 
   test('displays service status section', async ({ page }) => {
