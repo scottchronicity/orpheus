@@ -324,10 +324,36 @@ the video’s time window, including when the window crosses midnight.
   line such as `UUID=<the drive's UUID> /data/orpheus ext4 defaults,nofail 0 2`
   (`blkid` gives the UUID). Keep `nofail`: without the drive the station still
   boots and answers on SSH, with the data services held back. After such a boot,
-  reconnect the drive and run `sudo systemctl start data-orpheus.mount`, then start
-  the services in the order the [rollout runbook](../runbooks/jetson-rollout.md)
-  gives, or reboot.
-  If the drive drops out while running (a USB disconnect), systemd stops every
+  reconnect the drive: with the recovery below installed, it mounts and the
+  services start by themselves. Without it, run
+  `sudo systemctl start data-orpheus.mount`, then start the services in the
+  order the [rollout runbook](../runbooks/jetson-rollout.md) gives, or reboot.
+- **Connecting the data drive.** Give it a SuperSpeed link with its own power:
+  a USB 3 port on the board, or an externally powered USB 3 hub. Check with
+  `lsusb -t`: the drive should show `Driver=uas` at `5000M` or `10000M`. Avoid
+  a bus-powered hub, and any hub that links at USB 2 only (`480M`). On jetson1
+  a bus-powered USB-C hub could not power the drive and reset every few
+  seconds, taking everything else on it (the Ethernet adapter included) down
+  with it. Make sure the plug cannot work loose: a loose plug at the board's
+  USB-C port was enough to lose the drive at a reboot. The
+  [jetson1 hardware manifest](../../platform/jetson-orin-nx-yahboom/HARDWARE_MANIFEST.md)
+  records how that station is wired.
+- **Unplugging the data drive** (to move it or change a cable), without a reboot:
+  1. `sudo systemctl stop` the data-root services by name (the nine agents and
+     `orpheus-ui`; `scripts/data-root-units.sh` lists them). Stop them before
+     the mount: while a stop of the mount alone is in progress, any other unit
+     that starts (a crash reporter, for one) pulls `local-fs.target` and with it
+     the mount back in, which cancels the stop and restarts the services.
+  2. `sync`, then `sudo systemctl stop data-orpheus.mount`.
+  3. Once `findmnt /data/orpheus` shows nothing, detach the disk so nothing can
+     mount it again before you pull it:
+     `echo 1 | sudo tee /sys/block/<sdX>/device/delete`.
+  4. Unplug it and plug it in where it is going. The recovery below mounts it
+     and starts the services. Confirm with `lsusb -t` and `make verify-deploy`.
+  Leave `orpheus-storage-sweep.timer` running. Stopping and starting it later
+  in the same boot leaves it with no next run (its `OnBootSec` has passed and
+  its last run is forgotten) until the sweep runs once more.
+- **When the data drive drops out.** If the drive drops out while running (a USB disconnect), systemd stops every
   data-root service with it, so nothing writes onto the root filesystem.
   `make install-data-root-recovery` (run by `make install-host`) installs a udev
   rule that mounts the drive again when it reappears, after the usual `fsck`,

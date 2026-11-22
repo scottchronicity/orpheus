@@ -13,7 +13,16 @@ Last updated: 2025-11-07
 
 ### Storage
 - **Samsung T7 2TB External SSD** (already owned)
-  - Connection: Jetson native USB-C port
+  - Connection (since 2026-11-22): externally powered USB 3 hub (the Anker
+    7-Port Powered USB Hub), with a USB-C-to-USB-A cable. It links at 5 Gb/s:
+    `lsusb -t` shows `Driver=uas, 5000M`.
+  - Not the Jetson's native USB-C port: the plug there worked loose, and the
+    drive was not detected after a reboot.
+  - Not an Anker 555 USB-C hub: on this board it links at USB 2 only (480M).
+    Powered from the Jetson, it could not power the T7 and reset every few
+    seconds, taking the hub's Ethernet adapter down with it.
+  - Keep the kiosk monitor's power off the Anker 555 hub too: with the T7 on
+    the same hub, that load contributed to the resets.
 
 ### Display (Development Only)
 - **HMTECH 7 Inch Raspberry Pi Screen** (800×480 IPS LCD)
@@ -157,7 +166,7 @@ Last updated: 2025-11-07
 ## Notes
 
 - All USB devices connect to Jetson USB-A ports (via hubs where needed)
-- Jetson native USB-C port reserved for Samsung T7 SSD
+- Samsung T7 SSD on the externally powered USB 3 hub at 5 Gb/s (see Storage), not the native USB-C port
 - Jetson DisplayPort is UNUSED
 - Display connection: Anker 555 Hub HDMI → HMTECH monitor
 - Purchased 4 cameras at $64.99 each (below $70 estimate)
