@@ -240,6 +240,21 @@ def check_data_root_time_sync() -> List[str]:
     return problems
 
 
+def check_data_root_restart() -> List[str]:
+    """When the data drive drops out, systemd stops every service that requires it, and
+    nothing starts them when it returns: jetson1 stopped recording after a USB drop
+    (2026-11-22). WantedBy=data-orpheus.mount makes the mount start them again. The
+    sweep is exempt: its timer starts it."""
+    problems: List[str] = []
+    for rel in _data_root_units():
+        path = REPO / rel
+        if path.name == "orpheus-storage-sweep.service" or not path.exists():
+            continue
+        if not re.search(r"^WantedBy=(.*\s)?data-orpheus\.mount(\s|$)", path.read_text(), re.M):
+            problems.append(f"{rel}: no WantedBy=data-orpheus.mount in [Install]")
+    return problems
+
+
 CHECKS: Tuple[Tuple[str, Callable[[], List[str]]], ...] = (
     ("agent wiring (#5)", check_agent_wiring),
     ("manifest catalog (#5)", check_manifest_catalog),
@@ -248,6 +263,7 @@ CHECKS: Tuple[Tuple[str, Callable[[], List[str]]], ...] = (
     ("roadmap counts (#12)", check_roadmap_counts),
     ("data-drive mount dependency", check_data_root_mount_dependency),
     ("data-root services wait for the clock", check_data_root_time_sync),
+    ("data-root services restart with the drive", check_data_root_restart),
 )
 
 

@@ -327,6 +327,31 @@ the video’s time window, including when the window crosses midnight.
   reconnect the drive and run `sudo systemctl start data-orpheus.mount`, then start
   the services in the order the [rollout runbook](../runbooks/jetson-rollout.md)
   gives, or reboot.
+  If the drive drops out while running (a USB disconnect), systemd stops every
+  data-root service with it, so nothing writes onto the root filesystem.
+  `make install-data-root-recovery` (run by `make install-host`) installs a udev
+  rule that mounts the drive again when it reappears, after the usual `fsck`,
+  and each data-root service's `WantedBy=data-orpheus.mount` restarts it with
+  the mount. A service you disabled stays stopped, and a drive that fails its
+  `fsck` stays unmounted. `make verify-deploy` checks this ("Data-drive
+  recovery"). The installer reads the drive's identity from `/etc/fstab`, so
+  any local disk works with no source change. The requirements:
+  - **Mount point:** the drive must be mounted at `/data/orpheus`. Every
+    shipped unit requires and restarts with that mount. The installer refuses
+    a separate drive mounted elsewhere, and `ORPHEUS_DATA_ROOT` elsewhere is
+    for development hosts only.
+  - **How fstab names it:** by `UUID=`, `LABEL=`, `PARTUUID=`, `PARTLABEL=`
+    or a `/dev/disk/by-*` path. A kernel name like `/dev/sda1` can change when
+    the drive reconnects. The installer skips it with a warning, so the rest of
+    the install still runs, and `verify-deploy` fails until fstab is fixed.
+  - **Where recovery doesn't apply:** if the data root is on the system disk
+    or on a network share, there is no drive to recover, and both the installer
+    and the check pass.
+  Two things the recovery cannot undo: clips that were being written when the
+  drive dropped out are cut short (their FLAC headers are never finished), and
+  after a power cut journald renames the journal it was writing before the clock
+  is set. The shipped `make install-log-bounds` drop-in therefore has no
+  `MaxRetentionSec`, which would delete that journal at once.
 - **The clock at boot.** Recordings, clip names and database rows are stamped
   with the system clock, and a Jetson has no battery-backed clock unless a coin
   cell is fitted to the carrier's RTC connector. `make install-clock-guard`
