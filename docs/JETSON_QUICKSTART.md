@@ -128,6 +128,25 @@ Run `make` as your normal user — never `sudo make`. Targets that need
 root (like `install-service`) invoke `sudo` internally for just those
 steps, and `make install` actively rejects running as root.
 
+### 0. Prepare the station host
+
+These are host settings that the component installs below don't make. Do
+them once on a new or replacement station. `make install-host` runs steps 3
+and 4 itself.
+
+1. **Data drive.** Mount it at `/data/orpheus` through an `/etc/fstab` line
+   naming it by UUID, with `nofail`, for example
+   `UUID=<from blkid> /data/orpheus ext4 defaults,nofail 0 2`. Connect it
+   over a powered USB 3 link: `lsusb -t` should show `Driver=uas` at
+   `5000M` or more. See [Data & retention](operator-manual/index.md#7-data-retention).
+2. **Python 3.12** for GPS and the event correlator: `make provision-python`.
+3. **Clock guard** (effective from the next boot): `make install-clock-guard`.
+4. **Data-drive recovery:** `make install-data-root-recovery`. Run it after
+   the fstab line exists; it reads the drive from there.
+5. **Host log bounds** (restarts journald): `make install-log-bounds`.
+
+`make verify-deploy` checks all of these once the services are installed.
+
 ### 1. Install the platform library first
 
 ```bash
