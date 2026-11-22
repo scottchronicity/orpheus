@@ -34,7 +34,7 @@ jobs:
   # This job is in ci-complete's needs, so a red guardrail actually blocks merge.
   guardrails:
     name: Contributor Guardrails
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -57,7 +57,7 @@ jobs:
   # Detect which components have changed to optimize test execution
   changes:
     name: Detect Changed Paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       common: ${{ steps.filter.outputs.common }}
       ui: ${{ steps.filter.outputs.ui }}
@@ -144,7 +144,7 @@ jobs:
 
   check-dependencies:
     name: Check Dependency Consistency
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     # Run if any component changed, or workflow/root config changed
     if: |
@@ -179,7 +179,7 @@ jobs:
 
   test-orpheus-common:
     name: Test orpheus-common
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if common changed, or workflow/root config changed
     if: |
@@ -226,7 +226,7 @@ jobs:
 
   test-orpheus-ui:
     name: Test orpheus_ui
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if ui or common changed, or workflow/root config changed
     if: |
@@ -326,7 +326,7 @@ jobs:
 
   test-orpheus-gps:
     name: Test orpheus-gps
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if gps or common changed, or workflow/root config changed
     if: |
@@ -374,7 +374,7 @@ jobs:
 
   test-orpheus-audio-output:
     name: Test orpheus-audio-output
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if audio-output or common changed, or workflow/root config changed
     if: |
@@ -420,7 +420,7 @@ jobs:
 
   test-orpheus-agent-audio-motion:
     name: Test orpheus-agent-audio-motion
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if audio-motion or common changed, or workflow/root config changed
     if: |
@@ -473,7 +473,7 @@ jobs:
 
   test-orpheus-agent-audio-playback:
     name: Test orpheus-agent-audio-playback
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if audio-playback or common changed, or workflow/root config changed
     if: |
@@ -526,7 +526,7 @@ jobs:
 
   test-orpheus-agent-audio-events:
     name: Test orpheus-agent-audio-events
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if audio-events or common changed, or workflow/root config changed.
     if: |
@@ -588,7 +588,7 @@ jobs:
 
   test-orpheus-agent-video-motion:
     name: Test orpheus-agent-video-motion
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if video-motion or common changed, or workflow/root config changed
     if: |
@@ -641,7 +641,7 @@ jobs:
 
   test-orpheus-agent-video-snapshotter:
     name: Test orpheus-agent-video-snapshotter
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if video-snapshotter or common changed, or workflow/root config changed
     if: |
@@ -694,7 +694,7 @@ jobs:
 
   test-orpheus-agent-video-timelapser:
     name: Test orpheus-agent-video-timelapser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if video-timelapser or common changed, or workflow/root config changed
     if: |
@@ -747,7 +747,7 @@ jobs:
 
   test-orpheus-agent-bird-detection:
     name: Test orpheus-agent-bird-detection
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if bird-detection or common changed, or workflow/root config changed
     if: |
@@ -800,7 +800,7 @@ jobs:
 
   test-orpheus-agent-crow-detection:
     name: Test orpheus-agent-crow-detection
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if crow-detection or common changed, or workflow/root config changed
     if: |
@@ -861,7 +861,7 @@ jobs:
 
   test-orpheus-agent-event-correlator:
     name: Test orpheus-agent-event-correlator
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, check-dependencies]
     # Run if event-correlator or common changed, or workflow/root config changed
     if: |
@@ -941,7 +941,7 @@ jobs:
 
   test-shared-make:
     name: Test Shared Make
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: |
       needs.changes.outputs.makefile-includes == 'true' ||
@@ -955,7 +955,7 @@ jobs:
 
   test-bash:
     name: Test Shell Scripts (bats)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: |
       needs.changes.outputs.shell-scripts == 'true' ||
@@ -963,6 +963,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      # scripts/check-dashboard-services.sh reads orpheus.yaml with the
+      # system python3, which needs PyYAML (stations have python3-yaml).
+      - name: Install PyYAML for the system python3
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
 
       - name: Run bats suites
         run: make test-bash
@@ -972,7 +977,7 @@ jobs:
   # and checks that no jobs failed (allowing skipped jobs to pass)
   docs-build:
     name: Docs Site Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.docs == 'true'
     steps:
@@ -985,7 +990,7 @@ jobs:
 
   ci-complete:
     name: CI Complete
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - guardrails
       - changes
