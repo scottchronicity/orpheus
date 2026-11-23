@@ -588,3 +588,27 @@ class TestAgentsSectionGuards:
     def test_scalar_agents_section_raises_config_error(self):
         with pytest.raises(ConfigError, match="agents must be a mapping"):
             self._load("fast")
+
+
+
+class TestEnvironmentValueTypes:
+    """Digits from the environment are numbers; boolean settings still accept 0/1."""
+
+    def test_digits_are_numbers_and_words_are_booleans(self):
+        from orpheus_common.config import _parse_env_value
+
+        assert _parse_env_value("1") == 1 and type(_parse_env_value("1")) is int
+        assert type(_parse_env_value("0")) is int
+        assert _parse_env_value("true") is True and _parse_env_value("off") is False
+
+    def test_integer_setting_of_one_reaches_the_config_as_an_integer(self, monkeypatch):
+        monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__MAX_PENDING_CLIPS", "1")
+        cfg = OrpheusConfig.from_dict({})
+        value = cfg._raw["audio_events"]["gpu_worker"]["max_pending_clips"]
+        assert value == 1 and type(value) is int
+
+    def test_boolean_setting_still_accepts_zero_and_one(self, monkeypatch):
+        from orpheus_common.config import _as_bool
+
+        assert _as_bool(1) is True and _as_bool(0) is False
+        assert _as_bool(2) == 2 and _as_bool("x") == "x"

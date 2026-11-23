@@ -134,6 +134,8 @@ def _no_unknown(data: Mapping[str, Any], allowed: set[str], where: str) -> None:
 def _bool(value: Any, where: str) -> bool:
     if isinstance(value, bool):
         return value
+    if isinstance(value, int) and value in (0, 1):  # an environment override's digits
+        return bool(value)
     if isinstance(value, str) and value.strip().lower() in {"true", "yes", "on", "1"}:
         return True
     if isinstance(value, str) and value.strip().lower() in {"false", "no", "off", "0"}:

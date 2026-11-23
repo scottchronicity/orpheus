@@ -419,7 +419,7 @@ class AudioChannel:
             raise ConfigError("audio.channels[].id must be an integer")
 
         name = str(data["name"])
-        enabled = data.get("enabled", True)
+        enabled = _as_bool(data.get("enabled", True))
         if not isinstance(enabled, bool):
             raise ConfigError("audio.channels[].enabled must be a boolean")
 
@@ -853,7 +853,7 @@ class Camera:
         if not host:
             raise ConfigError(f"cameras.{name}.host is required")
 
-        enabled = data.get("enabled", True)
+        enabled = _as_bool(data.get("enabled", True))
         if not isinstance(enabled, bool):
             raise ConfigError(f"cameras.{name}.enabled must be a boolean")
 
@@ -1511,12 +1511,22 @@ def _strip_outer_quotes(value: str) -> str:
     return stripped
 
 
+def _as_bool(value: Any) -> Any:
+    """0/1 (an environment override reads digits as numbers) as False/True;
+    anything else unchanged, for the caller's own type check."""
+    if isinstance(value, int) and not isinstance(value, bool) and value in (0, 1):
+        return bool(value)
+    return value
+
+
 def _parse_env_value(value: str) -> Any:
     stripped = value.strip()
     lowered = stripped.lower()
-    if lowered in {"true", "yes", "1", "on"}:
+    # Digits stay numbers: "1" for an integer setting (max_pending_clips=1) must
+    # not arrive as True. Boolean settings accept 0/1 through _as_bool.
+    if lowered in {"true", "yes", "on"}:
         return True
-    if lowered in {"false", "no", "0", "off"}:
+    if lowered in {"false", "no", "off"}:
         return False
 
     try:

@@ -547,6 +547,16 @@ def test_clip_that_fails_on_a_fresh_worker_is_accounted_and_later_clips_proceed(
     assert gpu_agent.clips_rejected["worker_error"] == 1
 
 
+def test_integer_worker_settings_of_one_can_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__MAX_PENDING_CLIPS", "1")
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__GPU_WORKER__MAX_STARTS", "1")
+    monkeypatch.setenv("ORPHEUS_AUDIO_EVENTS__MAX_CONCURRENT_CLIPS", "1")
+    config = AudioEventsConfig.from_orpheus_config(OrpheusConfig.from_dict({}))
+    assert config.gpu_worker.max_pending_clips == 1
+    assert config.gpu_worker.max_starts == 1
+    assert config.max_concurrent_clips == 1
+
+
 def test_health_reports_the_effective_worker_floor(gpu_agent):
     payload = gpu_agent._build_health_payload()
     assert payload["backend"] == "gpu_worker"
