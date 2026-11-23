@@ -188,3 +188,17 @@ assert_payload_only() {
   run grep -n '\[dev\]' "$REPO_ROOT"/agents/*/systemd/install-service.sh "$REPO_ROOT"/services/*/systemd/install-service.sh
   [ "$status" -eq 1 ]
 }
+
+@test "the 3.9 agents' installers refuse a Python that is not 3.9, as their requires-python does" {
+  for installer in "$REPO_ROOT"/agents/orpheus-agent-{audio-motion,audio-playback,audio-events,video-motion,video-snapshotter,video-timelapser,crow-detection}/systemd/install-service.sh; do
+    fn="$(sed -n '/^ensure_python() {/,/^}/p' "$installer")"
+    [ -n "$fn" ]
+    for bad in 3.8 3.12; do
+      FAKE_PY=$bad PYTHON_BIN="$BIN/fakepython" run bash -c "err() { echo \"\$1\"; }; $fn; ensure_python"
+      assert_failure
+      assert_output --partial "Python 3.9 required"
+    done
+    FAKE_PY=3.9 PYTHON_BIN="$BIN/fakepython" run bash -c "err() { echo \"\$1\"; }; $fn; ensure_python"
+    assert_success
+  done
+}

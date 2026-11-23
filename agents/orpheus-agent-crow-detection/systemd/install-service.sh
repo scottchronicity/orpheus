@@ -36,8 +36,8 @@ ensure_python() {
   version="$(${PYTHON_BIN} -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
   local major minor micro
   IFS='.' read -r major minor micro <<< "${version}"
-  if [[ "${major}" -ne 3 || "${minor}" -lt 9 ]]; then
-    err "Python 3.9+ required, found ${version}"
+  if [[ "${major}" -ne 3 || "${minor}" -ne 9 ]]; then
+    err "Python 3.9 required (pyproject: >=3.9,<3.10), found ${version}"
     exit 1
   fi
 }
