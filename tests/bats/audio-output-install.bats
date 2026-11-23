@@ -346,10 +346,13 @@ assert_host_untouched() {
   install_new
   run bash "$SVC/uninstall-service.sh"
   assert_success
+  # Without RESTORE_LEGACY the message must not claim a restore.
+  refute_output --partial "restore"
   [ ! -e "$UNITS/$LEGACY" ]
   refute_active "$LEGACY"
   grep -qx "retired:$LEGACY:yes:yes" "$STATE/changes"
   RESTORE_LEGACY=1 run bash "$SVC/uninstall-service.sh"
+  assert_output --partial "restored as it was before"
   is_enabled "$LEGACY"
   is_active "$LEGACY"
 }

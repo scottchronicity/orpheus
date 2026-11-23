@@ -22,4 +22,8 @@ rm -f "${UNIT_DIR}/${NEW_UNIT}"
 undo_changes "${CHANGES}" "${RESTORE_LEGACY}"
 systemctl daemon-reload
 rm -rf "${DEPLOY_ROOT}"
-say "uninstalled${RESTORE_LEGACY:+ (restore legacy: ${RESTORE_LEGACY})}"
+if [[ "${RESTORE_LEGACY}" == "1" ]]; then
+    say "uninstalled; orpheus-bluetooth-autoconnect restored as it was before"
+else
+    say "uninstalled"
+fi
