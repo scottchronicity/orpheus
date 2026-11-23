@@ -285,3 +285,62 @@ class TestTimestampInWindow:
         # Invalid tz name should not raise; falls back to the ts's own tz.
         ts = datetime(2026, 3, 15, 10, 0, tzinfo=timezone.utc)
         assert timestamp_in_window(ts, (8, 0), (18, 0), tz_name="Not/A/Zone") is True
+
+
+class TestSqliteWindowAcrossDst:
+    """The SQL window and the per-row Python filter agree on every row, including
+    rows on the other side of a DST change from today."""
+
+    ROWS = [
+        "2026-03-01T11:30:00+00:00",  # 06:30 EST
+        "2026-03-15T10:30:00+00:00",  # 06:30 EDT (05:30 at EST's offset)
+        "2026-03-15T11:30:00+00:00",  # 07:30 EDT
+        "2026-11-01T05:59:59+00:00",  # 01:59:59 EDT, just before the fall change
+        "2026-11-01T06:00:00+00:00",  # 01:00:00 EST, the first second after it
+    ]
+
+    @staticmethod
+    def _matches(rows, window, tz, start, end):
+        import sqlite3
+
+        from orpheus_common.utils.time import sqlite_time_window_sql
+
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE e (timestamp TEXT)")
+        conn.executemany("INSERT INTO e VALUES (?)", [(r,) for r in rows])
+        sql, params = sqlite_time_window_sql("timestamp", *window, tz, start, end)
+        return sorted(r[0] for r in conn.execute(f"SELECT timestamp FROM e WHERE {sql}", params))
+
+    def test_morning_window_spanning_the_spring_change(self):
+        got = self._matches(
+            self.ROWS[:3], ((6, 0), (7, 0)), "America/Detroit", "2026-03-01", "2026-03-20"
+        )
+        assert got == ["2026-03-01T11:30:00+00:00", "2026-03-15T10:30:00+00:00"]
+
+    def test_sql_window_agrees_with_the_python_filter_row_for_row(self):
+        from datetime import datetime
+
+        from orpheus_common.utils.time import timestamp_in_window
+
+        window = ((1, 0), (1, 59))
+        expected = sorted(
+            r for r in self.ROWS
+            if timestamp_in_window(datetime.fromisoformat(r), *window, "America/Detroit")
+        )
+        got = self._matches(self.ROWS, window, "America/Detroit", "2026-02-01", "2026-12-01")
+        assert got == expected
+
+    def test_modifier_is_a_case_over_each_change_in_range(self):
+        from orpheus_common.utils.time import sqlite_tz_modifier
+
+        sql, params = sqlite_tz_modifier("ts", "America/Detroit", "2026-01-01", "2026-12-31")
+        assert sql.count("WHEN") == 2
+        assert params == [
+            "2026-03-08T07:00:00", "-300 minutes",
+            "2026-11-01T06:00:00", "-240 minutes",
+            "-300 minutes",
+        ]
+        assert sqlite_tz_modifier("ts", "UTC") == (None, [])
+        assert sqlite_tz_modifier("ts", "Asia/Tokyo", "2026-01-01", "2026-12-31") == (
+            "?", ["540 minutes"],
+        )

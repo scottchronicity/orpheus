@@ -5,7 +5,7 @@ Provides standardized timestamp formatting and parsing for use across
 services and agents.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 try:
@@ -213,24 +213,80 @@ def to_zone(ts: datetime, tz_name: Optional[str] = None) -> datetime:
         return ts
 
 
-def sqlite_tz_offset(tz_name: Optional[str] = None) -> Optional[str]:
-    """A SQLite ``strftime()`` modifier (e.g. ``'-240 minutes'``) shifting a
-    UTC-stored timestamp into ``tz_name``, or ``None`` for UTC/unknown zones.
+# Earliest instant the DST search covers when a caller gives no range start.
+_TZ_SEARCH_FROM = datetime(2015, 1, 1, tzinfo=timezone.utc)
 
-    Lets an SQL ``GROUP BY hour`` bucket in the viewer's zone without pulling
-    rows into Python: ``strftime('%H', timestamp, ?)``. The offset is the one in
-    effect now and is applied across the whole range, so a DST change mid-range
-    shifts a couple of boundary rows — immaterial for a by-hour chart.
+
+def _as_utc(value: object) -> Optional[datetime]:
+    """``value`` (datetime or ISO string, naive meaning UTC) in UTC, or None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _offset_minutes(zone: "ZoneInfo", instant: datetime) -> int:
+    offset = instant.astimezone(zone).utcoffset()
+    return int(offset.total_seconds() // 60) if offset is not None else 0
+
+
+def sqlite_tz_modifier(
+    column: str,
+    tz_name: Optional[str] = None,
+    range_start: object = None,
+    range_end: object = None,
+) -> Tuple[Optional[str], list]:
+    """A SQLite ``strftime()`` modifier expression shifting UTC-stored ``column``
+    into ``tz_name``, with its params; ``(None, [])`` for UTC or an unknown zone.
+
+    The offset is the one in effect at each row's own instant: the expression is
+    a ``CASE`` over the zone's UTC-offset changes (DST) between ``range_start``
+    and ``range_end`` (datetimes or ISO strings; defaults 2015 and now), so a
+    window or bucket over a range that crosses a DST change, or a past season
+    viewed in another, matches :func:`timestamp_in_window` row for row.
+    ``column`` is interpolated and must be a trusted identifier.
     """
     if not tz_name or tz_name.upper() == "UTC" or ZoneInfo is None:
-        return None
+        return None, []
     try:
-        offset = datetime.now(ZoneInfo(tz_name)).utcoffset()
+        zone = ZoneInfo(tz_name)
     except Exception:
-        return None
-    if offset is None:
-        return None
-    return f"{int(offset.total_seconds() // 60)} minutes"
+        return None, []
+    lo = (_as_utc(range_start) or _TZ_SEARCH_FROM) - timedelta(days=1)
+    hi = (_as_utc(range_end) or datetime.now(timezone.utc)) + timedelta(days=1)
+    first = _offset_minutes(zone, lo)
+    changes: list = []  # (first UTC instant of the new offset, new offset)
+    current, t = first, lo
+    while t < hi:
+        nxt = min(t + timedelta(days=1), hi)
+        after = _offset_minutes(zone, nxt)
+        if after != current:
+            a, b = t, nxt  # offset at a is `current`, at b is `after`
+            while b - a > timedelta(seconds=1):
+                mid = a + (b - a) / 2
+                if _offset_minutes(zone, mid) == current:
+                    a = mid
+                else:
+                    b = mid
+            changes.append((b, after))
+            current = after
+        t = nxt
+    if not changes:
+        return "?", [f"{first} minutes"]
+    sql, params, offset = "CASE", [], first
+    for instant, after in changes:
+        # Offsets change on whole seconds, so truncating to the second gives
+        # the exact boundary; stored timestamps compare as ISO strings.
+        sql += f" WHEN {column} < ? THEN ?"
+        params += [instant.strftime("%Y-%m-%dT%H:%M:%S"), f"{offset} minutes"]
+        offset = after
+    params.append(f"{offset} minutes")
+    return sql + " ELSE ? END", params
 
 
 def sqlite_time_window_sql(
@@ -238,6 +294,8 @@ def sqlite_time_window_sql(
     start_hhmm: Tuple[int, int],
     end_hhmm: Tuple[int, int],
     tz_name: Optional[str] = None,
+    range_start: object = None,
+    range_end: object = None,
 ) -> Tuple[str, list]:
     """SQL predicate + params restricting ``column`` to an HH:MM window in ``tz_name``.
 
@@ -256,20 +314,21 @@ def sqlite_time_window_sql(
     """
     if is_full_day(start_hhmm, end_hhmm):
         return "", []
-    offset = sqlite_tz_offset(tz_name)
-    expr = f"strftime('%H:%M', {column}, ?)" if offset else f"strftime('%H:%M', {column})"
+    modifier, mparams = sqlite_tz_modifier(column, tz_name, range_start, range_end)
+    expr = (
+        f"strftime('%H:%M', {column}, {modifier})" if modifier else f"strftime('%H:%M', {column})"
+    )
     start_str = f"{start_hhmm[0]:02d}:{start_hhmm[1]:02d}"
     end_str = f"{end_hhmm[0]:02d}:{end_hhmm[1]:02d}"
     params: list = []
     if start_hhmm <= end_hhmm:
         # Params in placeholder order: the modifier sits inside the expression.
-        if offset:
-            params.append(offset)
+        params.extend(mparams)
         params.extend([start_str, end_str])
         return f"({expr} BETWEEN ? AND ?)", params
     # Wrapping window: the expression appears twice, so its modifier does too.
-    if offset:
-        params.extend([offset, start_str, offset, end_str])
+    if modifier:
+        params.extend([*mparams, start_str, *mparams, end_str])
     else:
         params.extend([start_str, end_str])
     return f"({expr} >= ? OR {expr} <= ?)", params

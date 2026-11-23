@@ -36,7 +36,7 @@ from orpheus_common.utils.time import (
     is_full_day,
     parse_hhmm,
     sqlite_time_window_sql,
-    sqlite_tz_offset,
+    sqlite_tz_modifier,
     timestamp_in_window,
 )
 
@@ -291,7 +291,7 @@ def _compute_entity_stats(
         # windowed and nothing has to be re-filtered (and re-counted) in Python.
         if start_hhmm is not None and end_hhmm is not None:
             window_sql, window_params = sqlite_time_window_sql(
-                "timestamp", start_hhmm, end_hhmm, tz
+                "timestamp", start_hhmm, end_hhmm, tz, start_time, end_time
             )
             if window_sql:
                 where_clauses.append(window_sql)
@@ -303,12 +303,12 @@ def _compute_entity_stats(
         total = row["total"] if row else 0
 
         # Bucket the hour-of-day chart in the viewer's zone (tz_offset), not UTC.
-        tz_offset = sqlite_tz_offset(tz)
-        if tz_offset:
+        tz_modifier, tz_params = sqlite_tz_modifier("timestamp", tz, start_time, end_time)
+        if tz_modifier:
             cursor.execute(
-                f"SELECT CAST(strftime('%H', timestamp, ?) AS INTEGER) as hour, COUNT(*) as count "
-                f"FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
-                [tz_offset, *params],
+                f"SELECT CAST(strftime('%H', timestamp, {tz_modifier}) AS INTEGER) as hour, "
+                f"COUNT(*) as count FROM entities WHERE {where} GROUP BY hour ORDER BY hour",
+                [*tz_params, *params],
             )
         else:
             cursor.execute(
@@ -337,11 +337,11 @@ def _compute_entity_stats(
             species_dist[r["name"]] = species_dist.get(r["name"], 0) + r["count"]
             unique_species.add(r["name"])
 
-        if tz_offset:
+        if tz_modifier:
             cursor.execute(
-                f"SELECT strftime('%Y-%m-%d', timestamp, ?) as day, COUNT(*) as count "
+                f"SELECT strftime('%Y-%m-%d', timestamp, {tz_modifier}) as day, COUNT(*) as count "
                 f"FROM entities WHERE {where} GROUP BY day ORDER BY day",
-                [tz_offset, *params],
+                [*tz_params, *params],
             )
         else:
             cursor.execute(

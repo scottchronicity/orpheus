@@ -1149,7 +1149,7 @@ class DetectionDB:
 
             if start_hhmm is not None and end_hhmm is not None:
                 window_sql, window_params = sqlite_time_window_sql(
-                    "timestamp", start_hhmm, end_hhmm, tz_name
+                    "timestamp", start_hhmm, end_hhmm, tz_name, start_time, end_time
                 )
                 if window_sql:
                     query += f" AND {window_sql}"
@@ -1198,7 +1198,7 @@ class DetectionDB:
                 params.append(_iso_upper_bound(end_time))
             if start_hhmm is not None and end_hhmm is not None:
                 window_sql, window_params = sqlite_time_window_sql(
-                    "timestamp", start_hhmm, end_hhmm, tz_name
+                    "timestamp", start_hhmm, end_hhmm, tz_name, start_time, end_time
                 )
                 if window_sql:
                     query += f" AND {window_sql}"
