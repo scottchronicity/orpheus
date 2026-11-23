@@ -9,11 +9,15 @@ and [review workflow](12-git-and-lfs.md#shared-development-and-independent-revie
 Backend/runtime/resource policy is per component and deployment. A hardware
 trial tests an agreed revision and does not authorize a production deployment.
 
-## The current major deploy
+## Deploying to a station
 
-[`docs/runbooks/cross-classifier-identity-deploy.md`](../runbooks/cross-classifier-identity-deploy.md)
-is the operator runbook for the cross-classifier-identity work
-shipping in the `detectallanimals` branch. Walks through:
+[`docs/runbooks/jetson-rollout.md`](../runbooks/jetson-rollout.md) is the
+current procedure: back up, stop, install each changed component with its
+`install-service` (a copy into `/opt/orpheus`, not a `git pull` there), start,
+`make verify-deploy`. [`jetson-rollback.md`](../runbooks/jetson-rollback.md)
+undoes it. Earlier, the cross-classifier-identity release had its own runbook,
+[`cross-classifier-identity-deploy.md`](../runbooks/cross-classifier-identity-deploy.md),
+which walks through:
 
 - Pre-deploy backup
 - Pull + install (`git pull && git lfs pull && make install`)
@@ -35,7 +39,10 @@ shipping in the `detectallanimals` branch. Walks through:
   ~/data/orpheus.
 
 Code must work on both. Use `$ORPHEUS_DATA_ROOT` for all persistent
-paths. Don't hardcode `~/...` or `/data/orpheus`.
+paths. Don't hardcode `~/...` or `/data/orpheus` in component code. The
+station's systemd units are the deliberate exception: they require
+`/data/orpheus` (`RequiresMountsFor=`, `WantedBy=data-orpheus.mount`) by
+contract; see the operator manual's data-drive section.
 
 ## Systemd unit files
 

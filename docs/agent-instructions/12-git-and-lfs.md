@@ -167,7 +167,9 @@ For each coherent milestone:
 
 This workflow assigns roles per task, not permanently to a computer, agent tool,
 branch name or model. Merge and production deployment need separate explicit
-authorization after review.
+authorization after review. If the owner authorizes deploying a revision before
+review (an incident fix, say), record its SHA in the PR as deployed unreviewed,
+and review that range first.
 
 ## When CI is failing because of a small problem
 

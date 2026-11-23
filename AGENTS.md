@@ -27,7 +27,11 @@ this repo, remember these.
 2. **Before opening or pushing to a PR, run `make lint` and `make
    test-all` from the repo root.** Or at minimum the per-component
    equivalents for every component you touched. If you skip this, you
-   are buying CI debugging time with the user's money.
+   are buying CI debugging time with the user's money. `test-all` runs
+   each component's own `make test`, not what CI runs (the root
+   `coverage-*`, `test-e2e`, `test-bdd`, `test-bash`, `docs-build`): also run
+   the `pr-tests.yml` commands for the jobs your change touches
+   ([13-ci-cd](docs/agent-instructions/13-ci-cd.md)).
 
 3. **Stage in batches, not file-by-file.** Make the working tree look
    how you want it, run `git status` ONCE to verify nothing weird is

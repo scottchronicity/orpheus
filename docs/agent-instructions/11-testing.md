@@ -128,6 +128,11 @@ identity which spans audio-motion → bird → correlator → DB), write
 an integration test that simulates the full pipeline using the
 ClusterManager directly. Pattern: `agents/orpheus-agent-event-correlator/tests/test_soup_to_nuts.py`.
 
+Tests that need a live broker run only when `ORPHEUS_TEST_NATS_URL` names one.
+Point it at a throwaway broker (`docker run --rm -p 4223:4222 nats:2 -js`), never
+at a station's `:4222`: the JetStream tests create streams in whatever broker
+they reach.
+
 For features that span MQTT, use the live-pump harness:
 `tools/integration/pump_fake_animal_events.py`. This is a manual
 smoke test, not a pytest run — used pre-deploy.
