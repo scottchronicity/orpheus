@@ -5,8 +5,11 @@ DEPLOY_ROOT  := /opt/orpheus/agents/$(SERVICE_NAME)
 
 # Correlation is a pure Python service, independently upgraded from model
 # runtimes that may need older vendor stacks.
-PYTHON_SYSTEM ?= python3.12
-PYTHON_REQUIRED_VERSION ?= 3.12
+# This component owns its interpreter (ADR 0020). A PYTHON_SYSTEM exported or
+# passed for the repository's Python 3.9 components must not select it, so it
+# is overridden here; choose another 3.12/3.13 interpreter with CORRELATOR_PYTHON.
+override PYTHON_SYSTEM := $(or $(CORRELATOR_PYTHON),python3.12)
+override PYTHON_REQUIRED_VERSION := 3.12
 VENV ?= venv-py312
 
 include ../../make/common_python.mk

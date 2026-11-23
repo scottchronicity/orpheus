@@ -54,7 +54,7 @@ sets that boundary. On a station:
 
 | Components | Python | Where the interpreter comes from |
 |---|---|---|
-| GPS, event correlator | 3.12 or 3.13 | `make provision-python` installs CPython 3.12 at `/opt/orpheus/python`. Their installers use `/opt/orpheus/python/bin/python3.12` when it exists, otherwise `python3.12` on `PATH`. `make install-service` runs the installer under `sudo`, which drops `PYTHON_BIN`, so set `PYTHON_BIN` only when running `systemd/install-service.sh` yourself. Development environments are `venv-py312`. |
+| GPS, event correlator | 3.12 or 3.13 | `make provision-python` installs CPython 3.12 at `/opt/orpheus/python`. Their installers use `/opt/orpheus/python/bin/python3.12` when it exists, otherwise `python3.12` on `PATH`. `make install-service` runs the installer under `sudo`, which drops `PYTHON_BIN`, so set `PYTHON_BIN` only when running `systemd/install-service.sh` yourself. Development environments are `venv-py312`, built with `python3.12` unless `GPS_PYTHON` / `CORRELATOR_PYTHON` names another 3.12 or 3.13 interpreter; a `PYTHON_SYSTEM` set for the 3.9 components does not affect them. |
 | PANNs CUDA worker (Jetson, optional) | 3.8 | Its own isolated environment, built against NVIDIA's JetPack 5 PyTorch wheel. See [PANNs on the Jetson GPU](panns-gpu.md). |
 | Everything else (the UI backend, audio-output, the capture, model and video agents) | 3.9, at least 3.9.5 | The root Makefile's default: `python3.9` on `PATH`, or the interpreter `PYTHON_SYSTEM` names. `orpheus-common` itself supports 3.9 to 3.13. |
 

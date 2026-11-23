@@ -263,6 +263,20 @@ else
     fail "root test-all maps GPS and correlator venv overrides"
 fi
 
+# -- Python 3.12 components ignore a PYTHON_SYSTEM meant for 3.9 (ADR 0020) ---
+py_var() { make -pn -C "$REPO_ROOT/$1" check-python-version 2>/dev/null | sed -n "s/^PYTHON_SYSTEM := //p" | tail -1; }
+for comp in "services/orpheus-gps GPS_PYTHON" "agents/orpheus-agent-event-correlator CORRELATOR_PYTHON"; do
+    dir=${comp% *}; var=${comp#* }
+    got_env=$(PYTHON_SYSTEM=python3.9 py_var "$dir")
+    got_arg=$(make -pn -C "$REPO_ROOT/$dir" check-python-version PYTHON_SYSTEM=python3.9 2>/dev/null | sed -n "s/^PYTHON_SYSTEM := //p" | tail -1)
+    got_own=$(export "$var=/opt/py313/bin/python3.13" PYTHON_SYSTEM=python3.9; py_var "$dir")
+    if [ "$got_env" = python3.12 ] && [ "$got_arg" = python3.12 ] && [ "$got_own" = /opt/py313/bin/python3.13 ]; then
+        pass "$dir keeps python3.12 under PYTHON_SYSTEM=python3.9 and honours $var"
+    else
+        fail "$dir interpreter: env=$got_env arg=$got_arg $var=$got_own"
+    fi
+done
+
 # -- Test 10: all component Makefiles have deploy target ---------------------
 all_have_deploy=true
 for dir in \

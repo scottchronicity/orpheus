@@ -10,8 +10,11 @@ DEPLOY_ROOT  := /opt/orpheus/services/$(SERVICE_NAME)
 
 # This service is a non-GPU Python 3.12/3.13 component. Keep its development venv
 # distinct from any pre-existing Python 3.9 environment during migration.
-PYTHON_SYSTEM ?= python3.12
-PYTHON_REQUIRED_VERSION ?= 3.12
+# This component owns its interpreter (ADR 0020). A PYTHON_SYSTEM exported or
+# passed for the repository's Python 3.9 components must not select it, so it
+# is overridden here; choose another 3.12/3.13 interpreter with GPS_PYTHON.
+override PYTHON_SYSTEM := $(or $(GPS_PYTHON),python3.12)
+override PYTHON_REQUIRED_VERSION := 3.12
 VENV ?= venv-py312
 
 # -- Shared infrastructure ---------------------------------------------------
