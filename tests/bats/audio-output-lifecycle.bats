@@ -9,7 +9,7 @@
 load 'test_helper'
 load 'audio_output_helper'
 
-MAC="FC:58:FA:02:AF:28"
+MAC="AA:BB:CC:DD:EE:FF"
 
 setup() {
   audio_output_sandbox

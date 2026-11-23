@@ -9,7 +9,7 @@ section. Contract::
       output:
         type: bluetooth
         bluetooth:
-          address: "FC:58:FA:02:AF:28"
+          address: "AA:BB:CC:DD:EE:FF"
       server:
         type: pulseaudio
         pulseaudio:

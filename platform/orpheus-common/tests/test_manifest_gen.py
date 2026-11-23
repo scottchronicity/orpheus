@@ -44,7 +44,7 @@ class TestEnabledComponents:
 
     def test_audio_output_section_adds_the_output_manager(self):
         cfg = _cfg(audio=False, cameras=False)
-        cfg._raw = {"audio_output": {"output": {"bluetooth": {"address": "FC:58:FA:02:AF:28"}}}}
+        cfg._raw = {"audio_output": {"output": {"bluetooth": {"address": "AA:BB:CC:DD:EE:FF"}}}}
         assert "audio-output" in {c.name for c in enabled_components(cfg)}
         cfg._raw = {"audio_output": {"enabled": False}}
         assert "audio-output" not in {c.name for c in enabled_components(cfg)}

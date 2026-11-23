@@ -27,7 +27,7 @@ audio:
 cameras:
   auth:
     username: "orpheus"
-    password: "orpheus-station-2025"
+    password: "test-camera-password"
 
   dev-cam-1:
     type: "amcrest"

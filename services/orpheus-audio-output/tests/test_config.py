@@ -21,7 +21,7 @@ audio_output:
   output:
     type: bluetooth
     bluetooth:
-      address: "FC:58:FA:02:AF:28"
+      address: "AA:BB:CC:DD:EE:FF"
   server:
     type: pulseaudio
     pulseaudio:
@@ -38,7 +38,7 @@ def test_contract_yaml_parses_to_independent_parts():
     cfg = parse_audio_output(CONTRACT["audio_output"])
     assert cfg.enabled is True
     assert cfg.output.type == "bluetooth"
-    assert cfg.output.bluetooth.address == "FC:58:FA:02:AF:28"
+    assert cfg.output.bluetooth.address == "AA:BB:CC:DD:EE:FF"
     assert cfg.server.type == "pulseaudio"
     assert cfg.server.pulseaudio.user == "orpheus"
     assert (
@@ -63,13 +63,13 @@ def test_legacy_file_alone_keeps_an_upgraded_station_working(tmp_path):
     legacy = tmp_path / "config.env"
     legacy.write_text(
         "# Orpheus Bluetooth Auto-Connect Configuration\n"
-        "BLUETOOTH_SPEAKER_MAC=fc:58:fa:02:af:28\n"
+        "BLUETOOTH_SPEAKER_MAC=aa:bb:cc:dd:ee:ff\n"
         "AUDIO_USER=orpheus\n"
     )
     cfg = parse_audio_output(None, read_legacy_env(legacy))
     assert cfg.enabled is True
     assert cfg.source == "legacy"
-    assert cfg.output.bluetooth.address == "FC:58:FA:02:AF:28"
+    assert cfg.output.bluetooth.address == "AA:BB:CC:DD:EE:FF"
     assert cfg.server.pulseaudio.user == "orpheus"
 
 

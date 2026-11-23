@@ -153,7 +153,7 @@ EOF
   export KILL_CMD="$MOCK/bin/fakekill"
 
   export FAKE_CHECK_JSON="$MOCK/check.json"
-  echo '{"valid": true, "config": {"enabled": true, "output": {"type": "bluetooth", "bluetooth": {"address": "FC:58:FA:02:AF:28"}}, "server": {"type": "pulseaudio", "pulseaudio": {"user": "orpheus"}}, "reconnect": {}, "source": "legacy"}}' > "$FAKE_CHECK_JSON"
+  echo '{"valid": true, "config": {"enabled": true, "output": {"type": "bluetooth", "bluetooth": {"address": "AA:BB:CC:DD:EE:FF"}}, "server": {"type": "pulseaudio", "pulseaudio": {"user": "orpheus"}}, "reconnect": {}, "source": "legacy"}}' > "$FAKE_CHECK_JSON"
   export FAKE_HEALTH="$MOCK/health-ok.json"
   echo '{"status": "healthy", "server": {"state": "ready", "consecutive_failures": 0}, "output": {"state": "connected"}, "routing": {"state": "routed"}, "capture_isolation": {"ok": true}}' > "$FAKE_HEALTH"
 }
@@ -193,6 +193,6 @@ playback_installed() {
 }
 
 competing_unit() {
-  printf '[Service]\nType=oneshot\nExecStart=/usr/bin/bluetoothctl connect FC:58:FA:02:AF:28\n' \
+  printf '[Service]\nType=oneshot\nExecStart=/usr/bin/bluetoothctl connect AA:BB:CC:DD:EE:FF\n' \
     > "$SYSROOT/etc/systemd/system/bluetooth-speaker-connect.service"
 }

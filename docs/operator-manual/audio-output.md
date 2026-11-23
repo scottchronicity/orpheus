@@ -57,7 +57,7 @@ audio_output:
   output:
     type: bluetooth
     bluetooth:
-      address: "FC:58:FA:02:AF:28"   # the paired speaker
+      address: "AA:BB:CC:DD:EE:FF"   # the paired speaker
   server:
     type: pulseaudio
     pulseaudio:
