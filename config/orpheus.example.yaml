@@ -560,6 +560,9 @@ crow_detection:
   quality_threshold: 0.5
 
 bird_detection:
+  # Replaced by $ORPHEUS_DATA_ROOT/models/birdnet.onnx when ORPHEUS_DATA_ROOT is
+  # set (always, on a station); to use another file set
+  # ORPHEUS_BIRD_DETECTION__MODEL_PATH.
   model_path: "/data/orpheus/models/birdnet.onnx"
   # ONNX Runtime provider: auto selects an installed CUDA EP, else CPU; coreml only when named.
   # CUDA/CoreML require a compatible ONNX Runtime build in this agent's runtime.

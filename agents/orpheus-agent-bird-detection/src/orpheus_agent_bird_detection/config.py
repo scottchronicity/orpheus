@@ -45,10 +45,14 @@ class BirdDetectionConfig:
         if not isinstance(bird_config, dict):
             bird_config = {}
 
-        # Always override model_path with ORPHEUS_DATA_ROOT if set
+        # ORPHEUS_DATA_ROOT, when set (always, under the station units), replaces
+        # the YAML model_path so one config serves every data root. An explicit
+        # environment override of the setting itself still wins over both.
         data_root = os.environ.get("ORPHEUS_DATA_ROOT")
         yaml_model_path = bird_config.get("model_path", "/data/orpheus/models/birdnet.onnx")
-        if data_root:
+        if os.environ.get("ORPHEUS_BIRD_DETECTION__MODEL_PATH"):
+            model_path = yaml_model_path  # the env override, already applied to the config
+        elif data_root:
             model_path = f"{data_root}/models/birdnet.onnx"
             logger.debug(
                 "model_path overridden by ORPHEUS_DATA_ROOT",

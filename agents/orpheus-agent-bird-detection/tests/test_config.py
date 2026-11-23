@@ -4,6 +4,7 @@ import os
 from unittest.mock import Mock, patch
 
 import pytest
+from orpheus_common import OrpheusConfig
 
 from orpheus_agent_bird_detection.config import BirdDetectionConfig, load_config
 
@@ -34,6 +35,22 @@ class TestBirdDetectionConfig:
             assert config.geo_filter_weak_admit_conf == 0.85
             assert config.site_species_whitelist == []
             assert config.execution_provider == "auto"
+
+    def test_explicit_model_path_override_wins_over_the_data_root(self) -> None:
+        env = {
+            "ORPHEUS_DATA_ROOT": "/data/orpheus",
+            "ORPHEUS_BIRD_DETECTION__MODEL_PATH": "/srv/models/birdnet-v2.onnx",
+        }
+        with patch.dict(os.environ, env):
+            config = BirdDetectionConfig.from_orpheus_config(OrpheusConfig.from_dict({}))
+        assert config.model_path == "/srv/models/birdnet-v2.onnx"
+
+    def test_data_root_still_places_the_default_model(self) -> None:
+        with patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": "/home/dev/data/orpheus"}):
+            os.environ.pop("ORPHEUS_BIRD_DETECTION__MODEL_PATH", None)
+            yaml_path = {"bird_detection": {"model_path": "/data/orpheus/models/birdnet.onnx"}}
+            config = BirdDetectionConfig.from_orpheus_config(OrpheusConfig.from_dict(yaml_path))
+        assert config.model_path == "/home/dev/data/orpheus/models/birdnet.onnx"
 
     def test_execution_provider_is_read_from_bird_config(self) -> None:
         with patch.dict(os.environ, {"ORPHEUS_DATA_ROOT": ""}):
