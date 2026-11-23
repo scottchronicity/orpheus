@@ -32,7 +32,10 @@ The target verifies the wheel and interpreter, creates
 and worker. It does not install `orpheus-common` in Python 3.8, use the generic
 service installer, modify systemd, or replace the agent's Torch installation.
 Do not upgrade dependencies inside this environment independently. The
-`constraints.txt` and `wheels.sha256` beside the worker record the tested runtime.
+`constraints.txt` and `wheels.sha256` beside the worker record the tested runtime,
+and the install enforces them: it installs with `pip --require-hashes` from a
+requirements file generated from both (`requirements_hashed.py`), so any wheel
+other than a tested one is refused.
 
 Provision the normal Cnn14 DecisionLevelMax checkpoint through
 `make download-models`; the worker verifies SHA-256

@@ -12,7 +12,9 @@ install:
 	$(PYTHON38) -c 'import hashlib; from pathlib import Path; p=Path("$(NVIDIA_TORCH_WHEEL)"); assert hashlib.sha256(p.read_bytes()).hexdigest() == "5112e2ef5051f1003ae2ffb545ae596377df66979d62a954d774f18009064dbe", "NVIDIA wheel hash mismatch"'
 	$(PYTHON38) -m venv "$(GPU_VENV)"
 	"$(GPU_VENV)/bin/python" -m pip install 'pip==25.0.1' 'setuptools==75.3.2' 'wheel==0.45.1'
-	"$(GPU_VENV)/bin/python" -m pip install -c constraints.txt "$(NVIDIA_TORCH_WHEEL)" -r constraints.txt
+	# Every artifact must be one of the tested wheels (wheels.sha256).
+	$(PYTHON38) requirements_hashed.py "$(NVIDIA_TORCH_WHEEL)" > "$(GPU_VENV)/requirements-hashed.txt"
+	"$(GPU_VENV)/bin/python" -m pip install --require-hashes --only-binary=:all: -r "$(GPU_VENV)/requirements-hashed.txt"
 	"$(GPU_VENV)/bin/python" -m pip install --no-build-isolation --no-deps ../../platform/orpheus-inference .
 	"$(GPU_VENV)/bin/python" -m pip check
 
