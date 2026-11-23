@@ -235,7 +235,9 @@ def backup(args: argparse.Namespace) -> int:
         digest = sha256(target)
         sums.append(f"{digest}  {cfg.name}")
         manifest["configs"].append({"source": str(cfg), "name": cfg.name, "sha256": digest})
-        written.append(target)
+        # Not added to `written`: config copies keep the owner that wrote them
+        # (root, under sudo), so .env's secrets are not handed to the data
+        # root's owner, which is the service user.
         log(f"  ✅ copied {cfg}")
 
     (dest / "SHA256SUMS").write_text("\n".join(sums) + "\n")

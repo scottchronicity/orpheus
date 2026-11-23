@@ -42,6 +42,27 @@ backup() { run python3 "$TOOL" --data-root "$DATA" --config-dir "$CONF" --dest "
   python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["databases"]["orpheus.db"]["tables"]["detections"] == 50' "$DEST/manifest.json"
 }
 
+@test "run as root, the database copies go to the data root's owner but the config copies do not" {
+  # The data root's owner is the service user; .env holds the station's secrets.
+  run python3 - "$TOOL" "$DATA" "$CONF" "$DEST" <<'PY'
+import importlib.util, os, sys
+tool, data, conf, dest = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("backup_databases", tool)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+chowned = []
+mod.os.geteuid = lambda: 0
+mod.os.chown = lambda path, uid, gid: chowned.append(os.path.basename(str(path)))
+assert mod.main(["--data-root", data, "--config-dir", conf, "--dest", dest]) == 0
+print(sorted(chowned))
+PY
+  assert_success
+  assert_output --partial "'orpheus.db'"
+  assert_output --partial "'SHA256SUMS'"
+  refute_output --partial "'.env'"
+  refute_output --partial "'orpheus.yaml'"
+}
+
 @test "an empty database file is listed and skipped, not backed up" {
   backup
   assert_success
