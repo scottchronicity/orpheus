@@ -17,6 +17,7 @@ env:
   COVERAGE_THRESHOLD_COMMON: '78'
   COVERAGE_THRESHOLD_UI: '70'
   COVERAGE_THRESHOLD_GPS: '70'
+  COVERAGE_THRESHOLD_AUDIO_OUTPUT: '70'
   COVERAGE_THRESHOLD_AUDIO_MOTION: '72'
   COVERAGE_THRESHOLD_AUDIO_PLAYBACK: '70'
   COVERAGE_THRESHOLD_AUDIO_EVENTS: '70'
@@ -402,6 +403,8 @@ jobs:
         run: make lint-audio-output
 
       - name: Run tests with coverage
+        env:
+          COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD_AUDIO_OUTPUT }}
         run: make coverage-audio-output COV_REPORTS="${{ env.COV_REPORTS }}"
 
       - name: Upload coverage to Codecov

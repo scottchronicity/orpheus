@@ -26,6 +26,11 @@ flags:
       - services/orpheus_ui/frontend/
     target: 70%
 
+  orpheus-audio-output:
+    paths:
+      - services/orpheus-audio-output/
+    target: 70%
+
   orpheus-agent-audio-motion:
     paths:
       - agents/orpheus-agent-audio-motion/
@@ -97,6 +102,11 @@ coverage:
       orpheus-ui-frontend:
         flags:
           - orpheus-ui-frontend
+        target: 70%
+
+      orpheus-audio-output:
+        flags:
+          - orpheus-audio-output
         target: 70%
 
       orpheus-agent-audio-motion:
