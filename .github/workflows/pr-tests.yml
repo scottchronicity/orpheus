@@ -115,6 +115,8 @@ jobs:
               - 'agents/orpheus-agent-crow-detection/**'
             event-correlator:
               - 'agents/orpheus-agent-event-correlator/**'
+              # Its e2e/BDD tests import the playback agent's source (PYTHONPATH).
+              - 'agents/orpheus-agent-audio-playback/**'
               - 'docker-compose.dev.yml'
               - 'docker/Dockerfile.agent'
               # The repo-level BDD suites + generated failure matrix run from the
