@@ -48,6 +48,28 @@ EOF
   [ ! -e "$UV_LOG" ]
 }
 
+@test "a uv binary writable by others is refused, since it runs as root" {
+  chmod 777 "$UV"
+  run "$TOOL"
+  assert_failure
+  assert_output --partial "writable by others"
+  [ ! -s "$UV_LOG" ]
+}
+
+@test "a uv in a directory writable by others is refused" {
+  chmod 777 "$SB"
+  run "$TOOL"
+  chmod 755 "$SB"
+  assert_failure
+  assert_output --partial "writable by others"
+}
+
+@test "group write by the owner's own (user-private) group is allowed, as umask 002 creates" {
+  chmod 775 "$UV" "$SB"
+  run "$TOOL"
+  assert_success
+}
+
 @test "a PREFIX inside a home directory is refused" {
   PREFIX=/home/someone/python run "$TOOL"
   assert_failure

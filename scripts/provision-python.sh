@@ -13,7 +13,9 @@
 # `make verify-deploy` fails a venv whose interpreter resolves into /home.
 #
 # This uses uv's python-build-standalone builds (verified on JetPack 5,
-# aarch64, glibc 2.31) and installs them under PREFIX:
+# aarch64, glibc 2.31), which uv checks against its own recorded SHA-256s,
+# and refuses any interpreter that does not report exactly PYTHON_VERSION.
+# It installs them under PREFIX:
 #
 #   PREFIX/cpython-<version>-linux-<arch>-gnu/   the interpreter, read-only
 #   PREFIX/bin/python<major.minor>               stable symlink to it
@@ -53,6 +55,22 @@ if [[ -z "${UV:-}" ]]; then
     done
 fi
 [[ -n "${UV:-}" && -x "${UV}" ]] || die "uv not found; set UV=/path/to/uv (it is only needed while provisioning)"
+
+# Under sudo, uv runs as root. Refuse one that anyone other than root, the
+# sudo user or the caller could have replaced: an owner outside those, the
+# binary or its directory writable by others, or writable by a group other
+# than the owner's own (user-private) group.
+allowed=" 0 $(id -u) $(id -u "${SUDO_USER:-root}" 2>/dev/null || echo 0) "
+for path in "$(readlink -f "${UV}")" "$(dirname "$(readlink -f "${UV}")")"; do
+    owner="$(stat -c %u "${path}")"
+    [[ "${allowed}" == *" ${owner} "* ]] \
+        || die "${path} is owned by uid ${owner}; uv runs as root here, so it must be owned by root or ${SUDO_USER:-the caller}"
+    mode=$(( 8#$(stat -c %a "${path}") ))
+    (( mode & 8#002 )) && die "${path} is writable by others; uv runs as root here"
+    if (( mode & 8#020 )) && [[ "$(stat -c %g "${path}")" != "$(id -g "${owner}" 2>/dev/null)" ]]; then
+        die "${path} is writable by group $(stat -c %G "${path}"); uv runs as root here"
+    fi
+done
 
 arch="$(uname -m)"
 target="${PREFIX}/cpython-${PYTHON_VERSION}-linux-${arch}-gnu"
