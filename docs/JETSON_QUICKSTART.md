@@ -145,6 +145,12 @@ and 4 itself.
 4. **Data-drive recovery:** `make install-data-root-recovery`. Run it after
    the fstab line exists; it reads the drive from there.
 5. **Host log bounds** (restarts journald): `make install-log-bounds`.
+6. **Models.** `git lfs pull` fetches every model into `artifacts/models/` (Git LFS
+   stores each by its SHA-256 and checks it on download). Copy them to the data
+   drive and check: `sudo install -d -o orpheus -g orpheus /data/orpheus/models &&
+   sudo install -o orpheus -g orpheus -m 0644 artifacts/models/* /data/orpheus/models/ &&
+   ORPHEUS_DATA_ROOT=/data/orpheus make check-models`. The `download-models` targets
+   fetch from the internet without a checksum; prefer the LFS copy.
 
 `make verify-deploy` checks all of these once the services are installed.
 
