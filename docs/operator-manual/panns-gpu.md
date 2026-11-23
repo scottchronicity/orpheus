@@ -285,6 +285,10 @@ at-least-once classification.
 The agent resolves these settings through normal YAML/KV/environment precedence;
 for example `ORPHEUS_AUDIO_EVENTS__GPU_WORKER__FLOOR_MEMORY_MIB` reaches both the
 parent admission checks and child watchdog. Settings take effect at startup.
+An environment value of `0` or `1` is read as false/true before it reaches these
+integer settings, so `max_pending_clips`, `max_starts` and `max_concurrent_clips`
+set to 0 or 1 through the environment fail validation at startup; set those
+values in `orpheus.yaml`.
 Service `MemoryHigh` is a separate host-level soft limit, configurable with a
 systemd drop-in; it is not a reservation or a replacement for the worker's host
 memory guards, and may be ineffective on cgroup v1. Installing the optional

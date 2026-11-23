@@ -36,7 +36,10 @@ existing AGENTS entry point, contributor guide and generated MkDocs site.
    fail visibly; `auto` does not override an explicit model or device choice.
 2. Each component owns its runtime/dependencies. Keep the current validated
    PANNs Python 3.8 NVIDIA environment separate from agent Python 3.9 and from
-   CPU installation. No Python modernization occurs in this milestone. Shared
+   CPU installation. No Python modernization occurs in this milestone. *(Later
+   the same branch moved GPS and the event correlator to Python 3.12 as their own
+   decision, [ADR 0024](0024-independent-python-312-runtime-migration.md), which
+   this boundary allows.)* Shared
    packages remain compatible with their actual consumers.
 3. Retain `orpheus-inference` as a small process/IPC library. PANNs remains in
    its agent and worker packages. No renaming, multi-model daemon, BirdNET/video

@@ -85,7 +85,11 @@ server, reconnect policy), see [Audio output](audio-output.md).
   reads shared config off the backplane KV (`orpheus-config-push` seeds it from one
   authority host) so hosts don't copy identical YAML — see
   [Distributed & config service design](../designs/distributed-and-config-service.md).
-  Default off: local YAML only.
+  Default off: local YAML only. When it is on, every section except `event_bus` and
+  `config_service` is shared, and shared values win over the host's own YAML. Put
+  per-host values (`audio.channels`, `audio_output`, `storage`,
+  `mirror.staging_path`) in that host's `/opt/orpheus/config/.env` as
+  `ORPHEUS_<SECTION>__<KEY>` variables, which win over both.
 
 ### Optional features and their switches
 
@@ -104,7 +108,10 @@ environment instead; ONNX Runtime CPU and GPU packages must not coexist in one
 environment. Orpheus does not install accelerator packages globally or pin a
 CUDA stack for all hosts. Use `make -C agents/orpheus-agent-bird-detection
 install-cuda` to select the CUDA runtime; this removes either existing ORT
-distribution before installing the other. Agent health reports the requested
+distribution before installing the other. It installs `onnxruntime-gpu` from
+PyPI, so it works only where PyPI publishes a wheel for your platform: check
+first with `pip download onnxruntime-gpu --no-deps`. On a Jetson, a CUDA build
+of ONNX Runtime may need a vendor wheel instead. jetson1 runs the CPU default. Agent health reports the requested
 provider, `inference_provider_requested`, the registered providers,
 `inference_providers_registered`, and the first registered provider as
 `inference_provider`. `auto` means available according to ONNX Runtime, not

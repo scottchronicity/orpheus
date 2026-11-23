@@ -1153,9 +1153,8 @@ download-models:
 	@echo "Downloading PANNs Cnn14 SED checkpoint for orpheus-agent-audio-events..."
 	@$(MAKE) -C agents/orpheus-agent-audio-events download-models
 	@echo ""
-	@echo "ℹ  AVES/MT models for crow-detection are not automated yet —"
-	@echo "    see agents/orpheus-agent-crow-detection/README.md for the manual"
-	@echo "    download steps."
+	@echo "ℹ  Crow-detection's AVES models: make -C agents/orpheus-agent-crow-detection"
+	@echo "    download-models (needs ORPHEUS_DATA_ROOT)."
 
 # verify-deploy — fast, READ-ONLY post-upgrade health check. Run on the box
 # after 'make update-services' (or update-all) to answer "did the upgrade
