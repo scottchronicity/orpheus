@@ -28,7 +28,8 @@ The GPS service and event-correlator support Python 3.12 and 3.13. Each keeps
 its own `venv-py312` development environment, package metadata and systemd
 interpreter selection. Installers default to `python3.12` and accept
 `PYTHON_BIN` for a compatible interpreter at another path. *(Superseded on
-2026-11-16 by commit 3b25828: the installers now prefer
+2026-11-16 by commit 3b25828 (the same tree as 100e450, the commit deployed
+from the earlier branch history): the installers now prefer
 `/opt/orpheus/python/bin/python3.12`, provisioned by `make provision-python`,
 because `make install-service` runs them under `sudo`, which drops
 `PYTHON_BIN`. The current behaviour is in the

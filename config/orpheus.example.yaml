@@ -80,6 +80,8 @@ event_sourcing:
   max_age_seconds: 604800      # 7 days
   max_bytes: 500000000         # ~500 MB (well under the 2GB account store)
 
+# Required even with the NATS backend: mqtt.topics names the topics for every
+# backend, and the config refuses to load without this section.
 mqtt:
   broker_host: "localhost"  # Override: ORPHEUS_MQTT__BROKER_HOST
   broker_port: 1883

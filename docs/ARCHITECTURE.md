@@ -29,6 +29,10 @@ its dependencies and hardware interfaces are supported. This is a design
 requirement, not a claim that every backend or installer works everywhere.
 Explicit unsupported selections must fail clearly; automatic selection considers
 only implemented, supported combinations and respects explicit model/device choices.
+Agent code reads its data root from `$ORPHEUS_DATA_ROOT`; the shipped systemd
+units are the deliberate exception, requiring the station layout
+`/data/orpheus` (`RequiresMountsFor=`, `WantedBy=data-orpheus.mount`), so a
+systemd host with another data root is not a supported layout.
 
 Keep these responsibilities separate:
 

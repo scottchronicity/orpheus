@@ -278,7 +278,10 @@ A clip whose exchange fails again on a worker restarted after its first failure
 (the worker returns an error or an invalid result, runs out of memory, or always
 exceeds `request_timeout_seconds` for that clip) is the cause, not the worker: it
 is counted under `clips_rejected.worker_error` and the agent's errors, logged with
-its path, and the queue moves on. No synthetic detection is emitted. Configuring `clip_ttl_seconds`
+its path, and the queue moves on. No synthetic detection is emitted. The
+`clips_rejected` keys that can increase are `expired`, `too_long`, `shutdown` and
+`worker_error`; `overload`, `unavailable` and `memory` always read 0, because the
+agent blocks or waits for those conditions instead of rejecting. Configuring `clip_ttl_seconds`
 explicitly trades coverage for a bounded age. No age cutoff is applied by default.
 
 This is bounded callback backpressure, not durable delivery. NATS core
