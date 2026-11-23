@@ -10,6 +10,8 @@ DEPLOY_ROOT  := /opt/orpheus/agents/$(SERVICE_NAME)
 # is overridden here; choose another 3.12/3.13 interpreter with CORRELATOR_PYTHON.
 override PYTHON_SYSTEM := $(or $(CORRELATOR_PYTHON),python3.12)
 override PYTHON_REQUIRED_VERSION := 3.12
+# requires-python is <3.14; refuse 3.14+ here rather than inside pip.
+override PYTHON_MAX_VERSION := 3.14
 VENV ?= venv-py312
 
 include ../../make/common_python.mk

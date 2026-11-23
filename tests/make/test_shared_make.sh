@@ -170,6 +170,18 @@ if echo "$output" | grep -q "version .* OK (requires 3+)"; then
 else
     fail "common_python.mk accepts a matching component minimum"
 fi
+output="$(cd "$FIXTURE_PY" && make check-python-version PYTHON_SYSTEM=python3 PYTHON_REQUIRED_VERSION=3 PYTHON_MAX_VERSION=3.0 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -ne 0 ] && echo "$output" | grep -q "Python below 3.0 required"; then
+    pass "common_python.mk rejects an interpreter at or above PYTHON_MAX_VERSION"
+else
+    fail "common_python.mk rejects an interpreter at or above PYTHON_MAX_VERSION (rc=$rc)"
+fi
+output="$(cd "$FIXTURE_PY" && make check-python-version PYTHON_SYSTEM=python3 PYTHON_REQUIRED_VERSION=3 PYTHON_MAX_VERSION=99 2>&1)" || true
+if echo "$output" | grep -q "OK (requires 3+ below 99)"; then
+    pass "common_python.mk accepts an interpreter below PYTHON_MAX_VERSION"
+else
+    fail "common_python.mk accepts an interpreter below PYTHON_MAX_VERSION"
+fi
 output="$(cd "$FIXTURE_PY" && make check-python-version PYTHON_SYSTEM=python3 PYTHON_REQUIRED_VERSION=4.0 2>&1)" && rc=0 || rc=$?
 if [ "$rc" -ne 0 ] && echo "$output" | grep -q "Python 4.0+ required"; then
     pass "common_python.mk rejects an interpreter below the component minimum"

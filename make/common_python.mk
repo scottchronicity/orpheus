@@ -4,6 +4,7 @@
 #
 #   SERVICE_NAME             (required)
 #   PYTHON_REQUIRED_VERSION  (optional, default: 3.9.5)
+#   PYTHON_MAX_VERSION       (optional, exclusive, e.g. 3.14; unset means no limit)
 #   PYTHON_SYSTEM            (optional, default: python3.9)
 #   VENV                     (optional, default: venv)
 #   SRC_DIR                  (optional, default: src)
@@ -88,7 +89,12 @@ check-python-version:
 		echo "   Set PYTHON_SYSTEM to a compatible interpreter"; \
 		exit 1; \
 	fi; \
-	echo "✓ Python version $$PYTHON_VER OK (requires $(PYTHON_REQUIRED_VERSION)+)"
+	if [ -n "$(PYTHON_MAX_VERSION)" ] && ! "$$FOUND_PYTHON" -c 'import sys; limit=tuple(map(int, sys.argv[1].split("."))); raise SystemExit(sys.version_info[:len(limit)] >= limit)' "$(PYTHON_MAX_VERSION)"; then \
+		echo "❌ Python below $(PYTHON_MAX_VERSION) required, found $$PYTHON_VER"; \
+		echo "   Set PYTHON_SYSTEM to a compatible interpreter"; \
+		exit 1; \
+	fi; \
+	echo "✓ Python version $$PYTHON_VER OK (requires $(PYTHON_REQUIRED_VERSION)+$(if $(PYTHON_MAX_VERSION), below $(PYTHON_MAX_VERSION)))"
 
 # assure-python-version: Ensures a suitable interpreter exists.
 # If check-python-version would fail and uv is available, installs the
