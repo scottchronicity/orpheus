@@ -5,8 +5,8 @@
       "name": "orpheus-monorepo",
     },
     {
-      "path": "services/orpheus-bluetooth-autoconnect",
-      "name": "orpheus-bluetooth-autoconnect",
+      "path": "services/orpheus-audio-output",
+      "name": "orpheus-audio-output",
     },
     {
       "path": "services/orpheus-gps",
