@@ -80,7 +80,7 @@ setup_venv() {
     orpheus_common_path="${source_root}/../../platform/orpheus-common"
   fi
   "${INSTALL_ROOT}/venv/bin/python" -m pip install \
-    "${orpheus_common_path}" "${source_root}/../../platform/orpheus-inference" "${INSTALL_ROOT}[dev]"
+    "${orpheus_common_path}" "${source_root}/../../platform/orpheus-inference" "${INSTALL_ROOT}"
 }
 
 install_service() {

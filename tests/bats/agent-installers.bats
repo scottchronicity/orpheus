@@ -183,3 +183,8 @@ assert_payload_only() {
   grep -q "Creating virtual environment with $SB/opt/python/bin/python3.12" "$SB/out"
   [ -d "$INSTALL/venv/lib/python3.12" ]
 }
+
+@test "no service installer puts development extras ([dev]: pytest, ruff) into a production venv" {
+  run grep -n '\[dev\]' "$REPO_ROOT"/agents/*/systemd/install-service.sh "$REPO_ROOT"/services/*/systemd/install-service.sh
+  [ "$status" -eq 1 ]
+}
