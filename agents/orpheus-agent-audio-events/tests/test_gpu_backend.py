@@ -547,6 +547,12 @@ def test_clip_that_fails_on_a_fresh_worker_is_accounted_and_later_clips_proceed(
     assert gpu_agent.clips_rejected["worker_error"] == 1
 
 
+def test_health_reports_the_effective_worker_floor(gpu_agent):
+    payload = gpu_agent._build_health_payload()
+    assert payload["backend"] == "gpu_worker"
+    assert payload["floor_memory_mib"] == gpu_agent.config.gpu_worker.floor_memory_mib == 3800
+
+
 @pytest.mark.parametrize("source_count", [1, 8, 20])
 def test_configured_queue_can_admit_bursts_beyond_four_sources(
     worker_factory, tiny_labels, clip_source, source_count,

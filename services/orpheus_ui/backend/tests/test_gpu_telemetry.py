@@ -93,3 +93,13 @@ def test_utilization_is_the_mean_of_bursty_samples_not_one_reading(jetson):
 
 def test_sampler_reports_nothing_without_a_gpu(tmp_path):
     assert UtilizationSampler(root=str(tmp_path)).mean() is None
+
+
+def test_worker_floor_comes_from_the_agents_reported_backend_and_floor():
+    """The agent reports the backend it selected (auto included) and its effective
+    floor (defaults included); the dashboard must not re-derive them from raw YAML."""
+    from orpheus_ui.api.system import _gpu_worker_floor_mib
+
+    assert _gpu_worker_floor_mib({"backend": "gpu_worker", "floor_memory_mib": 3800}) == 3800
+    assert _gpu_worker_floor_mib({"backend": "inprocess", "floor_memory_mib": None}) is None
+    assert _gpu_worker_floor_mib({"backend": "gpu_worker", "floor_memory_mib": True}) is None

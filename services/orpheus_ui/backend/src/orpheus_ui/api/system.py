@@ -77,8 +77,19 @@ class HealthResponse(BaseModel):
     gpu: Optional[GpuInfo] = None
 
 
-def _gpu_worker_floor_mib() -> Optional[int]:
-    """The PANNs worker's memory floor from orpheus.yaml, when it runs on the GPU."""
+def _gpu_worker_floor_mib(audio_health: Optional[dict] = None) -> Optional[int]:
+    """The PANNs worker's memory floor, when the agent runs the GPU worker.
+
+    The agent's health reports the backend it actually selected (``auto``
+    included) and the effective floor (defaults included); orpheus.yaml is the
+    fallback for an agent that does not report them yet.
+    """
+    if isinstance(audio_health, dict) and "floor_memory_mib" in audio_health:
+        floor = audio_health["floor_memory_mib"]
+        if audio_health.get("backend") != "gpu_worker":
+            return None
+        return floor if isinstance(floor, int) and not isinstance(floor, bool) else None
+
     from orpheus_common import OrpheusConfig
 
     raw = getattr(OrpheusConfig.get_instance(), "_raw", None) or {}
@@ -141,11 +152,12 @@ def get_health(user: User = Depends(current_active_user)):
     try:
         from orpheus_ui.api.entities import get_audio_events_health
 
+        audio_health = get_audio_events_health(user=user)
         gpu = gpu_info(
             memory.total,
             memory.available,
-            get_audio_events_health(user=user),
-            _gpu_worker_floor_mib(),
+            audio_health,
+            _gpu_worker_floor_mib(audio_health if isinstance(audio_health, dict) else None),
             average_utilization(),
         )
     except Exception as e:  # noqa: BLE001 - telemetry must never fail the health check

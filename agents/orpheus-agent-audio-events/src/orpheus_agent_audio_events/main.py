@@ -184,6 +184,10 @@ class AudioEventsAgent(Actor):
             "model_loaded": worker["ready"] if worker is not None else self.model is not None,
             "backend": "gpu_worker" if self._worker_backend else "inprocess",
             "worker": worker,
+            # The effective floor (default included), for the dashboard's GPU panel.
+            "floor_memory_mib": (
+                self.config.gpu_worker.floor_memory_mib if self._worker_backend else None
+            ),
             "clips_rejected": dict(self.clips_rejected),
             "pending_clips": pending,
             "oldest_pending_age_seconds": round(queue_age, 3),
