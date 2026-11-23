@@ -420,7 +420,6 @@ coverage-inference:
 install-panns-gpu:
 	$(MAKE) -C workers/orpheus-worker-panns install
 
-test-all: test-inference
 lint: lint-inference
 
 test-video-motion:
@@ -1653,7 +1652,7 @@ test-all:
 	@echo "  Running All Tests (continues on error to show all failures)"
 	@echo "══════════════════════════════════════════════════════════════"
 	@failed=""; \
-	for dir in platform/orpheus-common services/orpheus_ui services/orpheus-gps services/orpheus-audio-output agents/orpheus-agent-*; do \
+	for dir in platform/orpheus-common platform/orpheus-inference services/orpheus_ui services/orpheus-gps services/orpheus-audio-output agents/orpheus-agent-*; do \
 		if [ -f "$$dir/Makefile" ]; then \
 			echo ""; \
 			echo "Testing $$dir..."; \
