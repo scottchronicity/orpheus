@@ -4,7 +4,7 @@
 -include .env
 export
 
-.PHONY: help install install-dev test test-isolation-contracts clean lint format check deploy-config update force-update-config install-service dry-run
+.PHONY: help install install-dev test test-isolation-contracts clean lint format check deploy-config  install-service dry-run
 
 # -- Component identity ------------------------------------------------------
 SERVICE_NAME := orpheus-common
@@ -30,7 +30,6 @@ help:
 	@echo "Deployment:"
 	@echo "  make install-service - Install orpheus-common platform library (preserves config)"
 	@echo "  make deploy-config   - Deploy config files (preserves existing config)"
-	@echo "  make update          - Reinstall library + FORCE update config + restart services"
 	@echo ""
 	@echo "Configuration:"
 	@echo "  Create .env file to override Python paths"
@@ -135,21 +134,6 @@ deploy-config:
 		exit 1; \
 	fi
 	@echo "✓ Configuration files deployed"
-
-update: install-service force-update-config
-	@echo "Restarting services to pick up new configuration..."
-	@sudo systemctl restart orpheus-ui 2>/dev/null || echo "⚠ orpheus-ui not running"
-	@sudo systemctl restart orpheus-agent-audio-motion 2>/dev/null || echo "⚠ orpheus-agent-audio-motion not running"
-	@echo "✓ Services restarted"
-
-force-update-config:
-	@echo "⚠️  FORCE updating configuration files to $(CONFIG_INSTALL_DIR)..."
-	@echo "⚠️  This will OVERWRITE your existing config!"
-	@sudo mkdir -p $(CONFIG_INSTALL_DIR)
-	@sudo cp config/orpheus.yaml $(CONFIG_INSTALL_DIR)/orpheus.yaml.backup-$$(date +%Y%m%d-%H%M%S)
-	@sudo cp config/orpheus.yaml $(CONFIG_INSTALL_DIR)/orpheus.yaml
-	@sudo cp ../../config/orpheus.example.yaml $(CONFIG_INSTALL_DIR)/
-	@echo "✓ Configuration FORCE updated (backup saved)"
 
 # Dry-run: Create a test venv with Python 3.9.5, install deps, and validate imports
 dry-run: check-python-version

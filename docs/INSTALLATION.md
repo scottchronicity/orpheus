@@ -73,6 +73,12 @@ Pulling the models is roughly 1.5 GB. Plan for that on a metered or slow connect
 
 ## Quick Start (Jetson)
 
+On a new or replacement station, do the host setup first: the data drive's
+fstab line, the apt packages and uv, `make provision-python`, the clock guard,
+data-drive recovery and log bounds. They are listed once, in
+[step 0 of the Jetson Quick Start](JETSON_QUICKSTART.md#0-prepare-the-station-host);
+the commands below install the components.
+
 ```bash
 # Clone the repository
 cd ~
@@ -320,11 +326,8 @@ git pull
 make install-service    # leaves an existing /opt/orpheus/config/orpheus.yaml alone
 ```
 
-Do not use `make update` here. It depends on `force-update-config`, which
-**overwrites the live config** — and which currently cannot run at all, because
-it copies `config/orpheus.yaml` relative to `platform/orpheus-common/`, a path
-that does not exist in the repo. To change the deployed config, edit
-`/opt/orpheus/config/orpheus.yaml` in place and restart the affected units.
+To change the deployed config, edit `/opt/orpheus/config/orpheus.yaml` in place
+and restart the affected units. Nothing in the install path overwrites it.
 
 ### Update Individual Services
 
