@@ -104,6 +104,26 @@ class TestBirdNETModel:
 
     @patch("orpheus_agent_bird_detection.birdnet.ort.get_available_providers")
     @patch("orpheus_agent_bird_detection.birdnet.ort.InferenceSession")
+    def test_auto_does_not_select_coreml_from_the_standard_macos_wheel(
+        self, session_class: Mock, available: Mock
+    ) -> None:
+        available.return_value = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+        session = Mock()
+        session.get_inputs.return_value = [Mock(name="input")]
+        session.get_outputs.return_value = [Mock(name="output")]
+        session.get_providers.return_value = ["CPUExecutionProvider"]
+        session_class.return_value = session
+
+        with patch("pathlib.Path.exists", return_value=True):
+            model = BirdNETModel("/fake/model.onnx")
+
+        assert model.execution_provider == "cpu"
+        session_class.assert_called_once_with(
+            "/fake/model.onnx", providers=["CPUExecutionProvider"]
+        )
+
+    @patch("orpheus_agent_bird_detection.birdnet.ort.get_available_providers")
+    @patch("orpheus_agent_bird_detection.birdnet.ort.InferenceSession")
     def test_auto_selects_available_cuda_with_cpu_fallback(
         self, session_class: Mock, available: Mock
     ) -> None:

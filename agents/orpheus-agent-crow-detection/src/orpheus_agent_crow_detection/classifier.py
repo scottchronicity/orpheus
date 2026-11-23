@@ -61,7 +61,7 @@ class CrowClassifier:
         self.model_path = Path(model_path)
         # Device resolution matches AVES: CUDA, then MPS, then CPU for auto.
         # Explicit unavailable accelerators fail rather than silently downgrading.
-        self.device = torch.device(select_torch_device(device, prefer_mps=True))
+        self.device = torch.device(select_torch_device(device))
 
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found at {self.model_path}")

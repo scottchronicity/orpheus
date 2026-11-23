@@ -108,7 +108,7 @@ class CrowDetectionAgent(Actor):
         """Load the AVES embedder + crow classifier + the detection DB."""
         logger.info("Starting Crow Detection Agent")
 
-        resolved_device = select_torch_device(self.config.device, prefer_mps=True)
+        resolved_device = select_torch_device(self.config.device)
         logger.info(
             "Resolved crow inference device",
             requested_device=self.config.device,

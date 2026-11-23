@@ -100,7 +100,8 @@ class TestCrowDetectionAgent:
 
         await agent.on_setup()
 
-        resolve_device.assert_called_once_with("auto", prefer_mps=True)
+        # MPS is explicit-only: auto must not move the models off CPU on macOS.
+        resolve_device.assert_called_once_with("auto")
         embedder_class.assert_called_once_with(
             "aves.pt", sample_rate=16000, device="mps"
         )

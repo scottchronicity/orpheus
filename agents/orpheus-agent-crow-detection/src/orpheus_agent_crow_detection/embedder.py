@@ -36,7 +36,7 @@ class AVESEmbedder:
         """
         self.model_path = Path(model_path)
         self.sample_rate = sample_rate
-        self.device = torch.device(select_torch_device(device, prefer_mps=True))
+        self.device = torch.device(select_torch_device(device))
 
         if not self.model_path.exists():
             msg = f"AVES model not found at {self.model_path}"

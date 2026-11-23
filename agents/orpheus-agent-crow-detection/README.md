@@ -52,7 +52,7 @@ Edit `/path/to/orpheus.yaml`:
 ```yaml
 crow_detection:
   enabled: true
-  # auto: CUDA, then Apple MPS when available, then CPU; or cpu/cuda/mps
+  # auto: CUDA when available, else CPU; or cpu/cuda/mps (MPS only when named)
   device: auto
   quality_threshold: 0.5
   embedder_model_path: "/data/orpheus/models/aves-base-bio.pt"

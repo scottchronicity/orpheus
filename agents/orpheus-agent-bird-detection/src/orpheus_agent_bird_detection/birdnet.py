@@ -98,10 +98,13 @@ class BirdNETModel:
 
         available = set(ort.get_available_providers())
         if execution_provider == "auto":
+            # CUDA is present only when onnxruntime-gpu was installed on purpose
+            # (install-cuda). CoreML ships in the standard macOS wheel and is not
+            # validated for BirdNET's scores, so it is explicit-only (ADR 0021).
             selected = next(
                 (
                     provider
-                    for provider in ("cuda", "coreml", "cpu")
+                    for provider in ("cuda", "cpu")
                     if self._PROVIDERS[provider] in available
                 ),
                 None,

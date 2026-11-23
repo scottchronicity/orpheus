@@ -17,7 +17,10 @@ global Orpheus dependency would couple unrelated agents and deployments.
 
 BirdNET configuration owns an `execution_provider` choice: `auto` (default),
 `cpu`, `cuda`, or `coreml`. `auto` selects only among providers reported by the
-installed ONNX Runtime, preferring CUDA, CoreML, then CPU. An explicit provider
+installed ONNX Runtime, preferring CUDA, CoreML, then CPU. *(Amended
+2026-11-22: `auto` now considers CUDA and CPU only. CoreML ships in the standard
+macOS wheel, so `auto` moved BirdNET off CPU without an opt-in while this record
+says CoreML is not validated; it is used only when named.)* An explicit provider
 that is not available fails model startup clearly. Accelerated sessions retain
 CPU fallback for model operations the selected execution provider cannot run.
 

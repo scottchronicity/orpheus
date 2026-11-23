@@ -77,7 +77,8 @@ server, reconnect policy), see [Audio output](audio-output.md).
   env wins over file config.
 - **Torch device placement:** the model agents take a `device` knob
   (`crow_detection.device`, `audio_events.device`). Crow supports `auto`, `cpu`,
-  `cuda`, and `mps`; `auto` prefers CUDA, then MPS where supported, then CPU.
+  `cuda`, and `mps`; `auto` selects CUDA when available, else CPU (MPS only when
+  named, since its scores are not validated against CPU).
   Audio-events supports its configured `auto`, `cpu`, or `cuda` choices. Explicit
   accelerators fail clearly when unavailable. Pin `cpu` to keep a model off an
   accelerator under deployment-specific resource pressure.
@@ -96,9 +97,9 @@ server, reconnect policy), see [Audio output](audio-output.md).
 #### BirdNET execution provider
 
 `bird_detection.execution_provider` selects BirdNET's ONNX Runtime provider:
-`auto` (default), `cpu`, `cuda`, or `coreml`. `auto` chooses the first provider
-available to the BirdNET agent's installed ONNX Runtime, in CUDA, CoreML, CPU
-order. ONNX Runtime may assign unsupported model operators to CPU when an
+`auto` (default), `cpu`, `cuda`, or `coreml`. `auto` chooses CUDA when the
+BirdNET agent's ONNX Runtime provides it (only after `install-cuda`), else CPU.
+CoreML, which the standard macOS wheel always lists, is used only when named. ONNX Runtime may assign unsupported model operators to CPU when an
 accelerator provider is enabled. Explicit accelerator choices fail startup if
 that provider is not exposed by the installed runtime.
 
@@ -132,7 +133,7 @@ restart of the affected component; turning it off is the same edit in reverse.
 | Entity-type topics | `correlation.publish_entity_type_topics` | `false` | Something downstream wants to subscribe per entity type rather than filter. |
 | Latent state-space memory (consumer *stubbed*) | `correlation.state_space_memory_enabled` | `false` | You want to start accumulating the site's history now. The correlator records into it; nothing consumes it, so correlation behaves identically either way. The consumer is tracked as *Act on the latent memory — an active-inference consumer*. |
 | Geographic filtering | `bird_detection.geo_filter_min_prob`, `geo_filter_weak_admit_prob`, `geo_filter_weak_admit_conf` | `0.03` / `0.0005` / `0.85` | Active by default. Raise `min_prob` to suppress more out-of-range species; the weak-admit pair is the escape hatch that lets a confident rare visitor through. `bird_detection.site_species_whitelist` always admits named species. All four live under `bird_detection:`, not `detection:` — the bird agent reads only that section, so a copy placed under `detection:` parses without error, logs nothing, and changes nothing. |
-| BirdNET execution provider | `bird_detection.execution_provider` | `auto` | Selects `auto`, `cpu`, `cuda`, or `coreml`. `auto` checks providers exposed by ONNX Runtime in the BirdNET agent environment, preferring CUDA, then CoreML, then CPU. Explicit unavailable providers fail startup. CUDA requires compatible `onnxruntime-gpu` instead of `onnxruntime`; do not install both in one environment. Base installs remain CPU-only. |
+| BirdNET execution provider | `bird_detection.execution_provider` | `auto` | Selects `auto`, `cpu`, `cuda`, or `coreml`. `auto` uses CUDA when ONNX Runtime in the BirdNET agent environment provides it, else CPU; `coreml` must be named. Explicit unavailable providers fail startup. CUDA requires compatible `onnxruntime-gpu` instead of `onnxruntime`; do not install both in one environment. Base installs remain CPU-only. |
 | Corollary discharge | `corollary_discharge.enabled`, `corollary_discharge.buffer_seconds` | `false` / `2.0` | Orpheus plays audio at your site and you don't want it recorded as wildlife. Entities are tagged, never dropped. |
 | Weather (*stubbed*) | `weather.enabled`, `weather.url` | `false` | You have an Ecowitt-compatible station on the LAN — but the Ecowitt field mapping is unimplemented, so the ingestor raises and exits on its first poll and the card stays empty. Enabling this is only useful if you are the one grounding that mapping. Tracked as *Finish the weather integration*. |
 | Read-only mirror (service *stubbed*) | `mirror.enabled`, `mirror.transport`, `mirror.dest` | `false` | Dashboard reads are contending with live writes, or you want a copy on another host. Pair with `ui.read_from_replica` on the reader — and set `mirror.staging_path` there too, to the path the push lands at: it is a per-host setting, and the UI resolves the replica from its own host's value, so a reader that leaves it empty falls back to the live DB. The CLI works; run `orpheus-mirror` yourself from cron or your own unit — the flag reserves the setting for a future service, it does not start one. Tracked as *Read-only mirror host: serving stack + public portal*. |

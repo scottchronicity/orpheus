@@ -554,14 +554,14 @@ detection:
 
 crow_detection:
   enabled: true
-  # Torch backend: auto selects CUDA, then MPS where supported, then CPU.
+  # Torch backend: auto selects CUDA when available, else CPU; mps only when named.
   # Explicit cuda/mps selections fail at startup when unavailable.
   device: auto
   quality_threshold: 0.5
 
 bird_detection:
   model_path: "/data/orpheus/models/birdnet.onnx"
-  # ONNX Runtime provider: auto selects an installed CUDA, CoreML, or CPU EP.
+  # ONNX Runtime provider: auto selects an installed CUDA EP, else CPU; coreml only when named.
   # CUDA/CoreML require a compatible ONNX Runtime build in this agent's runtime.
   execution_provider: auto
   confidence_threshold: 0.1
