@@ -313,8 +313,9 @@ def _unit_status(systemctl_path: str, name: str) -> tuple:
     stale = None
     if load_state == "not-found":
         stale = (
-            f"{unit} is not installed. Remove '{name}' from dashboard.services in "
-            "orpheus.yaml if the service was retired or renamed."
+            f"{unit} is not installed on this host. If it was retired or renamed, "
+            f"remove '{name}' from dashboard.services in orpheus.yaml; if this host "
+            "has no dashboard.services, set it to the units this host runs."
         )
     else:
         canonical = props.get("Id", unit)

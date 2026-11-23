@@ -228,8 +228,8 @@ dashboard:
     - "orpheus-agent-video-timelapser"
     - "orpheus-agent-event-correlator"
     # Optional: the kiosk on the station's own monitor (deploy/kiosk/jetson).
-    # Remove it on a station without one, or the dashboard reports it as not installed.
-    - "orpheus-kiosk"
+    # Add it once installed; the dashboard reports a listed unit that is not.
+    # - "orpheus-kiosk"
 
 cameras:
   auth:

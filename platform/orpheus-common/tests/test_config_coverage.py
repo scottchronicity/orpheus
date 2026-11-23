@@ -167,6 +167,25 @@ class TestDashboardConfigServices:
         assert "orpheus-mqtt" not in DEFAULT_DASHBOARD_SERVICES
         assert "orpheus-bluetooth-autoconnect" not in DEFAULT_DASHBOARD_SERVICES
 
+    def test_default_services_are_all_installed_by_services_install(self):
+        """An optional unit (the kiosk) in the fallback shows as not installed on
+        every host without it; the default lists what make services-install installs."""
+        import re
+
+        from orpheus_common.config import DEFAULT_DASHBOARD_SERVICES
+
+        root = Path(__file__).resolve().parents[3]
+        makefile = (root / "Makefile").read_text()
+        block = makefile.split("\nservices-install:", 1)[1].split("\n\n", 1)[0]
+        dirs = re.findall(r"\$\(MAKE\) -C (\S+) install-service", block)
+        installed = {
+            unit.stem for d in dirs for unit in (root / d / "systemd").glob("*.service")
+        }
+        assert dirs, "could not read services-install from the root Makefile"
+        assert set(DEFAULT_DASHBOARD_SERVICES) <= installed, (
+            set(DEFAULT_DASHBOARD_SERVICES) - installed
+        )
+
     def test_dashboard_services_invalid_type(self):
         """DashboardConfig should raise ConfigError for invalid services type."""
         data = {"services": 123}

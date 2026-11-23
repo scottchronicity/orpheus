@@ -1173,7 +1173,8 @@ DEFAULT_DASHBOARD_SERVICES = [
     "orpheus-agent-video-snapshotter",
     "orpheus-agent-video-timelapser",
     "orpheus-agent-event-correlator",      # Layer 2/3 correlator + auto-discovery
-    "orpheus-kiosk",                       # optional local kiosk display
+    # orpheus-kiosk is optional (not part of services-install): list it in
+    # dashboard.services on a host that runs it.
 ]
 
 
