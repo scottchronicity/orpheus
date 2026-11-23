@@ -557,6 +557,15 @@ def test_integer_worker_settings_of_one_can_come_from_the_environment(monkeypatc
     assert config.max_concurrent_clips == 1
 
 
+def test_health_carries_the_bus_dispatch_drops_a_blocked_callback_causes(gpu_agent):
+    """ADR 0020 section 5: the drop-oldest loss on the bus dispatch queue (a full
+    GPU queue blocks the callback) must be observable in the agent's health."""
+    gpu_agent.bus.dispatch_stats = MagicMock(return_value={"queue_depth": 10000, "dropped": 7})
+    assert gpu_agent._build_health_payload()["bus_dispatch"] == {
+        "queue_depth": 10000, "dropped": 7,
+    }
+
+
 def test_health_reports_the_effective_worker_floor(gpu_agent):
     payload = gpu_agent._build_health_payload()
     assert payload["backend"] == "gpu_worker"

@@ -246,8 +246,8 @@ latency. The blocked callback holds the agent's event-bus dispatch thread, so
 new events for the agent wait in the bus's dispatch queue (10,000 messages).
 If a stall lasts long enough to fill it, for example a long worker outage, the
 bus drops the oldest waiting messages. It logs `dispatch queue full; dropping
-oldest message` and counts the drops in the agent's health under
-`bus_dispatch.dropped`, shown on Diagnostics. These drops do not appear in
+oldest message` and counts the drops in the agent's health payload under
+`bus_dispatch.dropped` (with `queue_depth`). These drops do not appear in
 `clips_rejected`. See
 [ADR 0019](../adr/0019-agent-owned-inference-workers.md).
 

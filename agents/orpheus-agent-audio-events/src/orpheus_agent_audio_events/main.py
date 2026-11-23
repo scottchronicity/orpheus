@@ -179,7 +179,7 @@ class AudioEventsAgent(Actor):
             pending = len(self._queued_at)
             oldest = min(self._queued_at.values(), default=None)
         queue_age = time.monotonic() - oldest if oldest is not None else 0.0
-        return {
+        payload = {
             "status": "online",
             "model_loaded": worker["ready"] if worker is not None else self.model is not None,
             "backend": "gpu_worker" if self._worker_backend else "inprocess",
@@ -217,6 +217,17 @@ class AudioEventsAgent(Actor):
                 ),
             },
         }
+        # A blocked callback (full GPU queue) backs events up in the bus's bounded
+        # dispatch queue, which drops the oldest; this is where that shows.
+        stats_fn = getattr(self.bus, "dispatch_stats", None)
+        if callable(stats_fn):
+            try:
+                stats = stats_fn()
+            except Exception:  # noqa: BLE001 - health must never fail on a stats read
+                stats = None
+            if isinstance(stats, dict):
+                payload["bus_dispatch"] = stats
+        return payload
 
     # ------------------------------------------------------------------
     # Actor hooks
