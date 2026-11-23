@@ -70,7 +70,10 @@ class CorollaryDischargeFilter:
         max_open_seconds: float = _DEFAULT_RETENTION_SECONDS,
     ) -> None:
         self.buffer_seconds = buffer_seconds
-        self._retention_seconds = retention_seconds
+        # A started-but-unfinished window must outlive its own maximum length,
+        # or a playback longer than the retention stops being recognised as
+        # Orpheus's own sound partway through.
+        self._retention_seconds = max(retention_seconds, max_open_seconds + buffer_seconds)
         self._max_open_seconds = max_open_seconds
         self._windows: deque[PlaybackWindow] = deque(maxlen=max_windows)
 

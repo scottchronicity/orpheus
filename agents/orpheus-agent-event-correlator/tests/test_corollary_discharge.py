@@ -97,6 +97,17 @@ class TestCorollaryDischargeFilter:
         after_finish = _entity(T0 + timedelta(seconds=10), T0 + timedelta(seconds=11))
         assert f.is_self_generated(after_finish, now=T0 + timedelta(seconds=11)) is False
 
+    def test_playback_longer_than_the_default_retention_stays_tagged(self) -> None:
+        f = CorollaryDischargeFilter(buffer_seconds=0.0, max_open_seconds=600.0)
+        f.register_from_event(
+            {"phase": "started", "playback_id": "long", "start_time": T0.isoformat()},
+            now=T0,
+        )
+        at_400s = _entity(T0 + timedelta(seconds=400), T0 + timedelta(seconds=401))
+        assert f.is_self_generated(at_400s, now=T0 + timedelta(seconds=401)) is True
+        after_bound = _entity(T0 + timedelta(seconds=601), T0 + timedelta(seconds=602))
+        assert f.is_self_generated(after_bound, now=T0 + timedelta(seconds=602)) is False
+
     def test_unclosed_start_is_bounded_by_configured_maximum(self) -> None:
         f = CorollaryDischargeFilter(buffer_seconds=0.0, max_open_seconds=10.0)
         f.register_from_event(
