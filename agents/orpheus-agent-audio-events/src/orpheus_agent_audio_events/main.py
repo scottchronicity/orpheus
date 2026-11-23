@@ -223,7 +223,7 @@ class AudioEventsAgent(Actor):
         if callable(stats_fn):
             try:
                 stats = stats_fn()
-            except Exception:  # noqa: BLE001 - health must never fail on a stats read
+            except Exception:  # health must never fail on a stats read
                 stats = None
             if isinstance(stats, dict):
                 payload["bus_dispatch"] = stats
