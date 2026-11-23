@@ -9,6 +9,8 @@ without touching panns_inference / PyTorch / a real MQTT broker.
 from __future__ import annotations
 
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -574,6 +576,27 @@ class TestShutdownDrain:
         agent._executor = MagicMock()
         asyncio.run(agent.on_stopping())
         agent._executor.shutdown.assert_called_once_with(wait=True, cancel_futures=False)
+
+    def test_in_process_drain_is_bounded_and_counts_cancelled_clips(
+        self, agent_with_fake_model: AudioEventsAgent
+    ) -> None:
+        """A CPU backlog cannot hold a stop past its drain budget: queued clips are
+        cancelled and counted under shutdown; the running clip still finishes."""
+        agent = agent_with_fake_model
+        agent.config.shutdown_drain_timeout_seconds = 0.2
+        agent._executor = ThreadPoolExecutor(max_workers=1)
+        release = threading.Event()
+        finished = []
+        running = agent._executor.submit(lambda: (release.wait(5), finished.append(1)))
+        queued = agent._executor.submit(lambda: finished.append(2))
+        for future in (running, queued):
+            agent._inflight.add(future)
+            future.add_done_callback(agent._on_processing_done)
+        threading.Timer(0.5, release.set).start()
+        asyncio.run(agent.on_stopping())
+        assert queued.cancelled()
+        assert finished == [1]
+        assert agent.clips_rejected["shutdown"] == 1
 
     def test_callback_after_shutdown_is_counted_without_executor_error(
         self, agent_with_fake_model: AudioEventsAgent, tmp_path: Path

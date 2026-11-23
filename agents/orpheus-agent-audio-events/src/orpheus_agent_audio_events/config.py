@@ -94,6 +94,11 @@ class AudioEventsConfig:
     # inference can't thrash the Jetson's unified RAM/GPU. Default small.
     max_concurrent_clips: int
     backend: str = "inprocess"
+    # In-process backend: how long a stop waits for queued and running clips
+    # before cancelling the queued ones (counted as clips_rejected.shutdown).
+    # Below systemd's default 90 s stop timeout. The GPU worker has its own,
+    # gpu_worker.shutdown_drain_timeout_seconds.
+    shutdown_drain_timeout_seconds: float = 60.0
     gpu_worker: GPUWorkerConfig = field(default_factory=GPUWorkerConfig)
 
     def __post_init__(self) -> None:
@@ -107,6 +112,16 @@ class AudioEventsConfig:
             raise ValueError("audio_events.backend=gpu_worker requires device auto or cuda")
         if type(self.max_concurrent_clips) is not int or self.max_concurrent_clips < 1:
             raise ValueError("audio_events.max_concurrent_clips must be a positive integer")
+        drain = self.shutdown_drain_timeout_seconds
+        if (
+            isinstance(drain, bool)
+            or not isinstance(drain, (int, float))
+            or not math.isfinite(drain)
+            or drain <= 0
+        ):
+            raise ValueError(
+                "audio_events.shutdown_drain_timeout_seconds must be a positive number"
+            )
 
     @classmethod
     def from_orpheus_config(cls, config: OrpheusConfig) -> AudioEventsConfig:
@@ -139,6 +154,9 @@ class AudioEventsConfig:
             output_topic=str(agent_config.get("output_topic", default_output_topic)),
             max_concurrent_clips=agent_config.get("max_concurrent_clips", 2),
             backend=str(agent_config.get("backend", "inprocess")),
+            shutdown_drain_timeout_seconds=agent_config.get(
+                "shutdown_drain_timeout_seconds", 60.0
+            ),
             gpu_worker=GPUWorkerConfig(**worker_raw),
         )
 

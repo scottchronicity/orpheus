@@ -511,6 +511,42 @@ def test_ipc_failure_retries_accepted_old_clip_after_worker_recovery(
     assert gpu_agent.detection_db.save.call_args.args[0].source_event_id == source.event_id
 
 
+@pytest.mark.parametrize("mode", ["nan", "badshape"])
+def test_clip_that_fails_on_a_fresh_worker_is_accounted_and_later_clips_proceed(
+    gpu_agent, clip_source, mode
+):
+    """A result the worker can never produce for this clip must not stall the
+    queue: after it fails on a worker restarted for it, the clip is counted under
+    worker_error and an error, nothing is published for it, and the next clip is
+    classified."""
+    path, source = clip_source
+    model = gpu_agent.model
+    model.client.close()
+    model.client.command[model.client.command.index("--mode") + 1] = mode
+    model.client = WorkerClient(
+        model.client.command, model.client.env,
+        replace(model.client.options, max_starts=5, restart_backoff=0.1),
+    )
+    model.client.start()
+    wait_ready(model)
+    gpu_agent._submit_processing(path, source)
+    gpu_agent.wait_inflight(timeout=20)
+    assert gpu_agent.clips_rejected["worker_error"] == 1
+    assert gpu_agent.errors_count == 1
+    assert model.health()["failures"] == 2
+    assert gpu_agent.bus.publish.call_count == 0
+    assert gpu_agent.detection_db.save.call_count == 0
+
+    model.client.command[-1] = "normal"
+    wait_ready(model)
+    later = source.model_copy(update={"event_id": source.event_id + "-later"})
+    gpu_agent._submit_processing(path, later)
+    gpu_agent.wait_inflight(timeout=20)
+    assert gpu_agent.detection_db.save.call_count == 1
+    assert gpu_agent.detection_db.save.call_args.args[0].source_event_id == later.event_id
+    assert gpu_agent.clips_rejected["worker_error"] == 1
+
+
 @pytest.mark.parametrize("source_count", [1, 8, 20])
 def test_configured_queue_can_admit_bursts_beyond_four_sources(
     worker_factory, tiny_labels, clip_source, source_count,

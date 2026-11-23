@@ -231,7 +231,10 @@ Increasing duration also increases warm-up and peak memory. Revalidate those
 measurements and the request/startup timeouts for longer recordings.
 
 `max_concurrent_clips` is a positive integer controlling the in-process executor
-(default 2); it does not change the isolated worker's serial execution. The GPU
+(default 2); it does not change the isolated worker's serial execution. On stop,
+the in-process backend waits up to `audio_events.shutdown_drain_timeout_seconds`
+(default 60) for queued and running clips, then cancels the queued ones and counts
+them under `clips_rejected.shutdown`; a clip already running finishes. The GPU
 agent keeps at most one active clip plus `max_pending_clips` waiting references
 in FIFO order. When full, the event callback blocks until an execution slot
 opens; the agent does not reject clips due to queue capacity. Sustained demand
@@ -268,8 +271,11 @@ An IPC or child failure before inference returns retries that same accepted
 clip after worker recovery; no detection is published until inference completes.
 
 `clips_rejected` reports deliberate TTL expiry and overlength recordings.
-Non-recoverable worker or model failures update error counters and worker
-health; no synthetic detection is emitted. Configuring `clip_ttl_seconds`
+A clip whose exchange fails again on a worker restarted after its first failure
+(the worker returns an error or an invalid result, runs out of memory, or always
+exceeds `request_timeout_seconds` for that clip) is the cause, not the worker: it
+is counted under `clips_rejected.worker_error` and the agent's errors, logged with
+its path, and the queue moves on. No synthetic detection is emitted. Configuring `clip_ttl_seconds`
 explicitly trades coverage for a bounded age. No age cutoff is applied by default.
 
 This is bounded callback backpressure, not durable delivery. NATS core

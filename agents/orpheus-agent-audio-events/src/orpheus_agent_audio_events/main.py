@@ -32,6 +32,12 @@ from .worker_model import WorkerSEDModel, auto_worker_available
 
 logger = get_logger(__name__)
 
+# A clip whose worker exchange fails on two separately started workers is the
+# cause of the failure (WorkerClient restarts the worker after every failed
+# exchange). It is then accounted under clips_rejected["worker_error"] instead of
+# being retried, which would reload the model indefinitely.
+_WORKER_ATTEMPTS_PER_CLIP = 2
+
 
 class AudioEventsAgent(Actor):
     """Audio-events detection agent.
@@ -123,6 +129,7 @@ class AudioEventsAgent(Actor):
             "memory": 0,
             "too_long": 0,
             "shutdown": 0,
+            "worker_error": 0,
         }
         self._admission = (
             threading.BoundedSemaphore(1 + self.config.gpu_worker.max_pending_clips)
@@ -328,6 +335,24 @@ class AudioEventsAgent(Actor):
                     None, lambda: self._executor.shutdown(wait=True, cancel_futures=True)
                 )
                 return
+        if not self._worker_backend and pending:
+            loop = asyncio.get_running_loop()
+            _, unfinished = await loop.run_in_executor(
+                None,
+                lambda: wait(pending, timeout=self.config.shutdown_drain_timeout_seconds),
+            )
+            if unfinished:
+                # Bounded like the GPU path: queued clips are cancelled and counted
+                # (clips_rejected.shutdown); a clip already running finishes.
+                logger.error(
+                    "Audio-events drain timed out; queued clips remain unclassified",
+                    pending_clips=len(unfinished),
+                    drain_timeout_seconds=self.config.shutdown_drain_timeout_seconds,
+                )
+                await loop.run_in_executor(
+                    None, lambda: self._executor.shutdown(wait=True, cancel_futures=True)
+                )
+                return
         # The worker remains available throughout a successful drain so accepted
         # clips publish before Actor disconnects the bus.
         await asyncio.get_running_loop().run_in_executor(
@@ -499,29 +524,8 @@ class AudioEventsAgent(Actor):
                 info = sf.info(path)
                 if info.duration > self.config.gpu_worker.max_clip_seconds:
                     reason = "too_long"
-            while reason is None:
-                if self._force_shutdown.is_set():
-                    reason = "shutdown"
-                    break
-                failures_before = self.model.health()["failures"]
-                try:
-                    self._process_audio_file(path, source, deadline=deadline)
-                except Exception as exc:
-                    # WorkerClient marks itself unready before raising an IPC or
-                    # child failure. No Detection has been emitted yet (inference
-                    # precedes post-processing/publication), so retrying this clip
-                    # after supervised recovery cannot duplicate domain output.
-                    health = self.model.health()
-                    if health["ready"] and health["failures"] == failures_before:
-                        raise
-                    logger.warning(
-                        "PANNs exchange failed; retaining clip until worker recovery",
-                        event_id=source.event_id,
-                        error=str(exc),
-                    )
-                    reason = self._wait_for_worker(deadline)
-                else:
-                    break
+            if reason is None:
+                reason = self._classify_with_recovery(path, source, deadline)
             if reason is not None:
                 self._reject_clip(reason)
         except Exception as exc:
@@ -533,6 +537,55 @@ class AudioEventsAgent(Actor):
                 return
             self._record_error(exc)
             logger.exception("GPU clip failed", error=str(exc), clip=str(path))
+
+    def _classify_with_recovery(
+        self, path: Path, source: Detection, deadline: float | None
+    ) -> str | None:
+        """Classify one accepted clip, waiting through worker recovery.
+
+        Returns None once classified, or the clips_rejected reason it ends with.
+        """
+        exchange_failures = 0
+        while True:
+            if self._force_shutdown.is_set():
+                return "shutdown"
+            failures_before = self.model.health()["failures"]
+            try:
+                self._process_audio_file(path, source, deadline=deadline)
+            except Exception as exc:
+                # WorkerClient marks itself unready before raising an IPC or
+                # child failure. No Detection has been emitted yet (inference
+                # precedes post-processing/publication), so retrying this clip
+                # after supervised recovery cannot duplicate domain output.
+                health = self.model.health()
+                if health["ready"] and health["failures"] == failures_before:
+                    raise
+                if health["failures"] != failures_before:
+                    exchange_failures += 1
+                if exchange_failures >= _WORKER_ATTEMPTS_PER_CLIP:
+                    # The exchange failed on a worker that had just been
+                    # restarted after this clip's previous failure, so the clip,
+                    # not the worker, is the cause. Retrying it again would only
+                    # reload the model forever.
+                    self._record_error(exc)
+                    logger.exception(
+                        "PANNs could not classify this clip on a freshly started "
+                        "worker; giving up on it",
+                        event_id=source.event_id,
+                        clip=str(path),
+                        attempts=exchange_failures,
+                    )
+                    return "worker_error"
+                logger.warning(
+                    "PANNs exchange failed; retaining clip until worker recovery",
+                    event_id=source.event_id,
+                    error=str(exc),
+                )
+                reason = self._wait_for_worker(deadline)
+                if reason is not None:
+                    return reason
+            else:
+                return None
 
     def _process_safely(self, audio_path: Path, source: Detection) -> None:
         """Worker-thread wrapper: run the pipeline, capturing errors as stats so a
